@@ -28,6 +28,7 @@ import json
 import argparse
 
 # Предполагается, что эти модули находятся в директории 'helpers' относительно этого файла.
+from helpers.postprocess import normalize_lots_json_structure, replace_div0_with_null
 from helpers.read_headers import read_headers
 from helpers.read_contractors import read_contractors
 from helpers.read_lots_and_boundaries import read_lots_and_boundaries
@@ -63,6 +64,9 @@ def parse_file(xlsx_path, output_json_path):
     "executor": read_executer_block(ws),  # Читаем информацию об исполнителе
     "lots": read_lots_and_boundaries(ws),   # Читаем информацию о лотах и предложениях
     }
+  
+  result = normalize_lots_json_structure(result)  # Нормализуем структуру лотов
+  result = replace_div0_with_null(result)  # Заменяем 'DIV/0' и подобные значения на None
     
   with open(output_json_path, "w", encoding="utf-8") as f:
     json.dump(result, f, ensure_ascii=False, indent=2) # Сохраняем в JSON с отступами и поддержкой UTF-8
