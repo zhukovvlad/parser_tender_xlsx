@@ -93,7 +93,7 @@ def get_positions(ws, contractor):
             item["номер раздела"] = ws.cell(row=start_row, column=2).value
             item["статья смр"] = ws.cell(row=start_row, column=3).value
             item["наименование работ"] = ws.cell(row=start_row, column=4).value
-            item["комментарий"] = ws.cell(row=start_row, column=6).value # Колонка 5 пропускается?
+            item["комментарий организатора"] = ws.cell(row=start_row, column=6).value # Колонка 5 пропускается?
             item["единица измерения"] = ws.cell(row=start_row, column=7).value
             item["количество"] = ws.cell(row=start_row, column=8).value
 

@@ -103,9 +103,7 @@ def normalize_lots_json_structure(data):
 
                 # Удалить из итоговых строк (items["summary"])
                 summary_data = contractor_items.get("summary", {})
-                for summary_item in summary_data.values():
-                    if isinstance(summary_item, dict):
-                        summary_item.pop("отклонение от расчетной стоимости", None)
+                summary_data.pop("Отклонение от расчетной стоимости", None)
                         
         lot["proposals"] = new_proposals
 
