@@ -127,12 +127,15 @@ def json_to_markdown(data: dict, json_path: str):
                 pos_name = pos_item.get("наименование работ", "Без названия")
                 pos_unit = pos_item.get("единица измерения")
                 pos_quantity = pos_item.get("количество")
+                pos_comment_initiator = pos_item.get("комментарий организатора")
 
                 md_lines.append(f"{pos_id}. **{pos_name}** ") # Двойной пробел для <br>
                 if pos_unit:
                     md_lines.append(f"  - Ед. изм.: {pos_unit}")
                 if pos_quantity is not None: # Проверка на None для количества
                     md_lines.append(f"  - Кол-во: {pos_quantity}")
+                if pos_comment_initiator:
+                    md_lines.append(f"  - Комментарий организатора: {pos_comment_initiator}")
 
                 # Стоимость за единицу
                 md_lines.append("  - Стоимость за единицу:")
