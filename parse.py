@@ -35,13 +35,15 @@ import json
 import argparse
 import os # os был в json_to_markdown, но если он используется здесь, то нужен импорт
 
-# Предполагается, что эти модули находятся в директории 'helpers' относительно этого файла.
-from helpers.json_to_markdown import json_to_markdown
+# Предполагается, что эти модули находятся в директории 'helpers' и 'markdown_utils' относительно этого файла.
 from helpers.postprocess import normalize_lots_json_structure, replace_div0_with_null
 from helpers.read_headers import read_headers
 from helpers.read_contractors import read_contractors
 from helpers.read_lots_and_boundaries import read_lots_and_boundaries
 from helpers.read_executer_block import read_executer_block
+
+from markdown_utils.json_to_markdown import json_to_markdown
+
 
 def parse_file(xlsx_path, output_json_path):
   """
