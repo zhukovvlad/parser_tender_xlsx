@@ -1,88 +1,117 @@
-def read_headers(ws):
+"""
+Модуль для извлечения заголовочной информации из листа Excel.
+
+Этот модуль предоставляет функцию для считывания ключевых данных из
+верхней части тендерного документа, таких как идентификатор и название тендера,
+а также объект и адрес, к которым он относится. Поиск осуществляется
+в предопределенном диапазоне строк по текстовым меткам.
+"""
+
+from typing import Dict, Optional, List
+from openpyxl.worksheet.worksheet import Worksheet
+
+# Импорт констант, используемых для ключей JSON и поиска текстовых маркеров
+from constants import (
+    JSON_KEY_TENDER_ADDRESS,
+    JSON_KEY_TENDER_ID,
+    JSON_KEY_TENDER_OBJECT,
+    JSON_KEY_TENDER_TITLE,
+    TABLE_PARSE_ADDRESS,
+    TABLE_PARSE_OBJECT,
+    TABLE_PARSE_TENDER_SUBJECT
+)
+
+def read_headers(ws: Worksheet) -> Dict[str, Optional[str]]:
     """
     Извлекает заголовочную информацию (ID тендера, название тендера,
-    объект и адрес) из предопределенных строк листа Excel.
+    объект и адрес) из предопределенных строк (3-5 включительно) листа Excel.
 
-    Функция сканирует строки с 3-й по 5-ю включительно. В каждой из этих строк
-    она ищет ячейки с определенными текстовыми метками ("Предмет тендера:",
-    "Объект", "Адрес") и извлекает соответствующие им значения из соседних ячеек
-    той же строки.
+    Функция сканирует строки с 3-й по 5-ю. В каждой строке она ищет
+    текстовые метки (например, "Предмет тендера:", "Объект", "Адрес",
+    определенные в константах `TABLE_PARSE_*`). Поиск меток регистрозависим.
+    Соответствующие значения извлекаются из следующей непустой ячейки
+    в той же строке.
 
-    Предполагается, что:
-    - Каждая часть заголовочной информации находится на отдельной строке в диапазоне 3-5.
-    - Текстовая метка (например, "Предмет тендера:") находится в первой непустой ячейке строки.
-    - Соответствующее значение находится во второй непустой ячейке той же строки.
+    Предполагается следующая структура в строках 3-5:
+    - Каждая часть заголовочной информации (предмет, объект, адрес) находится
+      на отдельной строке.
+    - Текстовая метка является первым непустым значением в строке.
+    - Соответствующее искомое значение является вторым непустым значением в той же строке.
+
+    Для "Предмета тендера", значение далее разбирается на ID и Название:
+    - ID извлекается из начала строки значения (префикс "№" удаляется).
+    - Название - это оставшаяся часть строки после ID и первого пробела.
+    - Если пробела после ID нет, вся строка (после извлечения ID) считается Названием.
 
     Args:
-        ws (openpyxl.worksheet.worksheet.Worksheet): Лист Excel (объект openpyxl),
+        ws (Worksheet): Лист Excel (объект openpyxl.worksheet.worksheet.Worksheet),
             из которого считываются данные.
 
     Returns:
-        dict: Словарь, содержащий извлеченную заголовочную информацию.
-              Ключи словаря: "tender_id", "tender_title", "object", "address".
-              Если какая-либо часть информации не найдена, соответствующее
-              значение в словаре будет `None`.
-              Пример:
-              {
-                  "tender_id": "12345",
-                  "tender_title": "Закупка оборудования",
-                  "object": "Здание административное",
-                  "address": "г. Москва, ул. Центральная, д. 1"
-              }
+        Dict[str, Optional[str]]: Словарь, содержащий извлеченную заголовочную
+            информацию. Ключи словаря соответствуют константам `JSON_KEY_*`:
+            `JSON_KEY_TENDER_ID`, `JSON_KEY_TENDER_TITLE`,
+            `JSON_KEY_TENDER_OBJECT`, `JSON_KEY_TENDER_ADDRESS`.
+            Если какая-либо часть информации не найдена или пуста после очистки,
+            соответствующее значение в словаре будет `None`.
 
-    Примечания по реализации и потенциальные проблемы:
-    - Если в строке, где найдена метка (например, "Предмет тендера:"), отсутствует
-      вторая непустая ячейка со значением, попытка доступа к `values[1]`
-      приведет к ошибке `IndexError`.
-    - Разбор "tender_id" и "tender_title" из строки "Предмет тендера:" зависит
-      от конкретного формата этой строки (ожидается, что ID идет первым,
-      возможно с префиксом "№", и отделен пробелом от названия).
-    - Список `values` формируется из значений ячеек, которые не являются `None`
-      и не пусты после преобразования в строку и удаления пробелов.
+    Пример возвращаемого значения:
+        {
+            "tender_id": "12345",
+            "tender_title": "Закупка оборудования и ПО",
+            "tender_object": "Здание административно-бытового корпуса",
+            "tender_address": "г. Пример, ул. Тестовая, д. 1, стр. 2"
+        }
     """
-    # Инициализируем словарь для хранения результатов
-    header = {"tender_id": None, "tender_title": None, "object": None, "address": None}
+    header_data: Dict[str, Optional[str]] = {
+        JSON_KEY_TENDER_ID: None,
+        JSON_KEY_TENDER_TITLE: None,
+        JSON_KEY_TENDER_OBJECT: None,
+        JSON_KEY_TENDER_ADDRESS: None
+    }
 
-    # Итерируемся по строкам 3, 4 и 5
-    for i in range(3, 6):
-        # Собираем непустые значения из текущей строки
-        # cell.value может быть не строкой, поэтому str(cell.value)
-        # Фильтруем ячейки, которые являются None или пустыми строками
-        row_values = [cell.value for cell in ws[i] if cell.value is not None and str(cell.value).strip()]
+    # Сканируем строки с 3-й по 5-ю (1-индексация в Excel)
+    for row_num in range(3, 6):
+        # Собираем все непустые строковые значения из текущей строки
+        current_row_non_empty_values: List[str] = []
+        for cell in ws[row_num]: # ws[row_num] - это кортеж ячеек (Cell) строки
+            if cell.value is not None:
+                cell_str_value = str(cell.value).strip()
+                if cell_str_value: # Добавляем, только если строка не пуста после strip()
+                    current_row_non_empty_values.append(cell_str_value)
+        
+        if not current_row_non_empty_values:
+            continue # Переходим к следующей строке, если текущая не содержит значащих данных
 
-        # Если в строке нет непустых значений, переходим к следующей
-        if not row_values:
-            continue
+        first_cell_text = current_row_non_empty_values[0] # Текст из первой непустой ячейки
 
-        first_value_in_row = str(row_values[0]) # Первое непустое значение в строке
-
-        # Проверяем, с чего начинается первое непустое значение
-        if first_value_in_row.startswith("Предмет тендера:"):
-            if len(row_values) > 1: # Убедимся, что есть второе значение
-                tender_details = str(row_values[1])
-                parts = tender_details.split(" ", 1) # Разделяем по первому пробелу
+        # Обработка "Предмет тендера"
+        if first_cell_text.startswith(TABLE_PARSE_TENDER_SUBJECT): # Например, "Предмет тендера:"
+            if len(current_row_non_empty_values) > 1:
+                tender_details_full_str = current_row_non_empty_values[1]
+                parts = tender_details_full_str.split(" ", 1) # Разделяем по первому пробелу
                 
-                id_part = parts[0].replace("№", "")
-                header["tender_id"] = id_part
-                
-                if len(parts) > 1:
-                    header["tender_title"] = parts[1]
-                elif len(parts) == 1 and id_part != tender_details : # Если нет пробела, но ID не вся строка (маловероятно с .split(" ", 1))
-                     header["tender_title"] = "" # или tender_details, если ID это и есть "название"
-                else: # если только ID без пробела
-                    header["tender_title"] = tender_details # или можно оставить None или id_part, в зависимости от логики
-                                                     # Текущий код делал: header["tender_title"] = values[1].split(" ", 1)[1] if " " in values[1] else values[1]
-                                                     # Что означало, что если пробела нет, то title = вся строка values[1]
-                                                     # Если есть только ID, то title = ID. Это поведение сохранено.
-                    if " " not in tender_details: # Если пробела нет, вся строка - это title (после извлечения ID)
-                         header["tender_title"] = tender_details
+                id_candidate = parts[0].replace("№", "").strip()
+                header_data[JSON_KEY_TENDER_ID] = id_candidate if id_candidate else None
 
+                if len(parts) > 1: # Есть и ID, и название
+                    title_candidate = parts[1].strip()
+                    header_data[JSON_KEY_TENDER_TITLE] = title_candidate if title_candidate else None
+                elif id_candidate: # Только ID, без пробела после него; используем ID как название
+                                   # (соответствует поведению оригинального кода пользователя, где
+                                   # `if " " not in tender_details: title = tender_details` )
+                    header_data[JSON_KEY_TENDER_TITLE] = id_candidate
+        
+        # Обработка "Объект"
+        elif first_cell_text.startswith(TABLE_PARSE_OBJECT): # Например, "Объект"
+            if len(current_row_non_empty_values) > 1:
+                object_text = current_row_non_empty_values[1].strip()
+                header_data[JSON_KEY_TENDER_OBJECT] = object_text if object_text else None
+        
+        # Обработка "Адрес"
+        elif first_cell_text.startswith(TABLE_PARSE_ADDRESS): # Например, "Адрес"
+            if len(current_row_non_empty_values) > 1:
+                address_text = current_row_non_empty_values[1].strip()
+                header_data[JSON_KEY_TENDER_ADDRESS] = address_text if address_text else None
 
-        elif first_value_in_row.startswith("Объект"):
-            if len(row_values) > 1:
-                header["object"] = row_values[1]
-        elif first_value_in_row.startswith("Адрес"):
-            if len(row_values) > 1:
-                header["address"] = row_values[1]
-                
-    return header
+    return header_data

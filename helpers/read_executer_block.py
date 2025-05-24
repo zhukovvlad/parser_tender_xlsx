@@ -1,84 +1,114 @@
-def read_executer_block(ws):
+"""
+Модуль для извлечения информации об исполнителе документа из Excel.
+
+Функция этого модуля сканирует несколько предопределенных строк в нижней
+части листа Excel для поиска и извлечения имени исполнителя, его контактного
+телефона и даты составления документа. Поиск основан на ключевых фразах,
+определенных в константах.
+"""
+
+from typing import Dict, Optional
+from openpyxl.worksheet.worksheet import Worksheet
+
+# Импорт констант, используемых для ключей JSON и поиска текстовых маркеров
+from constants import (
+    JSON_KEY_EXECUTOR_DATE,
+    JSON_KEY_EXECUTOR_NAME,
+    JSON_KEY_EXECUTOR_PHONE,
+    TABLE_PARSE_EXECUTOR,
+    TABLE_PARSE_PREPARATION_DATE,
+    TABLE_PARSE_TELEPHONE
+)
+
+def read_executer_block(ws: Worksheet) -> Dict[str, Optional[str]]:
     """
     Извлекает информацию об исполнителе (имя, телефон, дата составления)
-    из блока данных, расположенного в нижней части листа Excel.
+    из блока данных, обычно расположенного в нижней части листа Excel.
 
-    Функция сканирует три конкретные строки перед последними двумя строками листа
-    (а именно, строки: `max_row - 5`, `max_row - 4`, `max_row - 3`).
-    В каждой из этих строк она проверяет значение во второй колонке (колонке B)
-    на наличие ключевых фраз:
-    - "исполнитель": для извлечения имени исполнителя.
-    - "тел": для извлечения номера телефона.
-    - "дата составления": для извлечения даты.
+    Функция сканирует три конкретные строки: `ws.max_row - 5`, `ws.max_row - 4`
+    и `ws.max_row - 3`. В каждой из этих строк она проверяет значение во второй
+    колонке (колонка 'B') на наличие ключевых фраз (определенных в константах
+    `TABLE_PARSE_EXECUTOR`, `TABLE_PARSE_TELEPHONE`, `TABLE_PARSE_PREPARATION_DATE`),
+    используя регистронезависимое сравнение.
 
-    Предполагается, что искомые данные следуют за этими ключевыми фразами.
-    Для "исполнитель" и "тел" данные извлекаются после первого двоеточия.
-    Для "дата составления" данные извлекаются после самой этой фразы.
-    Поиск ключевых фраз производится без учета регистра.
+    -   Для "исполнителя" (`TABLE_PARSE_EXECUTOR`) и "телефона" (`TABLE_PARSE_TELEPHONE`):
+        предполагается, что данные следуют за первым двоеточием в строке.
+    -   Для "даты составления" (`TABLE_PARSE_PREPARATION_DATE`): предполагается,
+        что данные следуют непосредственно за самой ключевой фразой.
+
+    Извлеченные значения очищаются от начальных/конечных пробелов.
 
     Args:
-        ws (openpyxl.worksheet.worksheet.Worksheet): Лист Excel (объект openpyxl),
+        ws (Worksheet): Лист Excel (объект openpyxl.worksheet.worksheet.Worksheet),
             из которого считываются данные.
 
     Returns:
-        dict: Словарь с тремя ключами: "name", "phone", "date".
-              Значениями являются извлеченные строки данных или `None`,
-              если соответствующая информация не была найдена.
-              Пример:
-              {
-                  "name": "Иванов И.И.",
-                  "phone": "+7 (123) 456-78-90",
-                  "date": "16.05.2025"
-              }
+        Dict[str, Optional[str]]: Словарь с тремя ключами:
+            - `JSON_KEY_EXECUTOR_NAME`
+            - `JSON_KEY_EXECUTOR_PHONE`
+            - `JSON_KEY_EXECUTOR_DATE`
+            Значениями являются извлеченные строки данных или `None`, если
+            соответствующая информация не была найдена или извлечена.
+
+    Пример возвращаемого значения:
+        {
+            "executor_name": "Иванов И.И.",
+            "executor_phone": "+7 (123) 456-78-90",
+            "executor_date": "16.05.2025"  // или ": 16.05.2025" в зависимости от форматирования и логики split
+        }
 
     Примечания по реализации:
-    - Если значение в проверяемой ячейке не является строкой (например, число или None),
-      при вызове метода `.lower()` или `.split()` возникнет ошибка `AttributeError`.
-      Рекомендуется добавить проверку `isinstance(cell_value, str)`.
-    - Если строка начинается, например, с "исполнитель", но не содержит двоеточия,
-      вызов `.split(":", 1)[1]` приведет к ошибке `IndexError`.
-    - Извлечение значений для "name" и "phone" происходит из оригинальной строки
-      `cell_value` после проверки префикса в нижнем регистре. Извлечение "date"
-      происходит из строки `cell_value`, приведенной к нижнему регистру.
+        - Код корректно обрабатывает случаи, когда значение в ячейке не является строкой
+          (используя `isinstance(cell_value_raw, str)`).
+        - Код использует `try-except IndexError` для безопасного извлечения данных
+          после `.split()`, на случай если ожидаемый разделитель (например, ":") отсутствует.
     """
-    last_row = ws.max_row
-    # Инициализируем словарь для хранения найденных значений
-    last_three = {"name": None, "phone": None, "date": None}
-    
-    # Определяем диапазон строк для сканирования:
-    # ws.max_row - 5, ws.max_row - 4, ws.max_row - 3
-    # Например, если max_row = 20, то сканируются строки 15, 16, 17.
-    # range(last_row - 5, last_row - 2) даст именно эти индексы.
-    for i in range(last_row - 5, last_row - 2):
-        if i < 1: # Добавлена проверка, чтобы не уйти в отрицательные или нулевые строки, если лист очень короткий
+    max_sheet_row = ws.max_row
+    executor_info: Dict[str, Optional[str]] = {
+        JSON_KEY_EXECUTOR_NAME: None,
+        JSON_KEY_EXECUTOR_PHONE: None,
+        JSON_KEY_EXECUTOR_DATE: None
+    }
+
+    # Определяем диапазон строк для сканирования (предпоследние строки)
+    # Например, если max_sheet_row = 20, сканируются строки 15, 16, 17.
+    # range(max_sheet_row - 5, max_sheet_row - 2) соответствует строкам max_row-5, max_row-4, max_row-3.
+    for row_to_scan in range(max_sheet_row - 5, max_sheet_row - 2):
+        # Проверка, чтобы индекс строки был валидным (больше 0)
+        if row_to_scan < 1:
             continue
 
-        cell_value = ws.cell(row=i, column=2).value # Значение из второй колонки (B)
+        # Значение извлекается из второй колонки (B) текущей сканируемой строки
+        cell_value_raw = ws.cell(row=row_to_scan, column=2).value
 
-        # Проверяем, является ли значение ячейки строкой, перед вызовом строковых методов
-        if isinstance(cell_value, str):
-            # Проверка на "исполнитель"
-            if cell_value.lower().startswith("исполнитель"):
+        if isinstance(cell_value_raw, str):
+            # Приводим значение ячейки и константы к нижнему регистру для регистронезависимого сравнения
+            cell_value_lower = cell_value_raw.lower()
+            
+            executor_prefix_lower = TABLE_PARSE_EXECUTOR.lower()
+            phone_prefix_lower = TABLE_PARSE_TELEPHONE.lower()
+            date_prefix_lower = TABLE_PARSE_PREPARATION_DATE.lower()
+
+            if cell_value_lower.startswith(executor_prefix_lower):
                 try:
-                    last_three["name"] = cell_value.split(":", 1)[1].strip()
+                    # Извлекаем текст после первого двоеточия из ОРИГИНАЛЬНОЙ строки
+                    executor_info[JSON_KEY_EXECUTOR_NAME] = cell_value_raw.split(":", 1)[1].strip()
                 except IndexError:
-                    # Если двоеточие отсутствует, оставляем None или записываем всю строку
-                    # В данном случае, лучше оставить None или обработать иначе, если нужно
-                    pass # last_three["name"] останется None или предыдущим значением
-            # Проверка на "тел"
-            elif cell_value.lower().startswith("тел"):
+                    # Двоеточие не найдено, значение останется None (или предыдущим, если уже было найдено)
+                    pass
+            elif cell_value_lower.startswith(phone_prefix_lower):
                 try:
-                    last_three["phone"] = cell_value.split(":", 1)[1].strip()
+                    # Извлекаем текст после первого двоеточия из ОРИГИНАЛЬНОЙ строки
+                    executor_info[JSON_KEY_EXECUTOR_PHONE] = cell_value_raw.split(":", 1)[1].strip()
                 except IndexError:
-                    pass # last_three["phone"] останется None
-            # Проверка на "дата составления"
-            elif cell_value.lower().startswith("дата составления"):
-                # Значение для даты извлекается из строки, приведенной к нижнему регистру
+                    pass
+            elif cell_value_lower.startswith(date_prefix_lower):
                 try:
-                    last_three["date"] = cell_value.lower().split("дата составления", 1)[1].strip()
+                    # Извлекаем текст после ключевой фразы (в нижнем регистре)
+                    # Логика split(date_prefix_lower, 1)[1] означает, что date_prefix_lower - это разделитель
+                    executor_info[JSON_KEY_EXECUTOR_DATE] = cell_value_lower.split(date_prefix_lower, 1)[1].strip()
                 except IndexError:
-                    # Это условие маловероятно, если startswith сработал, 
-                    # но для единообразия можно оставить try-except
-                    pass # last_three["date"] останется None
-                    
-    return last_three
+                    # Если после ключевой фразы ничего нет
+                    pass
+                        
+    return executor_info
