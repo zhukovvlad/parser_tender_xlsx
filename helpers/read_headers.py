@@ -20,6 +20,7 @@ from constants import (
     TABLE_PARSE_OBJECT,
     TABLE_PARSE_TENDER_SUBJECT
 )
+from helpers.sanitize_text import sanitize_text
 
 def read_headers(ws: Worksheet) -> Dict[str, Optional[str]]:
     """
@@ -88,7 +89,7 @@ def read_headers(ws: Worksheet) -> Dict[str, Optional[str]]:
         # Обработка "Предмет тендера"
         if first_cell_text.startswith(TABLE_PARSE_TENDER_SUBJECT): # Например, "Предмет тендера:"
             if len(current_row_non_empty_values) > 1:
-                tender_details_full_str = current_row_non_empty_values[1]
+                tender_details_full_str = sanitize_text(current_row_non_empty_values[1])
                 parts = tender_details_full_str.split(" ", 1) # Разделяем по первому пробелу
                 
                 id_candidate = parts[0].replace("№", "").strip()

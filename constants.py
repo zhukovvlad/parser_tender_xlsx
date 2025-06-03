@@ -86,6 +86,7 @@ JSON_KEY_NUMBER = "number"                       # Порядковый номе
 JSON_KEY_CHAPTER_NUMBER = "chapter_number"       # Номер раздела или главы, к которому относится позиция (для иерархии)
 JSON_KEY_ARTICLE_SMR = "article_smr"             # Код или статья СМР (сметно-монтажных работ)
 JSON_KEY_JOB_TITLE = "job_title"                 # Наименование работы, услуги или материала
+JSON_KEY_JOB_TITLE_NORMALIZED = "job_title_normalized" # Нормализованное наименование работы (например, с удалением точек и приведение к нижнему регистру)
 JSON_KEY_COMMENT_ORGANIZER = "comment_organizer" # Комментарий организатора тендера к данной позиции
 JSON_KEY_UNIT = "unit"                           # Единица измерения (например, "шт.", "м2", "компл.")
 JSON_KEY_QUANTITY = "quantity"                   # Количество согласно тендерной документации (объем организатора)

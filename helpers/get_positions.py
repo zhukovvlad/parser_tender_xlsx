@@ -10,6 +10,8 @@
 from typing import Dict, Any
 from openpyxl.worksheet.worksheet import Worksheet
 
+from helpers.sanitize_text import normalize_job_title_with_lemmatization
+
 # Локальные импорты (из той же директории helpers)
 from .get_items_dict import get_items_dict
 from .parse_contractor_row import parse_contractor_row
@@ -21,6 +23,7 @@ from constants import (
     JSON_KEY_CHAPTER_NUMBER,
     JSON_KEY_ARTICLE_SMR,
     JSON_KEY_JOB_TITLE,
+    JSON_KEY_JOB_TITLE_NORMALIZED,
     JSON_KEY_COMMENT_ORGANIZER,
     JSON_KEY_UNIT,
     JSON_KEY_QUANTITY,
@@ -133,7 +136,9 @@ def get_positions(ws: Worksheet, contractor: Dict[str, Any]) -> Dict[str, Dict[s
             item[JSON_KEY_NUMBER] = ws.cell(row=current_row_num, column=1).value
             item[JSON_KEY_CHAPTER_NUMBER] = ws.cell(row=current_row_num, column=2).value
             item[JSON_KEY_ARTICLE_SMR] = ws.cell(row=current_row_num, column=3).value
-            item[JSON_KEY_JOB_TITLE] = ws.cell(row=current_row_num, column=4).value
+            original_job_title = ws.cell(row=current_row_num, column=4).value
+            item[JSON_KEY_JOB_TITLE] = original_job_title
+            item[JSON_KEY_JOB_TITLE_NORMALIZED] = normalize_job_title_with_lemmatization(original_job_title)
             item[JSON_KEY_COMMENT_ORGANIZER] = ws.cell(row=current_row_num, column=6).value
             item[JSON_KEY_UNIT] = ws.cell(row=current_row_num, column=7).value
             item[JSON_KEY_QUANTITY] = ws.cell(row=current_row_num, column=8).value
