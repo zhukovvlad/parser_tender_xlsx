@@ -3,6 +3,9 @@
 *.json
 *.md
 
+# Исключаем переменные окружения
+.env
+
 # Не игнорировать README.md в любом регистре, в любом месте
 !README.md
 !readme.md
@@ -18,3 +21,9 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Исключаем создаваемые файлы и каталоги
+tenders_chunks/
+tenders_json/
+tenders_md/
+tenders_xlsx/

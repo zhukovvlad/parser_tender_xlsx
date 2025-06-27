@@ -1,194 +1,207 @@
 """
-parse.py: Полный цикл обработки тендерных данных из XLSX.
+parse.py
 
-Этот скрипт является основной точкой входа для парсинга тендерной документации
-из XLSX файлов, последующей постобработки извлеченных данных, сохранения
-финального результата в структурированный JSON-файл, генерации Markdown-отчета,
-и последующего разделения этого отчета на чанки для AI-приложений.
+Основной управляющий скрипт для полного цикла обработки тендерных XLSX файлов.
+Выполняет парсинг, постобработку данных, сохранение результатов в JSON и Markdown,
+создание текстовых чанков для эмбеддингов, опциональную отправку данных на внешний
+сервер и финальную сортировку всех файлов по целевым директориям.
 
-Процесс работы:
-1.  Принимает два аргумента командной строки: путь к входному XLSX файлу и
-    путь для сохранения основного выходного JSON файла.
-2.  Загружает XLSX файл с помощью `openpyxl`.
-3.  Последовательно вызывает функции из пакета `helpers` для извлечения
-    различных блоков данных.
-4.  Агрегирует эти данные в единую JSON-подобную структуру.
-5.  Применяет функции постобработки из `helpers.postprocess`.
-6.  Сохраняет итоговую обработанную JSON-структуру в указанный файл (например, `output.json`).
-7.  Генерирует Markdown-отчет (список строк) и словарь с основной метаинформацией
-    о тендере, используя модуль из `markdown_utils.json_to_markdown`.
-    Markdown-отчет сохраняется в файл (например, `output.md`).
-8.  Сгенерированный Markdown-текст (из памяти) и извлеченная основная метаинформация
-    передаются в модуль `markdown_to_chunks.tender_chunker` для разделения на
-    смысловые чанки, обогащенные этой метаинформацией.
-9.  Эти чанки сохраняются в отдельный JSON-файл (например, `output_chunks.json`).
-
-Предполагаемая структура проекта для корректной работы импортов:
--   `parse.py` (данный файл)
--   `constants.py`
--   `helpers/` (пакет с модулями парсинга и постобработки)
--   `markdown_utils/` (пакет с `json_to_markdown.py`)
--   `markdown_to_chunks/` (пакет с `tender_chunker.py`)
-
-Запуск из командной строки:
-    python parse.py <путь_к_xlsx_файлу> <путь_к_основному_json_файлу>
-
-Пример:
-    python parse.py ./data/tender.xlsx ./output/tender_data.json
-    Будут созданы:
-    - ./output/tender_data.json (основной обработанный JSON)
-    - ./output/tender_data.md (Markdown-отчет)
-    - ./output/tender_data_chunks.json (JSON с чанками из Markdown)
+Скрипт запускается из командной строки и принимает один аргумент: путь к XLSX файлу.
 """
-import openpyxl
-import json
+
 import argparse
+import json
 import os
+import shutil
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict, List, Tuple
 
-# Импорт констант
+from dotenv import load_dotenv
+import openpyxl
+
+# --- Ваши импорты ---
 from constants import JSON_KEY_EXECUTOR, JSON_KEY_LOTS
-
-# Импорт вспомогательных модулей
 from helpers.postprocess import normalize_lots_json_structure, replace_div0_with_null
 from helpers.read_headers import read_headers
-# from helpers.read_contractors import read_contractors # Для отладки
 from helpers.read_lots_and_boundaries import read_lots_and_boundaries
 from helpers.read_executer_block import read_executer_block
 from markdown_utils.json_to_markdown import json_to_markdown
-
-# Импорт модуля для создания чанков
 from markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
+from json_to_server.send_json_to_go_server import send_json_to_go_server
 
+load_dotenv() # Загружаем переменные окружения из .env файла
 
-def parse_file(xlsx_path: str, output_json_base_path: str) -> None:
+def parse_file(xlsx_path: str) -> None:
     """
-    Основная функция для полного цикла обработки XLSX файла: парсинг,
-    постобработка, сохранение JSON, генерация Markdown и создание текстовых чанков.
+    Оркестрирует полный цикл обработки одного XLSX файла.
+
+    Процесс включает следующие шаги:
+    1.  Парсинг данных из XLSX.
+    2.  Постобработка данных (нормализация, очистка).
+    3.  Сохранение финальных данных в JSON-файл.
+    4.  Отправка JSON на внешний сервер (если настроен).
+    5.  Генерация и сохранение Markdown-отчета.
+    6.  Создание и сохранение текстовых чанков из Markdown в отдельный JSON-файл.
+    7.  Перемещение исходного XLSX и всех сгенерированных артефактов
+        в соответствующие директории (`tenders_xlsx/`, `tenders_json/` и т.д.).
 
     Args:
-        xlsx_path (str): Путь к входному XLSX файлу.
-        output_json_base_path (str): Базовый путь и имя для сохранения выходного
-            (обработанного) JSON файла. Markdown-отчет и JSON с чанками
-            будут сохранены рядом с этим файлом с соответствующими суффиксами/расширениями.
+        xlsx_path (str): Абсолютный или относительный путь к входному XLSX файлу.
 
     Returns:
-        None: Функция выполняет операции ввода-вывода и выводит сообщения о статусе.
+        None: Функция ничего не возвращает, но выполняет операции с файлами и выводит
+              информацию о ходе выполнения в консоль.
 
     Side effects:
-        - Загружает XLSX файл.
-        - Создает или перезаписывает следующие файлы (в директории output_json_base_path):
-            1.  `<output_json_base_name>.json` (основной обработанный JSON)
-            2.  `<output_json_base_name>.md` (Markdown-отчет)
-            3.  `<output_json_base_name>_chunks.json` (JSON с текстовыми чанками)
-        - Печатает в консоль сообщения о ходе выполнения и ошибках.
+        - Создает следующие файлы в директории исходного XLSX файла (перед перемещением):
+            - `<имя_файла>.json`: Финальный обработанный JSON.
+            - `<имя_файла>.md`: Markdown-отчет.
+            - `<имя_файла>_chunks.json`: JSON-файл со списком текстовых чанков.
+        - Перемещает исходный XLSX и все созданные файлы в целевые директории.
+        - Отправляет HTTP POST запрос на Go сервер, если задан GO_SERVER_API_ENDPOINT.
+        - Выводит в консоль подробную информацию о статусе каждого шага.
     """
-    print(f"Начало обработки файла: {xlsx_path}")
+    print(f"--- Начало обработки файла: {xlsx_path} ---")
+
+    # --- Шаг 0: Определение всех путей ---
+    source_path = Path(xlsx_path).resolve()
+    base_name = source_path.stem
+    output_dir = source_path.parent
+
+    output_json_path = output_dir / f"{base_name}.json"
+    output_md_path = output_dir / f"{base_name}.md"
+    # ИЗМЕНЕНИЕ: output_chunks_path теперь указывает на файл, а не на директорию
+    output_chunks_json_path = output_dir / f"{base_name}_chunks.json"
+    
+    print(f"Имя для выходных файлов: {base_name}")
+
     try:
-        wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+        wb = openpyxl.load_workbook(source_path, data_only=True)
         ws = wb.active
-    except FileNotFoundError:
-        print(f"ОШИБКА: Входной XLSX файл не найден: {xlsx_path}")
-        return
     except Exception as e:
-        print(f"ОШИБКА при загрузке XLSX файла '{xlsx_path}': {e}")
+        print(f"ОШИБКА на Шаге 0 (Загрузка XLSX): Не удалось загрузить файл '{source_path}'.\nДетали: {e}")
         return
 
-    # --- Шаг 1 & 2: Первичный парсинг и агрегация данных ---
-    print("Извлечение данных из XLSX...")
-    parsed_data: Dict[str, Any] = {
-        **read_headers(ws),
-        JSON_KEY_EXECUTOR: read_executer_block(ws),
-        JSON_KEY_LOTS: read_lots_and_boundaries(ws),
-    }
-
-    # --- Шаг 3: Постобработка данных ---
-    print("Постобработка извлеченных данных...")
-    processed_data = normalize_lots_json_structure(parsed_data)
-    processed_data = replace_div0_with_null(processed_data)
-
-    # --- Шаг 4: Сохранение основного JSON ---
-    output_json_resolved_path = Path(output_json_base_path).resolve()
+    # --- Шаг 1 & 2: Первичный парсинг и Постобработка ---
     try:
-        output_json_resolved_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_json_resolved_path, "w", encoding="utf-8") as f:
+        print("1. Извлечение и постобработка данных...")
+        parsed_data: Dict[str, Any] = {
+            **read_headers(ws),
+            JSON_KEY_EXECUTOR: read_executer_block(ws),
+            JSON_KEY_LOTS: read_lots_and_boundaries(ws),
+        }
+        processed_data = normalize_lots_json_structure(parsed_data)
+        processed_data = replace_div0_with_null(processed_data)
+        print("   -> Данные успешно извлечены и обработаны.")
+    except Exception as e:
+        print(f"ОШИБКА на Шаге 1/2 (Парсинг/Постобработка): {e}")
+        return
+
+    # --- Шаг 3: Сохранение основного JSON ---
+    print("3. Сохранение основного JSON...")
+    try:
+        with open(output_json_path, "w", encoding="utf-8") as f:
             json.dump(processed_data, f, ensure_ascii=False, indent=4)
-        print(f"Обработанный JSON успешно сохранен: {output_json_resolved_path}")
+        print(f"   -> JSON успешно сохранен: {output_json_path}")
     except IOError as e:
-        print(f"ОШИБКА при сохранении JSON файла '{output_json_resolved_path}': {e}")
+        print(f"ОШИБКА на Шаге 3 (Сохранение JSON): {e}")
         return
 
-    # --- Шаг 5: Генерация Markdown-отчета и извлечение основной метаинформации ---
-    print("Генерация Markdown-отчета и основной метаинформации...")
-    # json_to_markdown теперь возвращает кортеж: (список_строк_md, словарь_метаданных)
-    markdown_lines, initial_tender_metadata = json_to_markdown(processed_data)
+    # --- Шаг 4: Отправка JSON на Go сервер (опционально) ---
+    go_server_url = os.getenv("GO_SERVER_API_ENDPOINT")
+    if go_server_url:
+        print(f"4. Отправка данных на Go сервер...")
+        go_server_api_key = os.getenv("GO_SERVER_API_KEY")
+        send_success = send_json_to_go_server(processed_data, go_server_url, go_server_api_key)
+        if send_success:
+            print("   -> Данные успешно отправлены на Go сервер.")
+        else:
+            print("   -> ПРЕДУПРЕЖДЕНИЕ: Не удалось отправить данные на Go сервер.")
+    else:
+        print("4. Пропуск отправки данных на сервер (GO_SERVER_API_ENDPOINT не задан).")
 
-    # --- Шаг 5.1: Сохранение Markdown-отчета в файл ---
-    md_file_name = output_json_resolved_path.stem + ".md"
-    md_file_resolved_path = output_json_resolved_path.with_name(md_file_name)
+    # --- Шаг 5: Генерация и сохранение Markdown-отчета ---
+    print("5. Генерация и сохранение Markdown-отчета...")
+    markdown_content_str = "" # Инициализируем на случай ошибки
     try:
-        with open(md_file_resolved_path, "w", encoding="utf-8") as f_md:
-            f_md.write("\n".join(markdown_lines))
-        print(f"Markdown-отчет успешно сохранен: {md_file_resolved_path}")
-    except IOError as e:
-        print(f"ОШИБКА при сохранении Markdown файла '{md_file_resolved_path}': {e}")
-
-    # --- Шаг 6: Создание чанков из Markdown-строк с использованием основной метаинформации ---
-    print("Создание текстовых чанков из сгенерированного Markdown...")
-    try:
-        markdown_content_str = "\n".join(markdown_lines)
-        # Передаем извлеченные ранее initial_tender_metadata в функцию создания чанков
-        tender_chunks = create_chunks_from_markdown_text(
-            markdown_content_str,
-            global_initial_metadata=initial_tender_metadata
-        )
-
-        chunks_file_name = output_json_resolved_path.stem + "_chunks.json"
-        chunks_file_resolved_path = output_json_resolved_path.with_name(chunks_file_name)
-
-        chunks_file_resolved_path.parent.mkdir(parents=True, exist_ok=True) # Убедимся, что директория есть
-        with open(chunks_file_resolved_path, "w", encoding="utf-8") as f_chunks:
-            json.dump(tender_chunks, f_chunks, ensure_ascii=False, indent=2)
-        print(f"Текстовые чанки ({len(tender_chunks)} шт.) сохранены: {chunks_file_resolved_path}")
-
-        # Сюда можно добавить следующий шаг: вызов функции очистки чанков (из Файла 15),
-        # передав tender_chunks и сохранив результат в ..._chunks_cleaned.json
-        # Например:
-        # from some_module.chunk_cleaner import clean_and_parse_chunk_metadata
-        # cleaned_chunks = clean_and_parse_chunk_metadata(tender_chunks)
-        # ... (код сохранения cleaned_chunks) ...
-
+        markdown_lines, initial_tender_metadata = json_to_markdown(processed_data)
+        # Убрано дублирование join
+        markdown_content_str = "\n".join(markdown_lines) 
+        with open(output_md_path, "w", encoding="utf-8") as f_md:
+            f_md.write(markdown_content_str)
+        print(f"   -> Markdown-отчет успешно сохранен: {output_md_path}")
     except Exception as e:
-        print(f"ОШИБКА при создании или сохранении текстовых чанков: {e}")
+        print(f"ОШИБКА на Шаге 5 (Генерация/сохранение Markdown): {e}")
 
-    print("Обработка файла полностью завершена.")
+    # --- Шаг 6: Создание и сохранение чанков ---
+    if markdown_content_str: # Выполняем чанкинг, только если MD был успешно сгенерирован
+        print("6. Создание и сохранение текстовых чанков...")
+        try:
+            tender_chunks = create_chunks_from_markdown_text(
+                markdown_content_str,
+                global_initial_metadata=initial_tender_metadata
+            )
+            with open(output_chunks_json_path, "w", encoding="utf-8") as f_chunks:
+                json.dump(tender_chunks, f_chunks, ensure_ascii=False, indent=2)
+            print(f"   -> Текстовые чанки ({len(tender_chunks)} шт.) сохранены в JSON-файл: {output_chunks_json_path}")
+        except Exception as e:
+            print(f"ОШИБКА на Шаге 6 (Создание/сохранение чанков): {e}")
+
+    # --- Шаг 7: Перемещение всех файлов в целевые директории ---
+    print("7. Перемещение обработанных файлов...")
+    try:
+        # Определяем корневую директорию проекта, где будет запущен скрипт
+        project_root = Path.cwd()
+        target_dirs = {
+            "xlsx": project_root / "tenders_xlsx",
+            "json": project_root / "tenders_json",
+            "md": project_root / "tenders_md",
+            "chunks": project_root / "tenders_chunks"
+        }
+
+        for dir_path in target_dirs.values():
+            os.makedirs(dir_path, exist_ok=True)
+            
+        # Используем str() для shutil.move для лучшей совместимости
+        shutil.move(str(source_path), str(target_dirs["xlsx"] / source_path.name))
+        print(f"   -> XLSX перемещен в: {target_dirs['xlsx']}")
+
+        # Перемещаем только существующие файлы, чтобы избежать ошибок
+        if output_json_path.exists():
+            shutil.move(str(output_json_path), str(target_dirs["json"] / output_json_path.name))
+            print(f"   -> JSON перемещен в: {target_dirs['json']}")
+
+        if output_md_path.exists():
+            shutil.move(str(output_md_path), str(target_dirs["md"] / output_md_path.name))
+            print(f"   -> MD перемещен в: {target_dirs['md']}")
+
+        if output_chunks_json_path.exists():
+            shutil.move(str(output_chunks_json_path), str(target_dirs["chunks"] / output_chunks_json_path.name))
+            print(f"   -> Файл с чанками перемещен в: {target_dirs['chunks']}")
+    
+    except Exception as e:
+        print(f"ОШИБКА на Шаге 7 (Перемещение файлов): {e}")
+
+    print(f"--- Обработка файла {xlsx_path} полностью завершена. ---\n")
 
 
 if __name__ == "__main__":
     cli_parser = argparse.ArgumentParser(
-        description="Парсер тендерного XLSX файла: JSON -> Markdown -> Чанки.",
+        description="Полный цикл обработки тендерного XLSX файла.",
         formatter_class=argparse.RawTextHelpFormatter
     )
     cli_parser.add_argument(
         "xlsx_path",
         type=str,
-        help="Путь к входному XLSX файлу тендерной документации."
-    )
-    cli_parser.add_argument(
-        "output_json_base_path",
-        type=str,
-        help="Базовый путь и имя для выходного JSON файла (например, './output/tender_data').\n"
-             "Будут созданы:\n"
-             "  - <базовое_имя>.json (основной JSON)\n"
-             "  - <базовое_имя>.md (Markdown-отчет)\n"
-             "  - <базовое_имя>_chunks.json (JSON с чанками из Markdown)"
+        help="Путь к входному XLSX файлу тендерной документации.\n"
+             "Выходные файлы будут созданы, а затем перемещены в целевые\n"
+             "директории (tenders_xlsx, tenders_json и т.д.) в текущей папке."
     )
     
-    parsed_args = cli_parser.parse_args()
+    args = cli_parser.parse_args()
 
-    input_file_path = Path(parsed_args.xlsx_path)
-    if not input_file_path.is_file():
-        print(f"ОШИБКА: Входной XLSX файл не найден: {input_file_path.resolve()}")
+    input_file = Path(args.xlsx_path)
+    if not input_file.is_file():
+        print(f"ОШИБКА: Входной XLSX файл не найден: {input_file.resolve()}")
     else:
-        parse_file(parsed_args.xlsx_path, parsed_args.output_json_base_path)
+        parse_file(args.xlsx_path)
