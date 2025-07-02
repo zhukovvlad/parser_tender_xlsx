@@ -110,8 +110,9 @@ def get_additional_info(ws: Worksheet, contractor: Dict[str, Any]) -> Dict[str, 
             if not processed_key: # Если после strip ключ стал пустой строкой
                 processed_key = None
         
-        # Обрабатываем значение: пустые строки "" считаем как None, иначе берем как есть.
-        processed_value = str(value_data).strip() if str(value_data).strip() != "" else None
+        # Обрабатываем значение: приводим к строке и удаляем лишние пробелы.
+        # Если значение None, оно будет заменено на пустую строку.
+        processed_value = str(value_data).strip() if value_data is not None else ""
 
         if processed_key: # Добавляем, только если ключ существует и не пуст
             additional_info[processed_key] = processed_value
