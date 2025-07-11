@@ -12,7 +12,7 @@ try:
     # но они больше по размеру и медленнее.
     NLP_SPACY = spacy.load("ru_core_news_sm")
     SPACY_AVAILABLE = True
-    print("DEBUG: Модель spaCy 'ru_core_news_sm' успешно загружена.")
+    # Модель spaCy успешно загружена
 except ImportError:
     print("ПРЕДУПРЕЖДЕНИЕ: Библиотека spaCy не найдена. "
           "Пожалуйста, установите ее: pip install spacy. "

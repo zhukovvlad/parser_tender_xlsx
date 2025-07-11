@@ -106,6 +106,12 @@ def process_new_positions(engine: Engine, model: SentenceTransformer) -> int:
                 print("Новых позиций для создания эмбеддингов не найдено.")
                 return 0
             
+            # Валидация данных
+            for row in positions_to_embed:
+                if len(row) < 3 or not row[0] or not row[1]:
+                    print(f"ПРЕДУПРЕЖДЕНИЕ: Некорректная запись с id={row[0] if len(row) > 0 else 'unknown'}, пропускаем")
+                    continue
+            
             print(f"Найдено {len(positions_to_embed)} новых позиций для создания эмбеддингов.")
 
             ids = [row[0] for row in positions_to_embed]
@@ -127,10 +133,12 @@ def process_new_positions(engine: Engine, model: SentenceTransformer) -> int:
             print(f"Успешно обработано {len(ids)} записей. Транзакция будет автоматически подтверждена.")
             
             return len(ids)
+    except (ValueError, TypeError) as e:
+        print(f"Ошибка данных во время транзакции, изменения будут отменены. Ошибка: {e}")
+        return -1
     except Exception as e:
-        print(f"Ошибка во время транзакции, изменения будут отменены. Ошибка: {e}")
-        # `with`-блок автоматически выполнит rollback
-        return -1 # Возвращаем -1 или бросаем исключение дальше в знак ошибки
+        print(f"НЕОЖИДАННАЯ ошибка во время транзакции, изменения будут отменены. Ошибка: {e}")
+        return -1
 
 
 if __name__ == "__main__":

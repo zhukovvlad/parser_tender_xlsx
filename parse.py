@@ -93,8 +93,11 @@ def parse_file(xlsx_path: str) -> None:
         processed_data = normalize_lots_json_structure(parsed_data)
         processed_data = replace_div0_with_null(processed_data)
         print("   -> Данные успешно извлечены и обработаны.")
-    except Exception as e:
+    except (KeyError, ValueError, AttributeError) as e:
         print(f"ОШИБКА на Шаге 1/2 (Парсинг/Постобработка): {e}")
+        return
+    except Exception as e:
+        print(f"НЕОЖИДАННАЯ ОШИБКА на Шаге 1/2 (Парсинг/Постобработка): {e}")
         return
 
     # --- Шаг 3: Сохранение основного JSON ---
@@ -130,8 +133,10 @@ def parse_file(xlsx_path: str) -> None:
         with open(output_md_path, "w", encoding="utf-8") as f_md:
             f_md.write(markdown_content_str)
         print(f"   -> Markdown-отчет успешно сохранен: {output_md_path}")
-    except Exception as e:
+    except (KeyError, ValueError, TypeError) as e:
         print(f"ОШИБКА на Шаге 5 (Генерация/сохранение Markdown): {e}")
+    except Exception as e:
+        print(f"НЕОЖИДАННАЯ ОШИБКА на Шаге 5 (Генерация/сохранение Markdown): {e}")
 
     # --- Шаг 6: Создание и сохранение чанков ---
     if markdown_content_str: # Выполняем чанкинг, только если MD был успешно сгенерирован
@@ -144,8 +149,10 @@ def parse_file(xlsx_path: str) -> None:
             with open(output_chunks_json_path, "w", encoding="utf-8") as f_chunks:
                 json.dump(tender_chunks, f_chunks, ensure_ascii=False, indent=2)
             print(f"   -> Текстовые чанки ({len(tender_chunks)} шт.) сохранены в JSON-файл: {output_chunks_json_path}")
-        except Exception as e:
+        except (KeyError, ValueError, TypeError, IOError) as e:
             print(f"ОШИБКА на Шаге 6 (Создание/сохранение чанков): {e}")
+        except Exception as e:
+            print(f"НЕОЖИДАННАЯ ОШИБКА на Шаге 6 (Создание/сохранение чанков): {e}")
 
     # --- Шаг 7: Перемещение всех файлов в целевые директории ---
     print("7. Перемещение обработанных файлов...")
@@ -160,7 +167,14 @@ def parse_file(xlsx_path: str) -> None:
         }
 
         for dir_path in target_dirs.values():
-            os.makedirs(dir_path, exist_ok=True)
+            try:
+                os.makedirs(dir_path, exist_ok=True)
+            except PermissionError:
+                print(f"ОШИБКА: Недостаточно прав для создания директории {dir_path}")
+                return
+            except OSError as e:
+                print(f"ОШИБКА: Не удалось создать директорию {dir_path}: {e}")
+                return
             
         # Используем str() для shutil.move для лучшей совместимости
         shutil.move(str(source_path), str(target_dirs["xlsx"] / source_path.name))
