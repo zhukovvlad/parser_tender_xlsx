@@ -168,7 +168,12 @@ class LLMProcessor:
 
         for attempt in range(self.settings.max_retries):
             try:
-                async with session.post(self.settings.ollama_url, json=payload, headers=self.headers, timeout=self.settings.timeout) as response:
+                async with session.post(
+                    self.settings.ollama_url,
+                    json=payload,
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(total=self.settings.timeout)
+                ) as response:
                     response.raise_for_status()  # Вызовет исключение для статусов 4xx/5xx
                     response_json = await response.json()
 
@@ -207,7 +212,7 @@ async def main():
     4. Асинхронно отправляет все батчи на обработку.
     5. Собирает результаты и выводит итоговый JSON в консоль.
     """
-    settings = Settings()
+    settings = Settings()  # type: ignore
 
     if not settings.input_file.exists():
         logging.error(f"Файл не найден: {settings.input_file}")
