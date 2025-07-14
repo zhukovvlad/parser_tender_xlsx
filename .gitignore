@@ -27,3 +27,5 @@ tenders_chunks/
 tenders_json/
 tenders_md/
 tenders_xlsx/
+tenders_positions/
+prompts/

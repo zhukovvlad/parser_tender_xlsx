@@ -28,6 +28,7 @@ from helpers.read_executer_block import read_executer_block
 from markdown_utils.json_to_markdown import json_to_markdown
 from markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
 from json_to_server.send_json_to_go_server import send_json_to_go_server
+from markdown_utils.positions_report import generate_reports_for_all_lots
 
 load_dotenv() # Загружаем переменные окружения из .env файла
 
@@ -120,21 +121,28 @@ def parse_file(xlsx_path: str) -> None:
     else:
         print("4. Пропуск отправки данных на сервер (GO_SERVER_API_ENDPOINT не задан).")
 
-    # --- Шаг 5: Генерация и сохранение Markdown-отчета ---
-    print("5. Генерация и сохранение Markdown-отчета...")
-    markdown_content_str = "" # Инициализируем на случай ошибки
+	# --- Шаг 5: Генерация всех Markdown-отчетов ---
+    print("5. Генерация Markdown-отчетов...")
+    markdown_content_str = "" 
+
+    # 5.1 Основной MD-отчет
     try:
         markdown_lines, initial_tender_metadata = json_to_markdown(processed_data)
-        # Убрано дублирование join
         markdown_content_str = "\n".join(markdown_lines) 
         with open(output_md_path, "w", encoding="utf-8") as f_md:
             f_md.write(markdown_content_str)
-        print(f"   -> Markdown-отчет успешно сохранен: {output_md_path}")
+        print(f"   -> Основной MD-отчет успешно сохранен: {output_md_path.name}")
     except Exception as e:
-        print(f"ОШИБКА на Шаге 5 (Генерация/сохранение Markdown): {e}")
+        print(f"ОШИБКА на Шаге 5.1 (Генерация основного Markdown): {e}")
 
-    # --- Шаг 6: Создание и сохранение чанков ---
-    if markdown_content_str: # Выполняем чанкинг, только если MD был успешно сгенерирован
+    # 5.2 Детализированные MD-отчеты по позициям для каждого лота
+    try:
+        position_reports_paths = generate_reports_for_all_lots(processed_data, output_dir, base_name)
+    except Exception as e:
+        print(f"ОШИБКА на Шаге 5.2 (Генерация детализированных отчетов): {e}")
+
+    # --- Шаг 6: Создание и сохранение чанков (из основного MD) ---
+    if markdown_content_str:
         print("6. Создание и сохранение текстовых чанков...")
         try:
             tender_chunks = create_chunks_from_markdown_text(
@@ -150,34 +158,30 @@ def parse_file(xlsx_path: str) -> None:
     # --- Шаг 7: Перемещение всех файлов в целевые директории ---
     print("7. Перемещение обработанных файлов...")
     try:
-        # Определяем корневую директорию проекта, где будет запущен скрипт
         project_root = Path.cwd()
         target_dirs = {
             "xlsx": project_root / "tenders_xlsx",
             "json": project_root / "tenders_json",
             "md": project_root / "tenders_md",
-            "chunks": project_root / "tenders_chunks"
+            "chunks": project_root / "tenders_chunks",
+            "positions": project_root / "tenders_positions"
         }
 
         for dir_path in target_dirs.values():
             os.makedirs(dir_path, exist_ok=True)
             
-        # Используем str() для shutil.move для лучшей совместимости
-        shutil.move(str(source_path), str(target_dirs["xlsx"] / source_path.name))
-        print(f"   -> XLSX перемещен в: {target_dirs['xlsx']}")
+        def move_if_exists(src_path: Path, dest_dir: Path):
+            if src_path.exists():
+                shutil.move(str(src_path), str(dest_dir / src_path.name))
+                print(f"   -> '{src_path.name}' перемещен в: {dest_dir.name}")
 
-        # Перемещаем только существующие файлы, чтобы избежать ошибок
-        if output_json_path.exists():
-            shutil.move(str(output_json_path), str(target_dirs["json"] / output_json_path.name))
-            print(f"   -> JSON перемещен в: {target_dirs['json']}")
+        move_if_exists(source_path, target_dirs["xlsx"])
+        move_if_exists(output_json_path, target_dirs["json"])
+        move_if_exists(output_chunks_json_path, target_dirs["chunks"])
 
-        if output_md_path.exists():
-            shutil.move(str(output_md_path), str(target_dirs["md"] / output_md_path.name))
-            print(f"   -> MD перемещен в: {target_dirs['md']}")
-
-        if output_chunks_json_path.exists():
-            shutil.move(str(output_chunks_json_path), str(target_dirs["chunks"] / output_chunks_json_path.name))
-            print(f"   -> Файл с чанками перемещен в: {target_dirs['chunks']}")
+        # Перемещаем ВСЕ сгенерированные MD-файлы в одну папку
+        for pos_report_path in position_reports_paths:
+            move_if_exists(pos_report_path, target_dirs["positions"])
     
     except Exception as e:
         print(f"ОШИБКА на Шаге 7 (Перемещение файлов): {e}")
