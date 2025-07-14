@@ -18,7 +18,7 @@ import math
 import os
 import re
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Any
 
 import aiohttp
 from dotenv import load_dotenv
@@ -63,6 +63,10 @@ class Settings(BaseModel):
     timeout: int = Field(300, description="Таймаут запроса")
     max_retries: int = Field(3, description="Макс. кол-во повторных попыток")
     retry_delay: int = Field(5, description="Задержка между попытками (сек)")
+
+    class Config:
+        arbitrary_types_allowed = True
+        validate_assignment = True
 
 # --- 2. ВАЛИДАЦИЯ ОТВЕТА LLM (Pydantic) ---
 
@@ -203,7 +207,7 @@ class LLMProcessor:
 
         for attempt in range(self.settings.max_retries):
             try:
-                async with session.post(self.settings.ollama_url, json=payload, headers=self.headers, timeout=self.settings.timeout) as response:
+                async with session.post(self.settings.ollama_url, json=payload, headers=self.headers, timeout=aiohttp.ClientTimeout(total=self.settings.timeout)) as response:
                     response.raise_for_status()
                     response_json = await response.json()
 
@@ -233,7 +237,7 @@ class LLMProcessor:
                         try:
                             # Заворачиваем "плоский" JSON в ожидаемую структуру
                             wrapped_data = {
-                                "slurry_wall_specs": extracted_data}
+                                "slurry_wall_specs": SlurryWallSpecs(**extracted_data)}
                             validated_response = LLMResponse(**wrapped_data)
                         except ValidationError as e:
                             logging.error(
@@ -283,7 +287,7 @@ def merge_slurry_wall_specs(batch_results: List[Optional[SlurryWallSpecs]]) -> d
         dict: Финальный словарь с объединенными характеристиками "стены в грунте",
               готовый для сериализации в JSON.
     """
-    final_specs = {
+    final_specs: dict[str, Any] = {
         "thickness_mm": None,
         "concrete_volume_m3": None,
         "concrete_grade": None,
@@ -331,7 +335,7 @@ async def main():
     5. Объединяет полученные результаты в один итоговый объект.
     6. Выводит результат в стандартный вывод в формате JSON.
     """
-    settings = Settings()
+    settings = Settings()  # type: ignore
 
     if not settings.input_file.exists():
         logging.error(f"Файл не найден: {settings.input_file}")
@@ -377,7 +381,11 @@ async def main():
                 logging.info(
                     f"Батч {i+1}: Полезные данные не найдены или произошла ошибка при обработке.")
 
-    final_result = merge_slurry_wall_specs(batch_results)
+    filtered_results = [
+        r for r in batch_results
+        if isinstance(r, (SlurryWallSpecs, type(None)))
+    ]
+    final_result = merge_slurry_wall_specs(filtered_results)
 
     print("--- ИТОГОВЫЙ РЕЗУЛЬТАТ ---")
     print(json.dumps(final_result, indent=2, ensure_ascii=False))
