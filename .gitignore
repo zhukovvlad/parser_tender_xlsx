@@ -30,3 +30,8 @@ tenders_xlsx/
 tenders_positions/
 prompts/
 logs/
+
+# Test reports
+*.html
+htmlcov/
+.coverage

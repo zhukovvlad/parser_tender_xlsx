@@ -91,6 +91,8 @@ JSON_KEY_COMMENT_ORGANIZER = "comment_organizer" # Комментарий орг
 JSON_KEY_UNIT = "unit"                           # Единица измерения (например, "шт.", "м2", "компл.")
 JSON_KEY_QUANTITY = "quantity"                   # Количество согласно тендерной документации (объем организатора)
 JSON_KEY_SUGGESTED_QUANTITY = "suggested_quantity" # Количество, предложенное участником (если отличается от объема организатора)
+JSON_KEY_IS_CHAPTER = "is_chapter"                 # Флаг, указывающий, является ли позиция разделом (группой) или позицией (работой)
+JSON_KEY_CHAPTER_REF = "chapter_ref"		     # Ссылка на родительский раздел
 
 # -- Ключи для стоимостных показателей внутри каждой позиции --
 JSON_KEY_UNIT_COST = "unit_cost"                 # JSON-объект: детализация стоимости за единицу
@@ -128,6 +130,8 @@ JSON_KEY_CONTRACTOR_ITEMS = "contractor_items"   # Общий ключ для JS
 JSON_KEY_CONTRACTOR_POSITIONS = "positions"      # Ключ для словаря детализированных позиций (внутри contractor_items)
 JSON_KEY_CONTRACTOR_SUMMARY = "summary"          # Ключ для словаря итоговых/суммирующих строк (внутри contractor_items)
 JSON_KEY_CONTRACTOR_ADDITIONAL_INFO = "additional_info" # Ключ для JSON-объекта с дополнительной информацией о подрядчике (из блока "Дополнительная информация")
+
+
 
 # -- Ключ для выделенного базового ("расчетного") предложения в рамках лота --
 JSON_KEY_BASELINE_PROPOSAL = "baseline_proposal" # Используется в постобработке для структурирования "Расчетной стоимости"
