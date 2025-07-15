@@ -61,7 +61,11 @@ def parse_file(xlsx_path: str) -> None:
 
     try:
         wb = openpyxl.load_workbook(source_path, data_only=True)
-        ws: Worksheet = wb.active
+        ws_raw = wb.active
+        if not isinstance(ws_raw, Worksheet):
+            logging.error(f"Активный лист не является Worksheet: {type(ws_raw)}")
+            return
+        ws: Worksheet = ws_raw
     except Exception:
         logging.exception(f"Не удалось загрузить или получить активный лист из файла '{source_path}'.")
         return
