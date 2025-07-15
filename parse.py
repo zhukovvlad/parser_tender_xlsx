@@ -35,11 +35,15 @@ from markdown_utils.positions_report import generate_reports_for_all_lots
 load_dotenv() # Загружаем переменные окружения из .env файла
 
 # Настройка логирования для вывода в консоль и в файл
+log_dir = Path("logs")
+os.makedirs(log_dir, exist_ok=True) # Создаем директорию, если ее нет
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("parser.log", mode='w', encoding='utf-8'),
+        # Записываем лог в файл внутри новой директории
+        logging.FileHandler(log_dir / "parser.log", mode='w', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
