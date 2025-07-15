@@ -104,11 +104,25 @@ def read_executer_block(ws: Worksheet) -> Dict[str, Optional[str]]:
                     pass
             elif cell_value_lower.startswith(date_prefix_lower):
                 try:
-                    # Извлекаем текст после ключевой фразы (в нижнем регистре)
-                    # Логика split(date_prefix_lower, 1)[1] означает, что date_prefix_lower - это разделитель
-                    executor_info[JSON_KEY_EXECUTOR_DATE] = cell_value_lower.split(date_prefix_lower, 1)[1].strip()
-                except IndexError:
-                    # Если после ключевой фразы ничего нет
+                    # 1. Берём всё, что находится ПОСЛЕ ключевой фразы
+                    prefix_len = len(TABLE_PARSE_PREPARATION_DATE)
+                    value_part = cell_value_raw[prefix_len:]
+
+                    # 2. Убираем пробелы в начале и смотрим, есть ли теперь впереди двоеточие
+                    if value_part.lstrip().startswith(':'):
+                        # Если да - это формат "Ключ: Значение".
+                        # Находим первое двоеточие и берем всё, что после него.
+                        colon_index = value_part.find(':')
+                        final_value = value_part[colon_index + 1:]
+                    else:
+                        # Если нет - это формат "Ключ Значение".
+                        # Значит, value_part уже содержит то, что нам нужно.
+                        final_value = value_part
+                    
+                    # 3. Записываем результат, очищенный от лишних пробелов
+                    executor_info[JSON_KEY_EXECUTOR_DATE] = final_value.strip()
+                except Exception:
+                    # Безопасная обработка на случай любых ошибок
                     pass
                         
     return executor_info
