@@ -8,14 +8,12 @@
 """
 
 from typing import Optional
+
 from openpyxl.worksheet.worksheet import Worksheet
 
 
 def find_row_by_first_column(
-    ws: Worksheet,
-    target_text: str,
-    start_row: int = 1,
-    end_row: Optional[int] = None
+    ws: Worksheet, target_text: str, start_row: int = 1, end_row: Optional[int] = None
 ) -> Optional[int]:
     """
     Ищет первую строку на листе Excel, в которой значение первой ячейки (колонка A)
@@ -40,7 +38,7 @@ def find_row_by_first_column(
         Optional[int]: Номер первой строки (1-индексация), удовлетворяющей условиям
             поиска. Возвращает `None`, если такая строка не найдена в указанном
             диапазоне.
-    
+
     Пример:
         Если в ячейке A5 листа `ws` находится текст "Пример текста для поиска",
         то вызов `find_row_by_first_column(ws, "текста для")` вернет `5`.
@@ -59,6 +57,6 @@ def find_row_by_first_column(
         # и содержит ли оно искомый текст (target_text).
         if isinstance(cell_value, str) and target_text in cell_value:
             return row_index  # Возвращаем номер строки, если условие выполнено
-            
+
     # Если ни одна строка не подошла под условия в заданном диапазоне.
     return None

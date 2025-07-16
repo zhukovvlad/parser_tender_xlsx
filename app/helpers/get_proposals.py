@@ -7,27 +7,31 @@
 Результатом является структурированный словарь всех предложений.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
 from openpyxl.worksheet.worksheet import Worksheet
 
-# Локальные импорты (из той же директории helpers)
-from .get_additional_info import get_additional_info
-from .get_positions import get_positions
-from .read_contractors import read_contractors # Эта функция возвращает список словарей подрядчиков
-
 # Импорт констант для ключей JSON
+from ..constants import JSON_KEY_CONTRACTOR_HEIGHT  # Используется для 'rowspan'
+from ..constants import JSON_KEY_CONTRACTOR_WIDTH  # Используется для 'colspan'
 from ..constants import (
     JSON_KEY_CONTRACTOR_ACCREDITATION,
     JSON_KEY_CONTRACTOR_ADDITIONAL_INFO,
     JSON_KEY_CONTRACTOR_ADDRESS,
     JSON_KEY_CONTRACTOR_COORDINATE,
-    JSON_KEY_CONTRACTOR_HEIGHT,      # Используется для 'rowspan'
     JSON_KEY_CONTRACTOR_INDEX,
     JSON_KEY_CONTRACTOR_INN,
     JSON_KEY_CONTRACTOR_ITEMS,
     JSON_KEY_CONTRACTOR_TITLE,
-    JSON_KEY_CONTRACTOR_WIDTH        # Используется для 'colspan'
 )
+
+# Локальные импорты (из той же директории helpers)
+from .get_additional_info import get_additional_info
+from .get_positions import get_positions
+from .read_contractors import (  # Эта функция возвращает список словарей подрядчиков
+    read_contractors,
+)
+
 
 def get_proposals(ws: Worksheet) -> Dict[str, Dict[str, Any]]:
     """
@@ -82,7 +86,7 @@ def get_proposals(ws: Worksheet) -> Dict[str, Dict[str, Any]]:
     proposals: Dict[str, Dict[str, Any]] = {}
 
     if not contractors_list:
-        return proposals # Нет подрядчиков - нет предложений
+        return proposals  # Нет подрядчиков - нет предложений
 
     # Итерация по списку подрядчиков, начиная со второго элемента (индекс 1),
     # так как первый элемент (индекс 0) часто является общим заголовком колонки.
@@ -96,8 +100,8 @@ def get_proposals(ws: Worksheet) -> Dict[str, Dict[str, Any]]:
 
         # Информация об объединении ячейки (если есть)
         merged_shape: Dict[str, int] = contractor_details.get("merged_shape", {})
-        rowspan: int = merged_shape.get("rowspan", 1) # Высота ячейки (по умолчанию 1)
-        colspan: int = merged_shape.get("colspan", 1) # Ширина ячейки (по умолчанию 1)
+        rowspan: int = merged_shape.get("rowspan", 1)  # Высота ячейки (по умолчанию 1)
+        colspan: int = merged_shape.get("colspan", 1)  # Ширина ячейки (по умолчанию 1)
 
         inn_val: Optional[str] = None
         address_val: Optional[str] = None
@@ -105,17 +109,27 @@ def get_proposals(ws: Worksheet) -> Dict[str, Dict[str, Any]]:
 
         # ИНН, адрес и аккредитация извлекаются только если заголовок подрядчика не объединен по строкам (rowspan == 1)
         # и если известны начальная строка и колонка.
-        if rowspan == 1 and contractor_row_start is not None and contractor_col_start is not None:
-            inn_val = ws.cell(row=contractor_row_start + 1, column=contractor_col_start).value
-            address_val = ws.cell(row=contractor_row_start + 2, column=contractor_col_start).value
-            accreditation_val = ws.cell(row=contractor_row_start + 3, column=contractor_col_start).value
-        
+        if (
+            rowspan == 1
+            and contractor_row_start is not None
+            and contractor_col_start is not None
+        ):
+            inn_val = ws.cell(
+                row=contractor_row_start + 1, column=contractor_col_start
+            ).value
+            address_val = ws.cell(
+                row=contractor_row_start + 2, column=contractor_col_start
+            ).value
+            accreditation_val = ws.cell(
+                row=contractor_row_start + 3, column=contractor_col_start
+            ).value
+
         # Получение детализированных позиций и дополнительной информации для текущего подрядчика
         # Функции get_positions и get_additional_info ожидают словарь contractor_details
         # с ключами "column_start" и "merged_shape".
         contractor_items_data = get_positions(ws, contractor_details)
         contractor_additional_info_data = get_additional_info(ws, contractor_details)
-        
+
         # Формирование итогового словаря для данного подрядчика
         # Ключ генерируется как "contractor_1", "contractor_2", и т.д. (i начинается с 1)
         proposal_key = f"{JSON_KEY_CONTRACTOR_INDEX}{i}"
@@ -125,10 +139,10 @@ def get_proposals(ws: Worksheet) -> Dict[str, Dict[str, Any]]:
             JSON_KEY_CONTRACTOR_ADDRESS: address_val,
             JSON_KEY_CONTRACTOR_ACCREDITATION: accreditation_val,
             JSON_KEY_CONTRACTOR_COORDINATE: contractor_coordinate,
-            JSON_KEY_CONTRACTOR_WIDTH: colspan,    # Ширина (colspan)
-            JSON_KEY_CONTRACTOR_HEIGHT: rowspan,   # Высота (rowspan)
+            JSON_KEY_CONTRACTOR_WIDTH: colspan,  # Ширина (colspan)
+            JSON_KEY_CONTRACTOR_HEIGHT: rowspan,  # Высота (rowspan)
             JSON_KEY_CONTRACTOR_ITEMS: contractor_items_data,
             JSON_KEY_CONTRACTOR_ADDITIONAL_INFO: contractor_additional_info_data,
         }
-            
+
     return proposals

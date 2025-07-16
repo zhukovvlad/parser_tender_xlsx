@@ -20,12 +20,13 @@
 
 import os
 import time
+
 import numpy as np
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text, event
-from sqlalchemy.engine import Engine
-from sentence_transformers import SentenceTransformer
 from pgvector.psycopg2 import register_vector
+from sentence_transformers import SentenceTransformer
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Engine
 
 # Загружаем переменные окружения из .env файла в окружение процесса.
 # Это позволяет безопасно хранить учетные данные вне кода и удобно
@@ -45,15 +46,18 @@ DB_NAME = os.getenv("DB_NAME", "tendersdb")
 
 # Формируем строку подключения для SQLAlchemy.
 # psycopg2 - это драйвер, который будет использоваться для работы с PostgreSQL.
-DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+DATABASE_URL = (
+    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+)
 
 # Название модели-трансформера для создания эмбеддингов.
-EMBEDDING_MODEL_NAME = 'paraphrase-multilingual-mpnet-base-v2'
+EMBEDDING_MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
 # Размерность вектора для этой модели. Важно, чтобы она совпадала с той, что указана в схеме БД (vector(768)).
 VECTOR_DIMENSION = 768
 
 
 # --- Основная логика ---
+
 
 def get_db_connection() -> Engine:
     """
@@ -85,77 +89,96 @@ def process_new_positions(engine: Engine, model: SentenceTransformer) -> int:
     """
     Находит в каталоге новые позиции без эмбеддингов, создает их и обновляет в БД.
     Использует `engine.begin()` для автоматического управления транзакцией.
-    
+
     :param engine: Движок SQLAlchemy для подключения к БД.
     :param model: Загруженная модель sentence-transformer.
     :return: Количество обработанных позиций.
     """
     print("Запуск обработки новых позиций...")
-    
+
     # Используем `engine.begin()` для автоматического управления транзакцией.
     # Этот блок сам получает соединение, начинает транзакцию,
     # и делает commit() при успехе или rollback() при ошибке.
     try:
         with engine.begin() as connection:
             # 1. Выполняем SELECT
-            query = text('SELECT id, standard_job_title, description FROM catalog_positions WHERE embedding IS NULL')
+            query = text(
+                "SELECT id, standard_job_title, description FROM catalog_positions WHERE embedding IS NULL"
+            )
             result = connection.execute(query)
             positions_to_embed = result.fetchall()
 
             if not positions_to_embed:
                 print("Новых позиций для создания эмбеддингов не найдено.")
                 return 0
-            
-            print(f"Найдено {len(positions_to_embed)} новых позиций для создания эмбеддингов.")
+
+            print(
+                f"Найдено {len(positions_to_embed)} новых позиций для создания эмбеддингов."
+            )
 
             ids = [row[0] for row in positions_to_embed]
-            texts_to_embed = [f"{row[1]}. {row[2]}" if row[2] else row[1] for row in positions_to_embed]
-            
+            texts_to_embed = [
+                f"{row[1]}. {row[2]}" if row[2] else row[1]
+                for row in positions_to_embed
+            ]
+
             print("Создание эмбеддингов (может занять время)...")
-            embeddings: np.ndarray = model.encode(texts_to_embed, show_progress_bar=True)
+            embeddings: np.ndarray = model.encode(
+                texts_to_embed, show_progress_bar=True
+            )
 
             print("Обновление записей в базе данных...")
-            
+
             # 2. Выполняем UPDATE в цикле в рамках той же транзакции
             for i, record_id in enumerate(ids):
                 embedding_numpy_array = embeddings[i]
-                update_query = text("UPDATE catalog_positions SET embedding = :embedding WHERE id = :id")
-                connection.execute(update_query, {"embedding": embedding_numpy_array, "id": record_id})
-            
+                update_query = text(
+                    "UPDATE catalog_positions SET embedding = :embedding WHERE id = :id"
+                )
+                connection.execute(
+                    update_query, {"embedding": embedding_numpy_array, "id": record_id}
+                )
+
             # 3. connection.commit() здесь НЕ НУЖЕН!
             # Блок `with` сделает это автоматически при выходе из него.
-            print(f"Успешно обработано {len(ids)} записей. Транзакция будет автоматически подтверждена.")
-            
+            print(
+                f"Успешно обработано {len(ids)} записей. Транзакция будет автоматически подтверждена."
+            )
+
             return len(ids)
     except Exception as e:
         print(f"Ошибка во время транзакции, изменения будут отменены. Ошибка: {e}")
         # `with`-блок автоматически выполнит rollback
-        return -1 # Возвращаем -1 или бросаем исключение дальше в знак ошибки
+        return -1  # Возвращаем -1 или бросаем исключение дальше в знак ошибки
 
 
 if __name__ == "__main__":
     print("--- Запуск воркера для создания эмбеддингов ---")
-    
+
     try:
         print(f"Загрузка модели '{EMBEDDING_MODEL_NAME}'...")
         embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
         # Проверка, что размерность модели совпадает с ожидаемой.
         model_dim = embedding_model.get_sentence_embedding_dimension()
         if model_dim != VECTOR_DIMENSION:
-            print(f"ПРЕДУПРЕЖДЕНИЕ: Размерность модели ({model_dim}) не совпадает с ожидаемой ({VECTOR_DIMENSION})!")
+            print(
+                f"ПРЕДУПРЕЖДЕНИЕ: Размерность модели ({model_dim}) не совпадает с ожидаемой ({VECTOR_DIMENSION})!"
+            )
             print("Пожалуйста, обновите константу VECTOR_DIMENSION или схему БД.")
 
         print("Инициализация соединения с базой данных...")
         db_engine = get_db_connection()
-        
+
         # Пробное соединение, чтобы убедиться, что подключение работает
         # и листенер для pgvector будет активирован.
         with db_engine.connect():
-            print("Пробное соединение с БД успешно. Адаптер pgvector активен для последующих запросов.")
-            
+            print(
+                "Пробное соединение с БД успешно. Адаптер pgvector активен для последующих запросов."
+            )
+
         # Запуск основной логики обработки
         process_new_positions(db_engine, embedding_model)
-        
+
         print("\n--- Работа воркера успешно завершена. ---")
 
     except Exception as e:

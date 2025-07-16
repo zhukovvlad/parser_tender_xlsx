@@ -11,13 +11,14 @@
 Для управления фоновыми задачами используется встроенный механизм BackgroundTasks.
 Статусы задач хранятся в памяти (для демонстрационных целей).
 """
+
 import logging
 import os
 import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 
 # Убедитесь, что все импорты внутри пакета app используют относительный синтаксис (с точкой)
 from app.parse import parse_file
@@ -31,14 +32,15 @@ tasks_db = {}
 app = FastAPI(
     title="Tender Parser Service",
     description="Сервис для асинхронной обработки тендерных XLSX файлов.",
-    version="2.0.0"
+    version="2.0.0",
 )
 
 UPLOAD_DIRECTORY = Path("temp_uploads")
 os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 log = logging.getLogger(__name__)
 
 
@@ -58,19 +60,24 @@ def run_parsing_in_background(task_id: str, file_path: str):
 
 
 @app.post("/parse-tender/", status_code=202, tags=["Tender Processing"])
-async def create_parsing_task(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def create_parsing_task(
+    background_tasks: BackgroundTasks, file: UploadFile = File(...)
+):
     """
     Принимает файл, создает для него уникальную задачу и запускает
     обработку в фоновом режиме, немедленно возвращая ID задачи.
     """
-    if not file.filename or not file.filename.endswith(('.xlsx', '.xls')):
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(
-            status_code=400, detail="Неверный формат файла. Пожалуйста, загрузите XLSX или XLS файл.")
+            status_code=400,
+            detail="Неверный формат файла. Пожалуйста, загрузите XLSX или XLS файл.",
+        )
 
     task_id = str(uuid.uuid4())
     temp_file_path = UPLOAD_DIRECTORY / f"{task_id}_{file.filename}"
     log.info(
-        f"Task {task_id}: Получен файл {file.filename}. Сохранение в: {temp_file_path}")
+        f"Task {task_id}: Получен файл {file.filename}. Сохранение в: {temp_file_path}"
+    )
 
     try:
         with open(temp_file_path, "wb") as buffer:
@@ -78,12 +85,12 @@ async def create_parsing_task(background_tasks: BackgroundTasks, file: UploadFil
     except Exception as e:
         log.error(f"Task {task_id}: Не удалось сохранить файл: {e}")
         raise HTTPException(
-            status_code=500, detail="Не удалось сохранить файл на сервере.")
+            status_code=500, detail="Не удалось сохранить файл на сервере."
+        )
     finally:
         file.file.close()
 
-    background_tasks.add_task(
-        run_parsing_in_background, task_id, str(temp_file_path))
+    background_tasks.add_task(run_parsing_in_background, task_id, str(temp_file_path))
 
     return {"task_id": task_id, "message": "Задача по обработке файла принята."}
 
@@ -95,8 +102,7 @@ async def get_task_status(task_id: str):
     """
     task = tasks_db.get(task_id)
     if not task:
-        raise HTTPException(
-            status_code=404, detail="Задача с таким ID не найдена.")
+        raise HTTPException(status_code=404, detail="Задача с таким ID не найдена.")
     return task
 
 

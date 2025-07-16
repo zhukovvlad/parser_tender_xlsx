@@ -25,15 +25,18 @@
 но с потенциально измененными или добавленными полями в "metadata".
 """
 
-import re
 import json
-from typing import List, Dict, Any, Optional
+import re
+from typing import Any, Dict, List, Optional
 
 # Имена входного и выходного файлов жестко заданы в скрипте
 INPUT_FILENAME = "tender_chunks.json"
 OUTPUT_FILENAME = "tender_chunks_cleaned.json"
 
-def clean_and_parse_chunk_metadata(chunks_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+def clean_and_parse_chunk_metadata(
+    chunks_data: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
     """
     Обрабатывает список чанков, очищая и дополняя их метаданные.
 
@@ -53,21 +56,22 @@ def clean_and_parse_chunk_metadata(chunks_data: List[Dict[str, Any]]) -> List[Di
         # Однако, если чанки большие, это может быть неэффективно.
         # В данном случае, исходный скрипт модифицировал 'meta' на месте и добавлял
         # новый словарь в cleaned_chunks. Это нормально.
-        meta = chunk.get("metadata", {}).copy() # Работаем с копией метаданных
+        meta = chunk.get("metadata", {}).copy()  # Работаем с копией метаданных
         text_content = chunk.get("text", "")
 
         # 1. Очистка поля "contractor"
         contractor_val: Optional[str] = meta.get("contractor")
         if contractor_val and isinstance(contractor_val, str):
             # Регистронезависимое удаление префикса "Подрядчик:" и пробелов вокруг
-            match_contractor_prefix = re.match(r"Подрядчик:\s*(.*)", contractor_val, re.IGNORECASE)
+            match_contractor_prefix = re.match(
+                r"Подрядчик:\s*(.*)", contractor_val, re.IGNORECASE
+            )
             if match_contractor_prefix:
                 meta["contractor"] = match_contractor_prefix.group(1).strip()
             # Альтернативно, если всегда "Подрядчик:" с большой буквы, как в вашем replace:
             # if contractor_val.lower().startswith("подрядчик:"):
             #     # Удаляем точную длину префикса "Подрядчик:" (10 символов)
             #     meta["contractor"] = contractor_val[len("Подрядчик:"):].strip()
-
 
         # 2. Обработка поля "position"
         position_val: Optional[str] = meta.get("position")
@@ -81,15 +85,18 @@ def clean_and_parse_chunk_metadata(chunks_data: List[Dict[str, Any]]) -> List[Di
                     meta["position_title"] = match_position.group(2).strip()
                 except ValueError:
                     # Если номер позиции не удалось преобразовать в int, пропускаем
-                    print(f"Warning: Could not parse position_number from '{match_position.group(1)}'")
-
+                    print(
+                        f"Warning: Could not parse position_number from '{match_position.group(1)}'"
+                    )
 
         # 3. Обработка поля "section"
         section_val: Optional[str] = meta.get("section")
         if section_val and isinstance(section_val, str):
             # Пример строки: '📘 Раздел 1: Название раздела' или '📘 Раздел 1'
             # Извлекаем ID раздела и, опционально, его название
-            match_section = re.match(r"📘\s*Раздел\s*(\d+)(?::\s*(.*))?", section_val.strip())
+            match_section = re.match(
+                r"📘\s*Раздел\s*(\d+)(?::\s*(.*))?", section_val.strip()
+            )
             if match_section:
                 try:
                     meta["section_id"] = int(match_section.group(1))
@@ -97,15 +104,16 @@ def clean_and_parse_chunk_metadata(chunks_data: List[Dict[str, Any]]) -> List[Di
                     if match_section.group(2) and match_section.group(2).strip():
                         meta["section_title"] = match_section.group(2).strip()
                 except ValueError:
-                     print(f"Warning: Could not parse section_id from '{match_section.group(1)}'")
+                    print(
+                        f"Warning: Could not parse section_id from '{match_section.group(1)}'"
+                    )
 
+        processed_chunks.append(
+            {"text": text_content, "metadata": meta}  # Добавляем обновленные метаданные
+        )
 
-        processed_chunks.append({
-            "text": text_content,
-            "metadata": meta  # Добавляем обновленные метаданные
-        })
-    
     return processed_chunks
+
 
 def main():
     """
@@ -125,13 +133,16 @@ def main():
     print(f"Обработка {len(chunks_from_file)} чанков...")
     cleaned_chunks_data = clean_and_parse_chunk_metadata(chunks_from_file)
 
-    print(f"Сохранение {len(cleaned_chunks_data)} обработанных чанков в {OUTPUT_FILENAME}...")
+    print(
+        f"Сохранение {len(cleaned_chunks_data)} обработанных чанков в {OUTPUT_FILENAME}..."
+    )
     try:
         with open(OUTPUT_FILENAME, "w", encoding="utf-8") as f:
             json.dump(cleaned_chunks_data, f, ensure_ascii=False, indent=2)
         print("Сохранение успешно завершено.")
     except IOError:
         print(f"Ошибка: Не удалось записать данные в файл '{OUTPUT_FILENAME}'.")
+
 
 if __name__ == "__main__":
     main()

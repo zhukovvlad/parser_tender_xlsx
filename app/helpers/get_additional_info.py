@@ -7,13 +7,17 @@
 в колонке, соответствующей подрядчику.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
+
 from openpyxl.worksheet.worksheet import Worksheet
+
+from ..constants import SEARCH_KEYWORD_ADDITIONAL_INFO
 
 # Локальные импорты (из той же директории helpers)
 from .find_row_by_first_column import find_row_by_first_column
-from ..constants import SEARCH_KEYWORD_ADDITIONAL_INFO
+
 # Импорт parse_contractor_row был удален, так как он не используется в этой функции.
+
 
 def get_additional_info(ws: Worksheet, contractor: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -69,12 +73,12 @@ def get_additional_info(ws: Worksheet, contractor: Dict[str, Any]) -> Dict[str, 
         }
     """
     additional_info: Dict[str, Any] = {}
-    
+
     # Поиск строки, с которой начинается блок "Дополнительная информация"
     header_row_num = find_row_by_first_column(ws, SEARCH_KEYWORD_ADDITIONAL_INFO)
 
     if not header_row_num:
-        return additional_info # Блок не найден, возвращаем пустой словарь
+        return additional_info  # Блок не найден, возвращаем пустой словарь
 
     # Данные начинаются со строки, следующей за заголовком
     current_row_num = header_row_num + 1
@@ -97,7 +101,7 @@ def get_additional_info(ws: Worksheet, contractor: Dict[str, Any]) -> Dict[str, 
         # Получаем ключ из второй колонки (B)
         key_cell_obj = ws.cell(row=current_row_num, column=2)
         key_data = key_cell_obj.value
-        
+
         # Получаем значение из колонки подрядчика
         value_cell_obj = ws.cell(row=current_row_num, column=contractor_data_col)
         value_data = value_cell_obj.value
@@ -107,14 +111,14 @@ def get_additional_info(ws: Worksheet, contractor: Dict[str, Any]) -> Dict[str, 
         processed_key = None
         if key_data is not None:
             processed_key = str(key_data).strip()
-            if not processed_key: # Если после strip ключ стал пустой строкой
+            if not processed_key:  # Если после strip ключ стал пустой строкой
                 processed_key = None
-        
+
         # Обрабатываем значение: приводим к строке и удаляем лишние пробелы.
         # Если значение None, оно будет заменено на пустую строку.
         processed_value = str(value_data).strip() if value_data is not None else ""
 
-        if processed_key: # Добавляем, только если ключ существует и не пуст
+        if processed_key:  # Добавляем, только если ключ существует и не пуст
             additional_info[processed_key] = processed_value
 
         current_row_num += 1

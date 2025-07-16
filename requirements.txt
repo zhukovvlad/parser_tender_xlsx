@@ -2,6 +2,8 @@
 fastapi
 uvicorn[standard]
 python-multipart
+pydantic
+pydantic-settings
 
 # --- Основная логика парсера и работа с данными ---
 openpyxl>=3.1.2
@@ -17,3 +19,14 @@ pytest
 pytest-cov
 pytest-html
 pytest-mock
+pytest-asyncio
+
+# --- Инструменты качества кода ---
+black
+isort
+flake8
+flake8-bugbear
+flake8-import-order
+bandit
+mypy
+pre-commit

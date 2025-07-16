@@ -15,25 +15,30 @@
 4.  **Сохранение**: Результаты для каждого обработанного лота сохраняются в
     отдельный, версионированный JSON-файл.
 """
+
 import json
 import logging
 import math
 import os
 import re
-import requests
+from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import List, Optional, Any, Dict
-from collections import Counter
+from typing import Any, Dict, List, Optional
+
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # Импорт промптов из локального модуля
 from prompts import (
-    CLASSIFIER_PROMPT, SINGLE_RECORD_CLASSIFIER_PROMPT, GROUNDWORKS_CATEGORY_PROMPT
+    CLASSIFIER_PROMPT,
+    GROUNDWORKS_CATEGORY_PROMPT,
+    SINGLE_RECORD_CLASSIFIER_PROMPT,
 )
+
 
 # --- 1. КОНФИГУРАЦИЯ ---
 @dataclass
@@ -54,6 +59,7 @@ class Config:
         OUTPUT_DIR (Path): Каталог для сохранения итоговых JSON-файлов.
         VERIFY_SSL (bool): Флаг для проверки SSL-сертификата сервера.
     """
+
     # <--- Укажите адрес вашего сервера Ollama в .env
     OLLAMA_URL: str = os.getenv("OLLAMA_URL")
     # <--- Если требуется токен, укажите его в .env
@@ -65,22 +71,28 @@ class Config:
     OUTPUT_DIR: Path = Path("tender_categories")
     VERIFY_SSL: bool = False
 
+
 # --- 2. КЛАССЫ ДАННЫХ ---
+
 
 @dataclass
 class ExtractedParameter:
     """Структура для хранения одного извлеченного параметра."""
+
     category: str
     parameter: str
     value: Any
     unit: Optional[str]
 
+
 @dataclass
 class Record:
     """Представление одной записи (позиции) внутри лота."""
+
     record_id: int
     text: str
     title: str
+
 
 @dataclass
 class LotData:
@@ -90,6 +102,7 @@ class LotData:
     Хранит как исходные данные, так и результаты их обработки:
     определенную категорию, извлеченные параметры и возможные ошибки.
     """
+
     lot_number: int
     lot_title: str
     raw_text: str
@@ -97,6 +110,7 @@ class LotData:
     detected_category: Optional[str] = None
     extracted_params: List[ExtractedParameter] = field(default_factory=list)
     error: Optional[str] = None
+
 
 # --- 3. МАРШРУТИЗАТОР ПРОМПТОВ ---
 EXTRACTION_PROMPTS = {
@@ -106,8 +120,9 @@ EXTRACTION_PROMPTS = {
 
 # --- 4. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ И ЛОГИКА ---
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
 def parse_source_file(file_path: Path) -> List[LotData]:
@@ -127,10 +142,14 @@ def parse_source_file(file_path: Path) -> List[LotData]:
         return []
     text = file_path.read_text(encoding="utf-8")
     pattern = re.compile(
-        r"# Детализированный отчет по позициям для лота\s*-\s*Лот №(?P<lot_number>\d+)\s*-\s*(?P<lot_title>.+)", re.IGNORECASE)
+        r"# Детализированный отчет по позициям для лота\s*-\s*Лот №(?P<lot_number>\d+)\s*-\s*(?P<lot_title>.+)",
+        re.IGNORECASE,
+    )
     matches = list(pattern.finditer(text))
     if not matches:
-        logging.error(f"Не удалось найти лоты в файле {file_path}. Проверьте формат данных.")
+        logging.error(
+            f"Не удалось найти лоты в файле {file_path}. Проверьте формат данных."
+        )
         return []
 
     lots = []
@@ -140,7 +159,7 @@ def parse_source_file(file_path: Path) -> List[LotData]:
         lot = LotData(
             lot_number=int(match.group("lot_number")),
             lot_title=match.group("lot_title").strip(),
-            raw_text=text[start:end].strip()
+            raw_text=text[start:end].strip(),
         )
         lot.records = parse_lot_records(lot.raw_text)
         lots.append(lot)
@@ -158,19 +177,27 @@ def parse_lot_records(raw_text: str) -> List[Record]:
     Returns:
         List[Record]: Список записей, найденных в тексте.
     """
-    blocks = re.split(r'(?=\n\*\*Наименование:)', raw_text.strip(), flags=re.IGNORECASE)
+    blocks = re.split(r"(?=\n\*\*Наименование:)", raw_text.strip(), flags=re.IGNORECASE)
     records = []
     for i, block in enumerate(filter(None, blocks)):
-        title_match = re.search(r'\*\*Наименование:?\*\*\s*(.*)', block.strip())
-        records.append(Record(
-            record_id=i,
-            text=block.strip(),
-            title=title_match.group(1).strip() if title_match else "Неизвестная позиция"
-        ))
+        title_match = re.search(r"\*\*Наименование:?\*\*\s*(.*)", block.strip())
+        records.append(
+            Record(
+                record_id=i,
+                text=block.strip(),
+                title=(
+                    title_match.group(1).strip()
+                    if title_match
+                    else "Неизвестная позиция"
+                ),
+            )
+        )
     return records
 
 
-def run_llm_request(prompt: str, user_content: str, config: Config) -> Optional[Dict[str, Any]]:
+def run_llm_request(
+    prompt: str, user_content: str, config: Config
+) -> Optional[Dict[str, Any]]:
     """
     Выполняет синхронный запрос к LLM и возвращает ответ в виде словаря.
 
@@ -197,27 +224,31 @@ def run_llm_request(prompt: str, user_content: str, config: Config) -> Optional[
                 "model": config.MODEL_NAME,
                 "messages": [
                     {"role": "system", "content": prompt},
-                    {"role": "user", "content": user_content}
+                    {"role": "user", "content": user_content},
                 ],
                 "stream": False,
-                "options": {"temperature": 0.0}
+                "options": {"temperature": 0.0},
             },
             headers=headers,
             timeout=config.TIMEOUT,
-            verify=config.VERIFY_SSL
+            verify=config.VERIFY_SSL,
         )
         response.raise_for_status()
         j = response.json()
         if "message" not in j or "content" not in j["message"]:
-            logging.error(f"Некорректный ответ от LLM: {j.get('error', 'Отсутствует поле message.content')}")
+            logging.error(
+                f"Некорректный ответ от LLM: {j.get('error', 'Отсутствует поле message.content')}"
+            )
             return None
 
         response_text = j["message"]["content"]
-        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
         if json_match:
             return json.loads(json_match.group(0))
 
-        logging.warning(f"В ответе LLM не найден JSON-объект. Ответ: {response_text[:200]}...")
+        logging.warning(
+            f"В ответе LLM не найден JSON-объект. Ответ: {response_text[:200]}..."
+        )
         return None
 
     except requests.Timeout:
@@ -249,20 +280,27 @@ def process_lot(lot: LotData, config: Config):
 
     # --- ШАГ 1: Быстрая классификация по срезу записей ---
     logging.info("Шаг 1: Быстрая классификация...")
-    sample_records = lot.records[:min(10, len(lot.records))]
+    sample_records = lot.records[: min(10, len(lot.records))]
     classifier_input = f"lot_title: {lot.lot_title}\nraw_text: {' '.join(rec.title for rec in sample_records)}"
     category_response = run_llm_request(CLASSIFIER_PROMPT, classifier_input, config)
     detected_category = category_response.get("category") if category_response else None
 
     # --- ШАГ 2: Детальный анализ при неопределенной категории ---
     if not detected_category or detected_category in ["прочее", "генподряд"]:
-        logging.warning(f"Результат быстрой проверки неоднозначен ('{detected_category}'). Запускаю детальный анализ...")
+        logging.warning(
+            f"Результат быстрой проверки неоднозначен ('{detected_category}'). Запускаю детальный анализ..."
+        )
         all_categories = []
         for record in lot.records:
             # Пропускаем очевидно нерелевантные записи
-            if "оформление" in record.title.lower() or "гаранти" in record.title.lower():
+            if (
+                "оформление" in record.title.lower()
+                or "гаранти" in record.title.lower()
+            ):
                 continue
-            cat_resp = run_llm_request(SINGLE_RECORD_CLASSIFIER_PROMPT, record.title, config)
+            cat_resp = run_llm_request(
+                SINGLE_RECORD_CLASSIFIER_PROMPT, record.title, config
+            )
             if cat_resp and "category" in cat_resp:
                 all_categories.append(cat_resp["category"])
         if all_categories:
@@ -271,18 +309,26 @@ def process_lot(lot: LotData, config: Config):
 
     lot.detected_category = detected_category
     if not lot.detected_category:
-        lot.error = "Не удалось определить категорию лота даже после детального анализа."
+        lot.error = (
+            "Не удалось определить категорию лота даже после детального анализа."
+        )
         logging.error(f"Лот №{lot.lot_number}: {lot.error}")
         return
-    logging.info(f"Лоту №{lot.lot_number} присвоена итоговая категория: '{lot.detected_category}'")
+    logging.info(
+        f"Лоту №{lot.lot_number} присвоена итоговая категория: '{lot.detected_category}'"
+    )
 
     # --- ШАГ 3: Извлечение параметров по батчам ---
     extraction_prompt = EXTRACTION_PROMPTS.get(lot.detected_category)
     if not extraction_prompt:
-        logging.warning(f"Для категории '{lot.detected_category}' не найден промпт. Извлечение параметров пропущено.")
+        logging.warning(
+            f"Для категории '{lot.detected_category}' не найден промпт. Извлечение параметров пропущено."
+        )
         return
 
-    logging.info(f"Шаг 3: Запускаю извлечение параметров для '{lot.detected_category}'.")
+    logging.info(
+        f"Шаг 3: Запускаю извлечение параметров для '{lot.detected_category}'."
+    )
     num_batches = math.ceil(len(lot.records) / config.BATCH_SIZE)
     for i in range(num_batches):
         batch_start = i * config.BATCH_SIZE
@@ -290,7 +336,9 @@ def process_lot(lot: LotData, config: Config):
         current_batch = lot.records[batch_start:batch_end]
         logging.info(f"  - Отправка пакета {i+1}/{num_batches}...")
 
-        batch_prompt_lines = [f"[RECORD_ID={record.record_id}]\n{record.text}" for record in current_batch]
+        batch_prompt_lines = [
+            f"[RECORD_ID={record.record_id}]\n{record.text}" for record in current_batch
+        ]
         batch_to_process = "\n---END_OF_RECORD---\n".join(batch_prompt_lines)
 
         parsed_data = run_llm_request(extraction_prompt, batch_to_process, config)
@@ -303,7 +351,9 @@ def process_lot(lot: LotData, config: Config):
             for params_dict in params_list:
                 lot.extracted_params.append(ExtractedParameter(**params_dict))
                 extracted_count += 1
-        logging.info(f"  - [ОК] Пакет {i+1} обработан. Извлечено {extracted_count} параметров.")
+        logging.info(
+            f"  - [ОК] Пакет {i+1} обработан. Извлечено {extracted_count} параметров."
+        )
 
 
 def save_results(lot: LotData, config: Config):
@@ -325,7 +375,7 @@ def save_results(lot: LotData, config: Config):
     src_name = config.INPUT_FILE.stem
     category_slug = lot.detected_category.replace(" ", "_")
     filename = f"{src_name}.lot_{lot.lot_number}.{category_slug}_{ts}.json"
-    
+
     filepath = config.OUTPUT_DIR / filename
     output_data = [param.__dict__ for param in lot.extracted_params]
 
@@ -338,9 +388,11 @@ def main():
     """Главная исполняющая функция скрипта."""
     config = Config()
     if not config.OLLAMA_URL or not config.MODEL_NAME:
-        logging.error("Переменные окружения OLLAMA_URL и OLLAMA_MODEL должны быть установлены. Завершение работы.")
+        logging.error(
+            "Переменные окружения OLLAMA_URL и OLLAMA_MODEL должны быть установлены. Завершение работы."
+        )
         return
-        
+
     all_lots = parse_source_file(config.INPUT_FILE)
     if not all_lots:
         logging.info("Нет лотов для обработки. Завершение работы.")
