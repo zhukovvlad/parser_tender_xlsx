@@ -11,7 +11,7 @@ from typing import Dict, Optional
 from openpyxl.worksheet.worksheet import Worksheet
 
 # Импорт констант, используемых для ключей JSON и поиска текстовых маркеров
-from constants import (
+from ..constants import (
     JSON_KEY_EXECUTOR_DATE,
     JSON_KEY_EXECUTOR_NAME,
     JSON_KEY_EXECUTOR_PHONE,

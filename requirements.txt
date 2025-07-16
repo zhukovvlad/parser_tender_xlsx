@@ -1,3 +1,9 @@
+# --- Зависимости для веб-сервиса ---
+fastapi
+uvicorn[standard]
+python-multipart
+
+# --- Основная логика парсера и работа с данными ---
 openpyxl>=3.1.2
 langchain
 pandas>=2.1.0
@@ -5,6 +11,8 @@ pgvector>=0.2.0
 sentence-transformers>=2.2.2
 psycopg2-binary>=2.9.0
 sqlalchemy>=2.0.0
+
+# --- Зависимости для тестирования ---
 pytest
 pytest-cov
 pytest-html

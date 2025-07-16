@@ -15,7 +15,7 @@ from typing import List, Dict, Any, Optional
 from openpyxl.worksheet.worksheet import Worksheet
 
 # Локальные импорты (из той же директории helpers)
-from constants import TABLE_PARSE_CONTRACTOR_TITLE
+from ..constants import TABLE_PARSE_CONTRACTOR_TITLE
 from .build_merged_shape_map import build_merged_shape_map
 
 

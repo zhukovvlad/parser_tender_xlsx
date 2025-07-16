@@ -17,7 +17,7 @@ import copy
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from constants import (
+from ..constants import (
     JSON_KEY_BASELINE_PROPOSAL, JSON_KEY_CHAPTER_NUMBER,
     JSON_KEY_CHAPTER_REF, JSON_KEY_CONTRACTOR_ADDITIONAL_INFO,
     JSON_KEY_CONTRACTOR_INDEX, JSON_KEY_CONTRACTOR_ITEMS,

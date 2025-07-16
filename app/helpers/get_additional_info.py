@@ -12,7 +12,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 # Локальные импорты (из той же директории helpers)
 from .find_row_by_first_column import find_row_by_first_column
-from constants import SEARCH_KEYWORD_ADDITIONAL_INFO
+from ..constants import SEARCH_KEYWORD_ADDITIONAL_INFO
 # Импорт parse_contractor_row был удален, так как он не используется в этой функции.
 
 def get_additional_info(ws: Worksheet, contractor: Dict[str, Any]) -> Dict[str, Any]:

@@ -16,8 +16,8 @@ markdown_utils/json_to_markdown.py
 """
 from typing import Dict, Any, List, Tuple, Optional
 
-from helpers.sanitize_text import sanitize_object_and_address_text, sanitize_text
-from constants import (
+from ..helpers.sanitize_text import sanitize_object_and_address_text, sanitize_text
+from ..constants import (
     JSON_KEY_BASELINE_PROPOSAL, JSON_KEY_COMMENT_CONTRACTOR, JSON_KEY_COMMENT_ORGANIZER,
     JSON_KEY_CONTRACTOR_ACCREDITATION, JSON_KEY_CONTRACTOR_ADDITIONAL_INFO,
     JSON_KEY_CONTRACTOR_ADDRESS, JSON_KEY_CONTRACTOR_INN, JSON_KEY_CONTRACTOR_ITEMS,

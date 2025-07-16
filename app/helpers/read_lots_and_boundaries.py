@@ -11,7 +11,7 @@ from typing import Dict, Any
 from openpyxl.worksheet.worksheet import Worksheet
 
 # Импорт констант, используемых для ключей JSON и для поиска лотов
-from constants import (
+from ..constants import (
     JSON_KEY_LOT_INDEX,
     JSON_KEY_LOT_TITLE,
     JSON_KEY_PROPOSALS,

@@ -10,14 +10,14 @@
 from typing import Dict, Any
 from openpyxl.worksheet.worksheet import Worksheet
 
-from helpers.sanitize_text import normalize_job_title_with_lemmatization
+from .sanitize_text import normalize_job_title_with_lemmatization
 
 # Локальные импорты (из той же директории helpers)
 from .get_items_dict import get_items_dict
 from .parse_contractor_row import parse_contractor_row
 
 # Импорт констант
-from constants import (
+from ..constants import (
     START_INDEXING_POSITION_ROW,
     JSON_KEY_NUMBER,
     JSON_KEY_CHAPTER_NUMBER,

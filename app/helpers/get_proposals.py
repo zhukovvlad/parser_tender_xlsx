@@ -16,7 +16,7 @@ from .get_positions import get_positions
 from .read_contractors import read_contractors # Эта функция возвращает список словарей подрядчиков
 
 # Импорт констант для ключей JSON
-from constants import (
+from ..constants import (
     JSON_KEY_CONTRACTOR_ACCREDITATION,
     JSON_KEY_CONTRACTOR_ADDITIONAL_INFO,
     JSON_KEY_CONTRACTOR_ADDRESS,

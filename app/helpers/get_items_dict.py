@@ -9,7 +9,7 @@
 """
 
 from typing import Dict, Any
-from constants import (
+from ..constants import (
     JSON_KEY_ARTICLE_SMR,
     JSON_KEY_CHAPTER_NUMBER,
     JSON_KEY_COMMENT_CONTRACTOR,

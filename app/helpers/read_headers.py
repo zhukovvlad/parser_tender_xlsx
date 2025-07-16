@@ -11,7 +11,7 @@ from typing import Dict, Optional, List
 from openpyxl.worksheet.worksheet import Worksheet
 
 # Импорт констант, используемых для ключей JSON и поиска текстовых маркеров
-from constants import (
+from ..constants import (
     JSON_KEY_TENDER_ADDRESS,
     JSON_KEY_TENDER_ID,
     JSON_KEY_TENDER_OBJECT,
@@ -20,7 +20,7 @@ from constants import (
     TABLE_PARSE_OBJECT,
     TABLE_PARSE_TENDER_SUBJECT
 )
-from helpers.sanitize_text import sanitize_text
+from ..helpers.sanitize_text import sanitize_text
 
 def read_headers(ws: Worksheet) -> Dict[str, Optional[str]]:
     """

@@ -22,15 +22,15 @@ import openpyxl
 from openpyxl.worksheet.worksheet import Worksheet
 
 # --- Ваши импорты ---
-from constants import JSON_KEY_EXECUTOR, JSON_KEY_LOTS
-from helpers.postprocess import normalize_lots_json_structure, replace_div0_with_null
-from helpers.read_headers import read_headers
-from helpers.read_lots_and_boundaries import read_lots_and_boundaries
-from helpers.read_executer_block import read_executer_block
-from markdown_utils.json_to_markdown import json_to_markdown
-from markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
-from json_to_server.send_json_to_go_server import send_json_to_go_server
-from markdown_utils.positions_report import generate_reports_for_all_lots
+from .constants import JSON_KEY_EXECUTOR, JSON_KEY_LOTS
+from .helpers.postprocess import normalize_lots_json_structure, replace_div0_with_null
+from .helpers.read_headers import read_headers
+from .helpers.read_lots_and_boundaries import read_lots_and_boundaries
+from .helpers.read_executer_block import read_executer_block
+from .markdown_utils.json_to_markdown import json_to_markdown
+from .markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
+from .json_to_server.send_json_to_go_server import send_json_to_go_server
+from .markdown_utils.positions_report import generate_reports_for_all_lots
 
 load_dotenv() # Загружаем переменные окружения из .env файла
 

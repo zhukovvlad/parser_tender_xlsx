@@ -13,7 +13,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.cell import Cell # Для аннотации типа списка ячеек
 
 # Импорт необходимых констант для ключей JSON
-from constants import (
+from ..constants import (
     JSON_KEY_SUGGESTED_QUANTITY,
     JSON_KEY_UNIT_COST,
     JSON_KEY_MATERIALS,
