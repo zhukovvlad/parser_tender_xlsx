@@ -7,17 +7,23 @@
 как он агрегирует предложения подрядчиков для каждого лота.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
+
 from openpyxl.worksheet.worksheet import Worksheet
 
 # Импорт констант, используемых для ключей JSON и для поиска лотов
 from ..constants import (
+    PARSE_TABLE_LOT_NUMBER,  # Ожидаемый текстовый маркер для начала лота, например, "лот №"
+)
+from ..constants import (
+    START_INDEXING_LOT_ROW,  # Номер строки, с которой начинается поиск лотов
+)
+from ..constants import (
     JSON_KEY_LOT_INDEX,
     JSON_KEY_LOT_TITLE,
     JSON_KEY_PROPOSALS,
-    PARSE_TABLE_LOT_NUMBER,  # Ожидаемый текстовый маркер для начала лота, например, "лот №"
-    START_INDEXING_LOT_ROW   # Номер строки, с которой начинается поиск лотов
 )
+
 # Локальный импорт функции для получения предложений подрядчиков
 from .get_proposals import get_proposals
 
@@ -78,18 +84,21 @@ def read_lots_and_boundaries(ws: Worksheet) -> Dict[str, Dict[str, Any]]:
 
         # Проверяем, является ли значение строкой и начинается ли оно
         # с маркера лота (например, "лот №"), регистронезависимо.
-        if isinstance(cell_value_col_d, str) and \
-           cell_value_col_d.strip().lower().startswith(PARSE_TABLE_LOT_NUMBER.lower()):
-            
+        if isinstance(
+            cell_value_col_d, str
+        ) and cell_value_col_d.strip().lower().startswith(
+            PARSE_TABLE_LOT_NUMBER.lower()
+        ):
+
             # Обнаружено начало нового лота
             lot_key = f"{JSON_KEY_LOT_INDEX}{lot_counter}"
-            
+
             # Сохраняем информацию о лоте.
             # Обратите внимание на вызов get_proposals(ws) - см. ВАЖНОЕ ЗАМЕЧАНИЕ в докстринге.
             found_lots_data[lot_key] = {
                 JSON_KEY_LOT_TITLE: cell_value_col_d.strip(),
-                JSON_KEY_PROPOSALS: get_proposals(ws) 
+                JSON_KEY_PROPOSALS: get_proposals(ws),
             }
-            lot_counter += 1 # Увеличиваем счетчик для следующего лота
-                
+            lot_counter += 1  # Увеличиваем счетчик для следующего лота
+
     return found_lots_data

@@ -35,5 +35,19 @@ logs/
 *.html
 htmlcov/
 .coverage
+.pytest_cache/
 
 temp_uploads/
+
+# Model files
+*.model
+*.bin
+*.safetensors
+
+# Additional temporary and cache files
+.mypy_cache/
+.tox/
+.nox/
+*.egg-info/
+dist/
+build/

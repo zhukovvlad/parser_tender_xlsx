@@ -1,6 +1,8 @@
 import argparse
 import json
+
 import requests
+
 
 def send_json_from_file(filepath, url):
     """
@@ -12,11 +14,11 @@ def send_json_from_file(filepath, url):
     """
     try:
         # Открываем и читаем JSON-файл
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         # Устанавливаем заголовок, указывающий на тип контента
-        headers = {'Content-Type': 'application/json'}
+        headers = {"Content-Type": "application/json"}
 
         # Отправляем POST-запрос с JSON-данными в теле
         response = requests.post(url, json=data, headers=headers)
@@ -35,6 +37,7 @@ def send_json_from_file(filepath, url):
     except requests.exceptions.RequestException as e:
         print(f"❌ Ошибка при отправке запроса: {e}")
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Отправка JSON-файла на сервер POST-запросом."
@@ -43,7 +46,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--url",
         default="http://localhost:8080/api/v1/import-tender",
-        help="URL сервера для отправки (по умолчанию: http://localhost:8080/api/v1/import-tender)."
+        help="URL сервера для отправки (по умолчанию: http://localhost:8080/api/v1/import-tender).",
     )
     args = parser.parse_args()
 

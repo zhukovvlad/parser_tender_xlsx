@@ -4,7 +4,7 @@ import pytest
 from openpyxl import Workbook
 
 # 1. Импортируем РЕАЛЬНЫЕ константы, которые использует ваша функция
-from constants import (
+from app.constants import (
     JSON_KEY_TENDER_ADDRESS,
     JSON_KEY_TENDER_ID,
     JSON_KEY_TENDER_OBJECT,
@@ -13,17 +13,20 @@ from constants import (
     TABLE_PARSE_OBJECT,
     TABLE_PARSE_TENDER_SUBJECT,
 )
-from helpers.read_headers import read_headers
+from app.helpers.read_headers import read_headers
 
 
 # Фикстура для мока зависимости sanitize_text
 @pytest.fixture
 def mock_sanitize_text(mocker):
     """Мокает функцию sanitize_text, чтобы она просто возвращала входные данные."""
-    mocker.patch("helpers.read_headers.sanitize_text", side_effect=lambda text: text)
+    mocker.patch(
+        "app.helpers.read_headers.sanitize_text", side_effect=lambda text: text
+    )
 
 
 # --- Существующие и улучшенные тесты ---
+
 
 def test_read_headers_happy_path(mock_sanitize_text):
     """
@@ -79,7 +82,9 @@ def test_read_headers_subject_with_only_id(mock_sanitize_text):
 
     # Assert
     assert extracted_data[JSON_KEY_TENDER_ID] == "456789"
-    assert extracted_data[JSON_KEY_TENDER_TITLE] == "456789" # ID используется как название
+    assert (
+        extracted_data[JSON_KEY_TENDER_TITLE] == "456789"
+    )  # ID используется как название
 
 
 def test_read_headers_ignores_data_outside_scan_range(mock_sanitize_text):
@@ -157,7 +162,9 @@ def test_read_headers_parses_subject_split_by_first_space(mock_sanitize_text):
     assert extracted_data[JSON_KEY_TENDER_ID] == '777-ABC"Закупка'
     assert extracted_data[JSON_KEY_TENDER_TITLE] == 'ПО "Альфа""'
 
+
 # --- Новые тесты на основе рекомендаций ---
+
 
 def test_read_headers_with_partial_data(mock_sanitize_text):
     """
@@ -166,9 +173,9 @@ def test_read_headers_with_partial_data(mock_sanitize_text):
     # Arrange
     wb = Workbook()
     ws = wb.active
-    ws['A4'] = TABLE_PARSE_OBJECT
-    ws['B4'] = "Только объект"
-    
+    ws["A4"] = TABLE_PARSE_OBJECT
+    ws["B4"] = "Только объект"
+
     # Act
     extracted_data = read_headers(ws)
 
@@ -187,9 +194,9 @@ def test_read_headers_key_with_empty_or_whitespace_value(mock_sanitize_text):
     # Arrange
     wb = Workbook()
     ws = wb.active
-    ws['A4'] = TABLE_PARSE_OBJECT
-    ws['B4'] = "    "  # Значение - только пробелы
-    ws['A5'] = TABLE_PARSE_ADDRESS # Ключ есть, но дальше в строке пусто
+    ws["A4"] = TABLE_PARSE_OBJECT
+    ws["B4"] = "    "  # Значение - только пробелы
+    ws["A5"] = TABLE_PARSE_ADDRESS  # Ключ есть, но дальше в строке пусто
 
     # Act
     extracted_data = read_headers(ws)
@@ -207,10 +214,10 @@ def test_read_headers_duplicate_key_uses_last_one(mock_sanitize_text):
     # Arrange
     wb = Workbook()
     ws = wb.active
-    ws['A4'] = TABLE_PARSE_OBJECT
-    ws['B4'] = "Старый объект"
-    ws['A5'] = TABLE_PARSE_OBJECT # Тот же ключ в строке ниже
-    ws['B5'] = "Новый объект"
+    ws["A4"] = TABLE_PARSE_OBJECT
+    ws["B4"] = "Старый объект"
+    ws["A5"] = TABLE_PARSE_OBJECT  # Тот же ключ в строке ниже
+    ws["B5"] = "Новый объект"
 
     # Act
     extracted_data = read_headers(ws)
@@ -226,8 +233,8 @@ def test_read_headers_handles_numeric_values(mock_sanitize_text):
     # Arrange
     wb = Workbook()
     ws = wb.active
-    ws['A3'] = TABLE_PARSE_TENDER_SUBJECT
-    ws['B3'] = 123456789 # Число, а не строка
+    ws["A3"] = TABLE_PARSE_TENDER_SUBJECT
+    ws["B3"] = 123456789  # Число, а не строка
 
     # Act
     extracted_data = read_headers(ws)
@@ -244,8 +251,8 @@ def test_read_headers_subject_with_only_symbol(mock_sanitize_text):
     # Arrange
     wb = Workbook()
     ws = wb.active
-    ws['A3'] = TABLE_PARSE_TENDER_SUBJECT
-    ws['B3'] = "№"
+    ws["A3"] = TABLE_PARSE_TENDER_SUBJECT
+    ws["B3"] = "№"
 
     # Act
     extracted_data = read_headers(ws)

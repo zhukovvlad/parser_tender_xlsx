@@ -11,7 +11,8 @@
 включая ее значение, координаты и данные об объединении ячеек (если применимо).
 """
 
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
 from openpyxl.worksheet.worksheet import Worksheet
 
 # Локальные импорты (из той же директории helpers)
@@ -73,32 +74,39 @@ def read_contractors(ws: Worksheet) -> Optional[List[Dict[str, Any]]]:
         for cell in row_tuple:
             cell_value = cell.value
             # Проверяем, содержит ли ячейка искомый префикс (регистронезависимо)
-            if isinstance(cell_value, str) and \
-               cell_value.strip().lower().startswith(search_prefix_lower):
-                
+            if isinstance(cell_value, str) and cell_value.strip().lower().startswith(
+                search_prefix_lower
+            ):
+
                 # Если префикс найден, эта строка считается строкой заголовков контрагентов.
                 # Собираем информацию о каждой непустой ячейке в этой найденной строке.
                 contractor_headers_list: List[Dict[str, Any]] = []
-                for header_cell in row_tuple: # Итерируемся по всем ячейкам найденной строки
-                    if header_cell.value is not None: # Обрабатываем только непустые ячейки
+                for (
+                    header_cell
+                ) in row_tuple:  # Итерируемся по всем ячейкам найденной строки
+                    if (
+                        header_cell.value is not None
+                    ):  # Обрабатываем только непустые ячейки
                         cell_info: Dict[str, Any] = {
                             "value": header_cell.value,
                             "coordinate": header_cell.coordinate,
-                            "column_start": header_cell.column, # 1-индексированная колонка
-                            "row_start": header_cell.row,       # 1-индексированная строка (будет одинакова для всех header_cell)
+                            "column_start": header_cell.column,  # 1-индексированная колонка
+                            "row_start": header_cell.row,  # 1-индексированная строка (будет одинакова для всех header_cell)
                         }
 
                         # Если ячейка является частью объединенного диапазона, добавляем информацию об этом
                         if header_cell.coordinate in merged_cells_map:
-                            cell_info["merged_shape"] = merged_cells_map[header_cell.coordinate]
-                        
+                            cell_info["merged_shape"] = merged_cells_map[
+                                header_cell.coordinate
+                            ]
+
                         contractor_headers_list.append(cell_info)
-                
+
                 # Возвращаем список информации о ячейках-заголовках, если он не пуст.
                 # (он будет не пуст, так как как минимум ячейка с префиксом будет добавлена)
                 if contractor_headers_list:
                     return contractor_headers_list
-                # Если строка, содержащая префикс, не содержит никаких непустых ячеек 
+                # Если строка, содержащая префикс, не содержит никаких непустых ячеек
                 # (включая саму ячейку с префиксом, что маловероятно), поиск продолжается.
                 # Однако, по текущей логике, если префикс найден, список всегда будет содержать хотя бы один элемент.
 

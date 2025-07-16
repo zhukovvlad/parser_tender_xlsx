@@ -8,7 +8,8 @@
 данными при парсинге.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
+
 from ..constants import (
     JSON_KEY_ARTICLE_SMR,
     JSON_KEY_CHAPTER_NUMBER,
@@ -29,6 +30,7 @@ from ..constants import (
     JSON_KEY_UNIT_COST,
     JSON_KEY_WORKS,
 )
+
 
 def get_items_dict(contractor_colspan: int) -> Dict[str, Any]:
     """
@@ -118,7 +120,7 @@ def get_items_dict(contractor_colspan: int) -> Dict[str, Any]:
         JSON_KEY_JOB_TITLE: None,
         JSON_KEY_COMMENT_ORGANIZER: None,
         JSON_KEY_UNIT: None,
-        JSON_KEY_QUANTITY: None
+        JSON_KEY_QUANTITY: None,
     }
 
     # Шаблон для вложенных блоков стоимости (единичной и общей)
@@ -126,7 +128,7 @@ def get_items_dict(contractor_colspan: int) -> Dict[str, Any]:
         JSON_KEY_MATERIALS: None,
         JSON_KEY_WORKS: None,
         JSON_KEY_INDIRECT_COSTS: None,
-        JSON_KEY_TOTAL: None
+        JSON_KEY_TOTAL: None,
     }
 
     contractor_specific_data: Dict[str, Any] = {}
@@ -139,7 +141,7 @@ def get_items_dict(contractor_colspan: int) -> Dict[str, Any]:
             JSON_KEY_TOTAL_COST: cost_block_template.copy(),
             JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST: None,
             JSON_KEY_COMMENT_CONTRACTOR: None,
-            JSON_KEY_DEVIATION_FROM_CALCULATED_COST: None
+            JSON_KEY_DEVIATION_FROM_CALCULATED_COST: None,
         }
     elif contractor_colspan == 11:
         contractor_specific_data = {
@@ -147,30 +149,32 @@ def get_items_dict(contractor_colspan: int) -> Dict[str, Any]:
             JSON_KEY_UNIT_COST: cost_block_template.copy(),
             JSON_KEY_TOTAL_COST: cost_block_template.copy(),
             JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST: None,
-            JSON_KEY_COMMENT_CONTRACTOR: None, # Присутствует в коде, отражено в докстринге
-            JSON_KEY_DEVIATION_FROM_CALCULATED_COST: None
+            JSON_KEY_COMMENT_CONTRACTOR: None,  # Присутствует в коде, отражено в докстринге
+            JSON_KEY_DEVIATION_FROM_CALCULATED_COST: None,
         }
     elif contractor_colspan == 10:
         contractor_specific_data = {
             JSON_KEY_UNIT_COST: cost_block_template.copy(),
             JSON_KEY_TOTAL_COST: cost_block_template.copy(),
             JSON_KEY_COMMENT_CONTRACTOR: None,
-            JSON_KEY_DEVIATION_FROM_CALCULATED_COST: None
+            JSON_KEY_DEVIATION_FROM_CALCULATED_COST: None,
         }
     elif contractor_colspan == 9:
         contractor_specific_data = {
             JSON_KEY_UNIT_COST: cost_block_template.copy(),
             JSON_KEY_TOTAL_COST: cost_block_template.copy(),
-            JSON_KEY_DEVIATION_FROM_CALCULATED_COST: None
+            JSON_KEY_DEVIATION_FROM_CALCULATED_COST: None,
         }
     elif contractor_colspan == 8:
         contractor_specific_data = {
             JSON_KEY_UNIT_COST: cost_block_template.copy(),
-            JSON_KEY_TOTAL_COST: cost_block_template.copy()
+            JSON_KEY_TOTAL_COST: cost_block_template.copy(),
         }
     else:
         # Обработка неподдерживаемого значения colspan
-        contractor_specific_data = {"error": f"Unknown contractor_colspan: {contractor_colspan}"}
+        contractor_specific_data = {
+            "error": f"Unknown contractor_colspan: {contractor_colspan}"
+        }
 
     # Объединяем общую часть (item) с частью, специфичной для подрядчика
     return {**item, **contractor_specific_data}

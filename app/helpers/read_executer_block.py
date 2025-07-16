@@ -8,6 +8,7 @@
 """
 
 from typing import Dict, Optional
+
 from openpyxl.worksheet.worksheet import Worksheet
 
 # Импорт констант, используемых для ключей JSON и поиска текстовых маркеров
@@ -17,8 +18,9 @@ from ..constants import (
     JSON_KEY_EXECUTOR_PHONE,
     TABLE_PARSE_EXECUTOR,
     TABLE_PARSE_PREPARATION_DATE,
-    TABLE_PARSE_TELEPHONE
+    TABLE_PARSE_TELEPHONE,
 )
+
 
 def read_executer_block(ws: Worksheet) -> Dict[str, Optional[str]]:
     """
@@ -67,7 +69,7 @@ def read_executer_block(ws: Worksheet) -> Dict[str, Optional[str]]:
     executor_info: Dict[str, Optional[str]] = {
         JSON_KEY_EXECUTOR_NAME: None,
         JSON_KEY_EXECUTOR_PHONE: None,
-        JSON_KEY_EXECUTOR_DATE: None
+        JSON_KEY_EXECUTOR_DATE: None,
     }
 
     # Определяем диапазон строк для сканирования (предпоследние строки)
@@ -84,7 +86,7 @@ def read_executer_block(ws: Worksheet) -> Dict[str, Optional[str]]:
         if isinstance(cell_value_raw, str):
             # Приводим значение ячейки и константы к нижнему регистру для регистронезависимого сравнения
             cell_value_lower = cell_value_raw.lower()
-            
+
             executor_prefix_lower = TABLE_PARSE_EXECUTOR.lower()
             phone_prefix_lower = TABLE_PARSE_TELEPHONE.lower()
             date_prefix_lower = TABLE_PARSE_PREPARATION_DATE.lower()
@@ -92,14 +94,18 @@ def read_executer_block(ws: Worksheet) -> Dict[str, Optional[str]]:
             if cell_value_lower.startswith(executor_prefix_lower):
                 try:
                     # Извлекаем текст после первого двоеточия из ОРИГИНАЛЬНОЙ строки
-                    executor_info[JSON_KEY_EXECUTOR_NAME] = cell_value_raw.split(":", 1)[1].strip()
+                    executor_info[JSON_KEY_EXECUTOR_NAME] = cell_value_raw.split(
+                        ":", 1
+                    )[1].strip()
                 except IndexError:
                     # Двоеточие не найдено, значение останется None (или предыдущим, если уже было найдено)
                     pass
             elif cell_value_lower.startswith(phone_prefix_lower):
                 try:
                     # Извлекаем текст после первого двоеточия из ОРИГИНАЛЬНОЙ строки
-                    executor_info[JSON_KEY_EXECUTOR_PHONE] = cell_value_raw.split(":", 1)[1].strip()
+                    executor_info[JSON_KEY_EXECUTOR_PHONE] = cell_value_raw.split(
+                        ":", 1
+                    )[1].strip()
                 except IndexError:
                     pass
             elif cell_value_lower.startswith(date_prefix_lower):
@@ -109,20 +115,20 @@ def read_executer_block(ws: Worksheet) -> Dict[str, Optional[str]]:
                     value_part = cell_value_raw[prefix_len:]
 
                     # 2. Убираем пробелы в начале и смотрим, есть ли теперь впереди двоеточие
-                    if value_part.lstrip().startswith(':'):
+                    if value_part.lstrip().startswith(":"):
                         # Если да - это формат "Ключ: Значение".
                         # Находим первое двоеточие и берем всё, что после него.
-                        colon_index = value_part.find(':')
-                        final_value = value_part[colon_index + 1:]
+                        colon_index = value_part.find(":")
+                        final_value = value_part[colon_index + 1 :]
                     else:
                         # Если нет - это формат "Ключ Значение".
                         # Значит, value_part уже содержит то, что нам нужно.
                         final_value = value_part
-                    
+
                     # 3. Записываем результат, очищенный от лишних пробелов
                     executor_info[JSON_KEY_EXECUTOR_DATE] = final_value.strip()
                 except Exception:
                     # Безопасная обработка на случай любых ошибок
                     pass
-                        
+
     return executor_info

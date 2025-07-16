@@ -17,36 +17,37 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict
 
-from dotenv import load_dotenv
 import openpyxl
+from dotenv import load_dotenv
 from openpyxl.worksheet.worksheet import Worksheet
 
 # --- Ваши импорты ---
 from .constants import JSON_KEY_EXECUTOR, JSON_KEY_LOTS
 from .helpers.postprocess import normalize_lots_json_structure, replace_div0_with_null
+from .helpers.read_executer_block import read_executer_block
 from .helpers.read_headers import read_headers
 from .helpers.read_lots_and_boundaries import read_lots_and_boundaries
-from .helpers.read_executer_block import read_executer_block
-from .markdown_utils.json_to_markdown import json_to_markdown
-from .markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
 from .json_to_server.send_json_to_go_server import send_json_to_go_server
+from .markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
+from .markdown_utils.json_to_markdown import json_to_markdown
 from .markdown_utils.positions_report import generate_reports_for_all_lots
 
-load_dotenv() # Загружаем переменные окружения из .env файла
+load_dotenv()  # Загружаем переменные окружения из .env файла
 
 # Настройка логирования для вывода в консоль и в файл
 log_dir = Path("logs")
-os.makedirs(log_dir, exist_ok=True) # Создаем директорию, если ее нет
+os.makedirs(log_dir, exist_ok=True)  # Создаем директорию, если ее нет
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         # Записываем лог в файл внутри новой директории
-        logging.FileHandler(log_dir / "parser.log", mode='w', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+        logging.FileHandler(log_dir / "parser.log", mode="w", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
 )
+
 
 def parse_file(xlsx_path: str) -> None:
     """Оркестрирует полный цикл обработки одного XLSX файла."""
@@ -71,7 +72,9 @@ def parse_file(xlsx_path: str) -> None:
             return
         ws: Worksheet = ws_raw
     except Exception:
-        logging.exception(f"Не удалось загрузить или получить активный лист из файла '{source_path}'.")
+        logging.exception(
+            f"Не удалось загрузить или получить активный лист из файла '{source_path}'."
+        )
         return
 
     # --- Шаг 1 & 2: Первичный парсинг и Постобработка ---
@@ -86,7 +89,9 @@ def parse_file(xlsx_path: str) -> None:
         processed_data = replace_div0_with_null(processed_data)
         logging.info("Данные успешно извлечены и обработаны.")
     except Exception:
-        logging.exception("Произошла критическая ошибка на этапе парсинга и постобработки.")
+        logging.exception(
+            "Произошла критическая ошибка на этапе парсинга и постобработки."
+        )
         return
 
     # --- Шаг 3: Сохранение основного JSON ---
@@ -104,13 +109,17 @@ def parse_file(xlsx_path: str) -> None:
     if go_server_url:
         logging.info("Шаг 4: Отправка данных на Go сервер...")
         go_server_api_key = os.getenv("GO_SERVER_API_KEY", "")
-        send_success = send_json_to_go_server(processed_data, go_server_url, go_server_api_key)
+        send_success = send_json_to_go_server(
+            processed_data, go_server_url, go_server_api_key
+        )
         if send_success:
             logging.info("Данные успешно отправлены на Go сервер.")
         else:
             logging.warning("Не удалось отправить данные на Go сервер.")
     else:
-        logging.info("Шаг 4: Пропуск отправки данных на сервер (GO_SERVER_API_ENDPOINT не задан).")
+        logging.info(
+            "Шаг 4: Пропуск отправки данных на сервер (GO_SERVER_API_ENDPOINT не задан)."
+        )
 
     # --- Шаг 5: Генерация всех Markdown-отчетов ---
     logging.info("Шаг 5: Генерация Markdown-отчетов...")
@@ -130,7 +139,9 @@ def parse_file(xlsx_path: str) -> None:
 
     # 5.2 Детализированные MD-отчеты по позициям для каждого лота
     try:
-        position_reports_paths = generate_reports_for_all_lots(processed_data, output_dir, base_name)
+        position_reports_paths = generate_reports_for_all_lots(
+            processed_data, output_dir, base_name
+        )
     except Exception:
         logging.exception("Ошибка при генерации детализированных отчетов по лотам.")
 
@@ -139,12 +150,13 @@ def parse_file(xlsx_path: str) -> None:
         logging.info("Шаг 6: Создание и сохранение текстовых чанков...")
         try:
             tender_chunks = create_chunks_from_markdown_text(
-                markdown_content_str,
-                global_initial_metadata=initial_tender_metadata
+                markdown_content_str, global_initial_metadata=initial_tender_metadata
             )
             with open(output_chunks_json_path, "w", encoding="utf-8") as f_chunks:
                 json.dump(tender_chunks, f_chunks, ensure_ascii=False, indent=2)
-            logging.info(f"Текстовые чанки ({len(tender_chunks)} шт.) сохранены в: {output_chunks_json_path.name}")
+            logging.info(
+                f"Текстовые чанки ({len(tender_chunks)} шт.) сохранены в: {output_chunks_json_path.name}"
+            )
         except Exception:
             logging.exception("Ошибка при создании и сохранении чанков.")
 
@@ -157,7 +169,7 @@ def parse_file(xlsx_path: str) -> None:
             "json": project_root / "tenders_json",
             "md": project_root / "tenders_md",
             "chunks": project_root / "tenders_chunks",
-            "positions": project_root / "tenders_positions"
+            "positions": project_root / "tenders_positions",
         }
 
         for dir_path in target_dirs.values():
@@ -188,16 +200,16 @@ def parse_file(xlsx_path: str) -> None:
 if __name__ == "__main__":
     cli_parser = argparse.ArgumentParser(
         description="Полный цикл обработки тендерного XLSX файла.",
-        formatter_class=argparse.RawTextHelpFormatter
+        formatter_class=argparse.RawTextHelpFormatter,
     )
     cli_parser.add_argument(
         "xlsx_path",
         type=str,
         help="Путь к входному XLSX файлу тендерной документации.\n"
-             "Выходные файлы будут созданы, а затем перемещены в целевые\n"
-             "директории (tenders_xlsx, tenders_json и т.д.) в текущей папке."
+        "Выходные файлы будут созданы, а затем перемещены в целевые\n"
+        "директории (tenders_xlsx, tenders_json и т.д.) в текущей папке.",
     )
-    
+
     args = cli_parser.parse_args()
 
     input_file = Path(args.xlsx_path)

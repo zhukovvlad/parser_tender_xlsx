@@ -76,77 +76,100 @@ TABLE_PARSE_INITIAL_COST = "первоначальная стоимость"
 
 # -- Общие ключи для итоговых сумм тендера/лота и специфических полей --
 JSON_KEY_TOTAL_COST_VAT = "total_cost_with_vat"  # Общая стоимость с учетом НДС
-JSON_KEY_VAT = "vat"                             # Сумма НДС
-JSON_KEY_INITIAL_COST = "initial_cost"           # Первоначальная стоимость (например, из итогов по baseline)
+JSON_KEY_VAT = "vat"  # Сумма НДС
+JSON_KEY_INITIAL_COST = (
+    "initial_cost"  # Первоначальная стоимость (например, из итогов по baseline)
+)
 # Ключ для хранения значения отклонения предложения подрядчика от базовой (расчетной) стоимости.
 JSON_KEY_DEVIATION_FROM_CALCULATED_COST = "deviation_from_baseline_cost"
 
 # -- Ключи для описания отдельных позиций (работ/материалов) в предложении --
-JSON_KEY_NUMBER = "number"                       # Порядковый номер позиции в списке
-JSON_KEY_CHAPTER_NUMBER = "chapter_number"       # Номер раздела или главы, к которому относится позиция (для иерархии)
-JSON_KEY_ARTICLE_SMR = "article_smr"             # Код или статья СМР (сметно-монтажных работ)
-JSON_KEY_JOB_TITLE = "job_title"                 # Наименование работы, услуги или материала
-JSON_KEY_JOB_TITLE_NORMALIZED = "job_title_normalized" # Нормализованное наименование работы (например, с удалением точек и приведение к нижнему регистру)
-JSON_KEY_COMMENT_ORGANIZER = "comment_organizer" # Комментарий организатора тендера к данной позиции
-JSON_KEY_UNIT = "unit"                           # Единица измерения (например, "шт.", "м2", "компл.")
-JSON_KEY_QUANTITY = "quantity"                   # Количество согласно тендерной документации (объем организатора)
-JSON_KEY_SUGGESTED_QUANTITY = "suggested_quantity" # Количество, предложенное участником (если отличается от объема организатора)
-JSON_KEY_IS_CHAPTER = "is_chapter"                 # Флаг, указывающий, является ли позиция разделом (группой) или позицией (работой)
-JSON_KEY_CHAPTER_REF = "chapter_ref"		     # Ссылка на родительский раздел
+JSON_KEY_NUMBER = "number"  # Порядковый номер позиции в списке
+JSON_KEY_CHAPTER_NUMBER = "chapter_number"  # Номер раздела или главы, к которому относится позиция (для иерархии)
+JSON_KEY_ARTICLE_SMR = "article_smr"  # Код или статья СМР (сметно-монтажных работ)
+JSON_KEY_JOB_TITLE = "job_title"  # Наименование работы, услуги или материала
+JSON_KEY_JOB_TITLE_NORMALIZED = "job_title_normalized"  # Нормализованное наименование работы (например, с удалением точек и приведение к нижнему регистру)
+JSON_KEY_COMMENT_ORGANIZER = (
+    "comment_organizer"  # Комментарий организатора тендера к данной позиции
+)
+JSON_KEY_UNIT = "unit"  # Единица измерения (например, "шт.", "м2", "компл.")
+JSON_KEY_QUANTITY = (
+    "quantity"  # Количество согласно тендерной документации (объем организатора)
+)
+JSON_KEY_SUGGESTED_QUANTITY = "suggested_quantity"  # Количество, предложенное участником (если отличается от объема организатора)
+JSON_KEY_IS_CHAPTER = "is_chapter"  # Флаг, указывающий, является ли позиция разделом (группой) или позицией (работой)
+JSON_KEY_CHAPTER_REF = "chapter_ref"  # Ссылка на родительский раздел
 
 # -- Ключи для стоимостных показателей внутри каждой позиции --
-JSON_KEY_UNIT_COST = "unit_cost"                 # JSON-объект: детализация стоимости за единицу
-JSON_KEY_TOTAL_COST = "total_cost"               # JSON-объект: детализация общей стоимости по позиции (обычно unit_cost * quantity)
+JSON_KEY_UNIT_COST = "unit_cost"  # JSON-объект: детализация стоимости за единицу
+JSON_KEY_TOTAL_COST = "total_cost"  # JSON-объект: детализация общей стоимости по позиции (обычно unit_cost * quantity)
 
 # -- Компоненты стоимости (используются как вложенные ключи в JSON_KEY_UNIT_COST и JSON_KEY_TOTAL_COST) --
-JSON_KEY_MATERIALS = "materials"                 # Стоимость материалов
-JSON_KEY_WORKS = "works"                         # Стоимость работ (СМР)
-JSON_KEY_INDIRECT_COSTS = "indirect_costs"       # Косвенные (накладные) расходы
-JSON_KEY_TOTAL = "total"                         # Итоговая сумма компонентов (materials + works + indirect_costs) для unit_cost или total_cost
+JSON_KEY_MATERIALS = "materials"  # Стоимость материалов
+JSON_KEY_WORKS = "works"  # Стоимость работ (СМР)
+JSON_KEY_INDIRECT_COSTS = "indirect_costs"  # Косвенные (накладные) расходы
+JSON_KEY_TOTAL = "total"  # Итоговая сумма компонентов (materials + works + indirect_costs) для unit_cost или total_cost
 
 # -- Ключи для данных, предоставляемых подрядчиком по каждой позиции (помимо стоимостей) --
-JSON_KEY_COMMENT_CONTRACTOR = "comment_contractor" # Комментарий участника (подрядчика) к данной позиции
+JSON_KEY_COMMENT_CONTRACTOR = (
+    "comment_contractor"  # Комментарий участника (подрядчика) к данной позиции
+)
 # Общая стоимость позиции, рассчитанная на основе объемов организатора (если подрядчик предложил свои объемы, но использует цены подрядчика).
 JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST = "total_cost_for_organizer_quantity"
 
 # -- Ключи для описания структуры лотов --
-JSON_KEY_LOTS = "lots"                           # Общий ключ для словаря, содержащего все лоты
-JSON_KEY_LOT_INDEX = "lot_"                      # Префикс для автоматической генерации ключей отдельных лотов (например, "lot_1", "lot_2")
-JSON_KEY_LOT_TITLE = "lot_title"                 # Ключ для хранения полного наименования лота
+JSON_KEY_LOTS = "lots"  # Общий ключ для словаря, содержащего все лоты
+JSON_KEY_LOT_INDEX = "lot_"  # Префикс для автоматической генерации ключей отдельных лотов (например, "lot_1", "lot_2")
+JSON_KEY_LOT_TITLE = "lot_title"  # Ключ для хранения полного наименования лота
 
 # -- Ключи для описания предложений подрядчиков внутри каждого лота --
-JSON_KEY_PROPOSALS = "proposals"                 # Общий ключ для словаря, содержащего все предложения подрядчиков по данному лоту
+JSON_KEY_PROPOSALS = "proposals"  # Общий ключ для словаря, содержащего все предложения подрядчиков по данному лоту
 
 # -- Ключи для метаданных и основной информации о подрядчике (участнике тендера) --
-JSON_KEY_CONTRACTOR_INDEX = "contractor_"        # Префикс для автоматической генерации ключей отдельных подрядчиков (например, "contractor_1")
-JSON_KEY_CONTRACTOR_TITLE = "title"              # Наименование подрядчика (используется также для "Расчетной стоимости")
-JSON_KEY_CONTRACTOR_INN = "inn"                  # ИНН подрядчика
-JSON_KEY_CONTRACTOR_ADDRESS = "address"          # Юридический или фактический адрес подрядчика
-JSON_KEY_CONTRACTOR_ACCREDITATION = "accreditation" # Информация об аккредитации подрядчика (если применимо)
-JSON_KEY_CONTRACTOR_COORDINATE = "contractor_coordinate" # Координата первой ячейки подрядчика в Excel (например, "D4")
-JSON_KEY_CONTRACTOR_WIDTH = "contractor_width"   # Ширина (colspan) объединенной ячейки заголовка подрядчика
-JSON_KEY_CONTRACTOR_HEIGHT = "contractor_height" # Высота (rowspan) объединенной ячейки заголовка подрядчика
-JSON_KEY_CONTRACTOR_ITEMS = "contractor_items"   # Общий ключ для JSON-объекта, содержащего все позиции и итоги данного подрядчика
-JSON_KEY_CONTRACTOR_POSITIONS = "positions"      # Ключ для словаря детализированных позиций (внутри contractor_items)
-JSON_KEY_CONTRACTOR_SUMMARY = "summary"          # Ключ для словаря итоговых/суммирующих строк (внутри contractor_items)
-JSON_KEY_CONTRACTOR_ADDITIONAL_INFO = "additional_info" # Ключ для JSON-объекта с дополнительной информацией о подрядчике (из блока "Дополнительная информация")
-
+JSON_KEY_CONTRACTOR_INDEX = "contractor_"  # Префикс для автоматической генерации ключей отдельных подрядчиков (например, "contractor_1")
+JSON_KEY_CONTRACTOR_TITLE = (
+    "title"  # Наименование подрядчика (используется также для "Расчетной стоимости")
+)
+JSON_KEY_CONTRACTOR_INN = "inn"  # ИНН подрядчика
+JSON_KEY_CONTRACTOR_ADDRESS = "address"  # Юридический или фактический адрес подрядчика
+JSON_KEY_CONTRACTOR_ACCREDITATION = (
+    "accreditation"  # Информация об аккредитации подрядчика (если применимо)
+)
+JSON_KEY_CONTRACTOR_COORDINATE = "contractor_coordinate"  # Координата первой ячейки подрядчика в Excel (например, "D4")
+JSON_KEY_CONTRACTOR_WIDTH = (
+    "contractor_width"  # Ширина (colspan) объединенной ячейки заголовка подрядчика
+)
+JSON_KEY_CONTRACTOR_HEIGHT = (
+    "contractor_height"  # Высота (rowspan) объединенной ячейки заголовка подрядчика
+)
+JSON_KEY_CONTRACTOR_ITEMS = "contractor_items"  # Общий ключ для JSON-объекта, содержащего все позиции и итоги данного подрядчика
+JSON_KEY_CONTRACTOR_POSITIONS = (
+    "positions"  # Ключ для словаря детализированных позиций (внутри contractor_items)
+)
+JSON_KEY_CONTRACTOR_SUMMARY = (
+    "summary"  # Ключ для словаря итоговых/суммирующих строк (внутри contractor_items)
+)
+JSON_KEY_CONTRACTOR_ADDITIONAL_INFO = "additional_info"  # Ключ для JSON-объекта с дополнительной информацией о подрядчике (из блока "Дополнительная информация")
 
 
 # -- Ключ для выделенного базового ("расчетного") предложения в рамках лота --
-JSON_KEY_BASELINE_PROPOSAL = "baseline_proposal" # Используется в постобработке для структурирования "Расчетной стоимости"
+JSON_KEY_BASELINE_PROPOSAL = "baseline_proposal"  # Используется в постобработке для структурирования "Расчетной стоимости"
 
 # -- Ключи для информации об исполнителе документа (лице, подготовившем отчет/сравнение) --
-JSON_KEY_EXECUTOR = "executor"                   # Общий ключ для JSON-объекта с информацией об исполнителе
-JSON_KEY_EXECUTOR_NAME = "executor_name"         # Имя исполнителя
-JSON_KEY_EXECUTOR_PHONE = "executor_phone"       # Контактный телефон исполнителя
-JSON_KEY_EXECUTOR_DATE = "executor_date"         # Дата составления документа исполнителем
+JSON_KEY_EXECUTOR = (
+    "executor"  # Общий ключ для JSON-объекта с информацией об исполнителе
+)
+JSON_KEY_EXECUTOR_NAME = "executor_name"  # Имя исполнителя
+JSON_KEY_EXECUTOR_PHONE = "executor_phone"  # Контактный телефон исполнителя
+JSON_KEY_EXECUTOR_DATE = "executor_date"  # Дата составления документа исполнителем
 
 # -- Ключи для общей (заголовочной) информации о тендере --
-JSON_KEY_TENDER_ID = "tender_id"                 # Уникальный идентификатор (номер) тендера
-JSON_KEY_TENDER_TITLE = "tender_title"           # Полное наименование/предмет тендера
-JSON_KEY_TENDER_OBJECT = "tender_object"         # Наименование объекта (например, "Строительство здания склада")
-JSON_KEY_TENDER_ADDRESS = "tender_address"       # Адрес объекта, к которому относится тендер
+JSON_KEY_TENDER_ID = "tender_id"  # Уникальный идентификатор (номер) тендера
+JSON_KEY_TENDER_TITLE = "tender_title"  # Полное наименование/предмет тендера
+JSON_KEY_TENDER_OBJECT = (
+    "tender_object"  # Наименование объекта (например, "Строительство здания склада")
+)
+JSON_KEY_TENDER_ADDRESS = "tender_address"  # Адрес объекта, к которому относится тендер
 
 
 # ==============================================================================
