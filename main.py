@@ -1,73 +1,104 @@
+"""
+Основной модуль веб-сервиса для обработки тендерных файлов.
+
+Этот модуль запускает FastAPI приложение и определяет следующие API эндпоинты:
+- POST /parse-tender/: Принимает XLSX файл, создает фоновую задачу для его
+  парсинга и немедленно возвращает ID задачи.
+- GET /tasks/{task_id}/status: Позволяет отслеживать статус выполнения
+  фоновой задачи (processing, completed, failed).
+- GET /health: Проверяет работоспособность сервиса.
+
+Для управления фоновыми задачами используется встроенный механизм BackgroundTasks.
+Статусы задач хранятся в памяти (для демонстрационных целей).
+"""
 import logging
 import os
 import shutil
+import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 
-# Импортируем вашу основную функцию парсинга из переименованного файла
+# Убедитесь, что все импорты внутри пакета app используют относительный синтаксис (с точкой)
 from app.parse import parse_file
+
+# ВАЖНО: Это простое хранилище в памяти. Если вы перезапустите сервер,
+# все статусы пропадут. Для продакшена лучше использовать
+# более надежное решение, например, Redis или отдельную таблицу в БД.
+tasks_db = {}
 
 # Настройка FastAPI приложения
 app = FastAPI(
     title="Tender Parser Service",
     description="Сервис для асинхронной обработки тендерных XLSX файлов.",
-    version="1.0.0"
+    version="2.0.0"
 )
 
-# Указываем временную директорию для хранения загруженных файлов
 UPLOAD_DIRECTORY = Path("temp_uploads")
 os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 log = logging.getLogger(__name__)
 
-@app.post("/parse-tender/", tags=["Tender Processing"])
-async def parse_tender_file(file: UploadFile = File(...)):
+
+def run_parsing_in_background(task_id: str, file_path: str):
     """
-    Принимает XLSX файл, сохраняет его временно и запускает
-    полный цикл обработки в фоновом режиме (в данном примере - синхронно).
+    Выполняет парсинг в фоновом режиме и обновляет статус задачи.
+    """
+    log.info(f"Task {task_id}: Обработка файла {file_path} началась в фоне.")
+    tasks_db[task_id] = {"status": "processing"}
+    try:
+        parse_file(file_path)
+        tasks_db[task_id] = {"status": "completed"}
+        log.info(f"Task {task_id}: Обработка успешно завершена.")
+    except Exception as e:
+        log.error(f"Task {task_id}: Произошла ошибка - {e}", exc_info=True)
+        tasks_db[task_id] = {"status": "failed", "error": str(e)}
+
+
+@app.post("/parse-tender/", status_code=202, tags=["Tender Processing"])
+async def create_parsing_task(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    """
+    Принимает файл, создает для него уникальную задачу и запускает
+    обработку в фоновом режиме, немедленно возвращая ID задачи.
     """
     if not file.filename or not file.filename.endswith(('.xlsx', '.xls')):
-        raise HTTPException(status_code=400, detail="Неверный формат файла. Пожалуйста, загрузите XLSX или XLS файл.")
+        raise HTTPException(
+            status_code=400, detail="Неверный формат файла. Пожалуйста, загрузите XLSX или XLS файл.")
 
-    # Создаем безопасный путь для сохранения файла
-    temp_file_path = UPLOAD_DIRECTORY / file.filename
-    log.info(f"Получен файл: {file.filename}. Сохранение в: {temp_file_path}")
+    task_id = str(uuid.uuid4())
+    temp_file_path = UPLOAD_DIRECTORY / f"{task_id}_{file.filename}"
+    log.info(
+        f"Task {task_id}: Получен файл {file.filename}. Сохранение в: {temp_file_path}")
 
-    # Сохраняем загруженный файл на диск
     try:
         with open(temp_file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
     except Exception as e:
-        log.error(f"Не удалось сохранить файл: {e}")
-        raise HTTPException(status_code=500, detail=f"Не удалось сохранить файл на сервере: {e}")
+        log.error(f"Task {task_id}: Не удалось сохранить файл: {e}")
+        raise HTTPException(
+            status_code=500, detail="Не удалось сохранить файл на сервере.")
     finally:
         file.file.close()
 
-    # --- Ключевой момент ---
-    # Вызываем вашу существующую логику парсинга для сохраненного файла.
-    # В реальном приложении этот вызов лучше делать в фоновой задаче
-    # (например, с помощью Celery или встроенных BackgroundTasks FastAPI),
-    # чтобы не заставлять клиента ждать.
-    try:
-        log.info(f"Запуск парсера для файла: {temp_file_path}")
-        # Функция parse_file будет делать всё, что делала раньше,
-        # включая отправку JSON на ваш Go-сервер
-        parse_file(str(temp_file_path))
-    except Exception as e:
-        # Даже если парсер упадет, мы должны вернуть ответ клиенту (Go-серверу)
-        log.error(f"Ошибка во время выполнения parse_file: {e}")
-        # Можно вернуть ошибку, но для асинхронной логики лучше вернуть успех,
-        # а ошибку обработать внутри (логи, уведомления).
-        pass
+    background_tasks.add_task(
+        run_parsing_in_background, task_id, str(temp_file_path))
 
-    # Отвечаем немедленно, что задача принята
-    return JSONResponse(
-        status_code=202, # 202 Accepted
-        content={"message": "Файл принят в обработку.", "filename": file.filename}
-    )
+    return {"task_id": task_id, "message": "Задача по обработке файла принята."}
+
+
+@app.get("/tasks/{task_id}/status", tags=["Task Status"])
+async def get_task_status(task_id: str):
+    """
+    Возвращает текущий статус задачи по ее ID.
+    """
+    task = tasks_db.get(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=404, detail="Задача с таким ID не найдена.")
+    return task
+
 
 @app.get("/health", tags=["Monitoring"])
 async def health_check():
