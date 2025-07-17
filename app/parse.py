@@ -1,14 +1,17 @@
 """
-parse.py
+Основной модуль-оркестратор для обработки тендерных XLSX файлов.
 
-Основной управляющий скрипт для полного цикла обработки тендерных XLSX файлов.
-Выполняет парсинг, постобработку данных, сохранение результатов в JSON и Markdown,
-создание текстовых чанков для эмбеддингов, опциональную отправку данных на внешний
-сервер и финальную сортировку всех файлов по целевым директориям.
+Этот модуль содержит главную функцию `parse_file`, которая выполняет
+полный цикл обработки одного тендерного файла.
 
-Скрипт запускается из командной строки и принимает один аргумент: путь к XLSX файлу.
+Основная последовательность операций:
+1.  Парсинг XLSX файла и постобработка для получения чистого JSON-объекта.
+2.  Генерация детализированных Markdown-отчетов по позициям.
+3.  Генерация основного Markdown-отчета по всему тендеру.
+4.  Создание текстовых чанков на основе основного MD-отчета.
+5.  Отправка основного JSON на Go-сервер.
+6.  Перемещение всех сгенерированных артефактов в целевые директории.
 """
-
 import argparse
 import json
 import logging
@@ -21,7 +24,7 @@ from dotenv import load_dotenv
 import openpyxl
 from openpyxl.worksheet.worksheet import Worksheet
 
-# --- Ваши импорты ---
+# Используем относительные импорты, так как это часть пакета 'app'
 from .constants import JSON_KEY_EXECUTOR, JSON_KEY_LOTS
 from .helpers.postprocess import normalize_lots_json_structure, replace_div0_with_null
 from .helpers.read_headers import read_headers
@@ -32,27 +35,30 @@ from .markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
 from .json_to_server.send_json_to_go_server import send_json_to_go_server
 from .markdown_utils.positions_report import generate_reports_for_all_lots
 
-load_dotenv() # Загружаем переменные окружения из .env файла
+load_dotenv()
 
-# Настройка логирования для вывода в консоль и в файл
+# Настройка логирования
 log_dir = Path("logs")
-os.makedirs(log_dir, exist_ok=True) # Создаем директорию, если ее нет
-
+os.makedirs(log_dir, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        # Записываем лог в файл внутри новой директории
         logging.FileHandler(log_dir / "parser.log", mode='w', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
 
+
 def parse_file(xlsx_path: str) -> None:
-    """Оркестрирует полный цикл обработки одного XLSX файла."""
+    """
+    Оркестрирует полный цикл обработки одного XLSX файла, следуя
+    установленной последовательности: парсинг, генерация артефактов,
+    отправка данных и финальное перемещение файлов.
+    """
     logging.info(f"--- Начало обработки файла: {xlsx_path} ---")
 
-    # --- Шаг 0: Определение всех путей ---
+    # --- Шаг 0: Определение путей и загрузка книги ---
     source_path = Path(xlsx_path).resolve()
     base_name = source_path.stem
     output_dir = source_path.parent
@@ -65,18 +71,17 @@ def parse_file(xlsx_path: str) -> None:
 
     try:
         wb = openpyxl.load_workbook(source_path, data_only=True)
-        ws_raw = wb.active
-        if not isinstance(ws_raw, Worksheet):
-            logging.error(f"Активный лист не является Worksheet: {type(ws_raw)}")
+        ws: Worksheet = wb.active
+        if not isinstance(ws, Worksheet):
+            logging.error(f"Активный лист не является Worksheet: {type(ws)}")
             return
-        ws: Worksheet = ws_raw
     except Exception:
-        logging.exception(f"Не удалось загрузить или получить активный лист из файла '{source_path}'.")
+        logging.exception(f"Не удалось загрузить XLSX файл '{source_path}'.")
         return
 
-    # --- Шаг 1 & 2: Первичный парсинг и Постобработка ---
+    # --- Этап 1: Первичный парсинг и Постобработка ---
     try:
-        logging.info("Шаг 1 и 2: Извлечение и постобработка данных...")
+        logging.info("Этап 1: Извлечение и постобработка данных...")
         parsed_data: Dict[str, Any] = {
             **read_headers(ws),
             JSON_KEY_EXECUTOR: read_executer_block(ws),
@@ -86,57 +91,43 @@ def parse_file(xlsx_path: str) -> None:
         processed_data = replace_div0_with_null(processed_data)
         logging.info("Данные успешно извлечены и обработаны.")
     except Exception:
-        logging.exception("Произошла критическая ошибка на этапе парсинга и постобработки.")
+        logging.exception("Критическая ошибка на этапе парсинга и постобработки.")
         return
 
-    # --- Шаг 3: Сохранение основного JSON ---
-    logging.info("Шаг 3: Сохранение основного JSON...")
+    # Сохраняем основной JSON, так как он нужен для последующих шагов
     try:
         with open(output_json_path, "w", encoding="utf-8") as f:
             json.dump(processed_data, f, ensure_ascii=False, indent=4)
-        logging.info(f"JSON успешно сохранен: {output_json_path}")
+        logging.info(f"Основной JSON сохранен в: {output_json_path}")
     except IOError:
         logging.exception(f"Не удалось сохранить JSON файл по пути {output_json_path}.")
         return
 
-    # --- Шаг 4: Отправка JSON на Go сервер (опционально) ---
-    go_server_url = os.getenv("GO_SERVER_API_ENDPOINT")
-    if go_server_url:
-        logging.info("Шаг 4: Отправка данных на Go сервер...")
-        go_server_api_key = os.getenv("GO_SERVER_API_KEY", "")
-        send_success = send_json_to_go_server(processed_data, go_server_url, go_server_api_key)
-        if send_success:
-            logging.info("Данные успешно отправлены на Go сервер.")
-        else:
-            logging.warning("Не удалось отправить данные на Go сервер.")
-    else:
-        logging.info("Шаг 4: Пропуск отправки данных на сервер (GO_SERVER_API_ENDPOINT не задан).")
+    # --- Этап 2: Генерация артефактов (MD и чанки) ---
+    logging.info("Этап 2: Генерация артефактов...")
+    
+    # 2.1 Детализированные MD-отчеты по позициям
+    try:
+        position_reports_paths = generate_reports_for_all_lots(processed_data, output_dir, base_name)
+        logging.info("Детализированные MD-отчеты по позициям сгенерированы.")
+    except Exception:
+        logging.exception("Ошибка при генерации детализированных отчетов по лотам.")
+        position_reports_paths = [] # Инициализируем, чтобы избежать ошибок ниже
 
-    # --- Шаг 5: Генерация всех Markdown-отчетов ---
-    logging.info("Шаг 5: Генерация Markdown-отчетов...")
+    # 2.2 Основной MD-отчет (нужен для чанков)
     markdown_content_str = ""
     initial_tender_metadata = {}
-    position_reports_paths = []
-
-    # 5.1 Основной MD-отчет
     try:
         markdown_lines, initial_tender_metadata = json_to_markdown(processed_data)
         markdown_content_str = "\n".join(markdown_lines)
         with open(output_md_path, "w", encoding="utf-8") as f_md:
             f_md.write(markdown_content_str)
-        logging.info(f"Основной MD-отчет успешно сохранен: {output_md_path.name}")
+        logging.info(f"Основной MD-отчет сохранен в: {output_md_path.name}")
     except Exception:
         logging.exception("Ошибка при генерации основного Markdown-отчета.")
 
-    # 5.2 Детализированные MD-отчеты по позициям для каждого лота
-    try:
-        position_reports_paths = generate_reports_for_all_lots(processed_data, output_dir, base_name)
-    except Exception:
-        logging.exception("Ошибка при генерации детализированных отчетов по лотам.")
-
-    # --- Шаг 6: Создание и сохранение чанков (из основного MD) ---
+    # 2.3 Создание и сохранение чанков
     if markdown_content_str:
-        logging.info("Шаг 6: Создание и сохранение текстовых чанков...")
         try:
             tender_chunks = create_chunks_from_markdown_text(
                 markdown_content_str,
@@ -147,9 +138,22 @@ def parse_file(xlsx_path: str) -> None:
             logging.info(f"Текстовые чанки ({len(tender_chunks)} шт.) сохранены в: {output_chunks_json_path.name}")
         except Exception:
             logging.exception("Ошибка при создании и сохранении чанков.")
+    
+    # --- Этап 3: Отправка данных на Go-сервер ---
+    go_server_url = os.getenv("GO_SERVER_API_ENDPOINT")
+    if go_server_url:
+        logging.info("Этап 3: Отправка данных на Go сервер...")
+        go_server_api_key = os.getenv("GO_SERVER_API_KEY", "")
+        send_success = send_json_to_go_server(processed_data, go_server_url, go_server_api_key)
+        if send_success:
+            logging.info("Данные успешно отправлены на Go сервер.")
+        else:
+            logging.warning("Не удалось отправить данные на Go сервер.")
+    else:
+        logging.info("Этап 3: Пропуск отправки данных (GO_SERVER_API_ENDPOINT не задан).")
 
-    # --- Шаг 7: Перемещение всех файлов в целевые директории ---
-    logging.info("Шаг 7: Перемещение обработанных файлов...")
+    # --- Этап 4: Перемещение всех файлов в целевые директории ---
+    logging.info("Этап 4: Перемещение обработанных файлов...")
     try:
         project_root = Path.cwd()
         target_dirs = {
@@ -171,11 +175,7 @@ def parse_file(xlsx_path: str) -> None:
         move_if_exists(source_path, target_dirs["xlsx"])
         move_if_exists(output_json_path, target_dirs["json"])
         move_if_exists(output_chunks_json_path, target_dirs["chunks"])
-
-        # Перемещаем основной MD-отчет
         move_if_exists(output_md_path, target_dirs["md"])
-
-        # Перемещаем отчеты по позициям
         for pos_report_path in position_reports_paths:
             move_if_exists(pos_report_path, target_dirs["positions"])
 
@@ -186,6 +186,7 @@ def parse_file(xlsx_path: str) -> None:
 
 
 if __name__ == "__main__":
+    # Логика запуска из командной строки остается без изменений
     cli_parser = argparse.ArgumentParser(
         description="Полный цикл обработки тендерного XLSX файла.",
         formatter_class=argparse.RawTextHelpFormatter
@@ -193,13 +194,10 @@ if __name__ == "__main__":
     cli_parser.add_argument(
         "xlsx_path",
         type=str,
-        help="Путь к входному XLSX файлу тендерной документации.\n"
-             "Выходные файлы будут созданы, а затем перемещены в целевые\n"
-             "директории (tenders_xlsx, tenders_json и т.д.) в текущей папке."
+        help="Путь к входному XLSX файлу тендерной документации."
     )
     
     args = cli_parser.parse_args()
-
     input_file = Path(args.xlsx_path)
     if not input_file.is_file():
         logging.error(f"Входной XLSX файл не найден: {input_file.resolve()}")
