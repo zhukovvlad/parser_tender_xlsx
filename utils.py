@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Регулярные выражения для валидации
 EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-PHONE_REGEX = re.compile(r'^[\+]?[\d\s\-\(\)]{7,15}$')
+PHONE_REGEX = re.compile(r'^[\+]?[\d\s\-\(\)]{7,20}$')
 INN_REGEX = re.compile(r'^\d{10}$|^\d{12}$')
 
 
@@ -309,8 +309,9 @@ def generate_temporary_id() -> str:
     Returns:
         str: Временный ID
     """
+    import random
     timestamp = int(time.time())
-    random_part = hashlib.md5(str(timestamp).encode()).hexdigest()[:8]
+    random_part = hashlib.md5(f"{timestamp}{random.random()}".encode()).hexdigest()[:8]
     return f"temp_{timestamp}_{random_part}"
 
 
