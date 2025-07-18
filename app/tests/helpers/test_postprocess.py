@@ -1,7 +1,7 @@
 # tests/helpers/test_postprocess.py
 
 import pytest
-from helpers.postprocess import (
+from app.helpers.postprocess import (
     _clean_deviation_fields,
     replace_div0_with_null,
     annotate_structure_fields,
@@ -9,7 +9,7 @@ from helpers.postprocess import (
     normalize_lots_json_structure,
     _is_value_zero # Импортируем для прямого тестирования
 )
-from constants import (
+from app.constants import (
     JSON_KEY_BASELINE_PROPOSAL,
     JSON_KEY_CHAPTER_NUMBER,
     JSON_KEY_CONTRACTOR_ITEMS,
