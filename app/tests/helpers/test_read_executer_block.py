@@ -3,17 +3,18 @@
 import pytest
 from openpyxl import Workbook
 
-# Поскольку функция импортирует константы, мы определим их здесь для
-# самостоятельной работы теста. В реальном проекте они бы импортировались.
-JSON_KEY_EXECUTOR_NAME = "executor_name"
-JSON_KEY_EXECUTOR_PHONE = "executor_phone"
-JSON_KEY_EXECUTOR_DATE = "executor_date"
-TABLE_PARSE_EXECUTOR = "Исполнитель"
-TABLE_PARSE_TELEPHONE = "Телефон"
-TABLE_PARSE_PREPARATION_DATE = "Дата составления"
+# Импортируем константы из правильного модуля
+from app.constants import (
+    JSON_KEY_EXECUTOR_NAME,
+    JSON_KEY_EXECUTOR_PHONE, 
+    JSON_KEY_EXECUTOR_DATE,
+    TABLE_PARSE_EXECUTOR,
+    TABLE_PARSE_TELEPHONE,
+    TABLE_PARSE_PREPARATION_DATE
+)
 
 # Импортируем тестируемую функцию
-from helpers.read_executer_block import read_executer_block
+from app.helpers.read_executer_block import read_executer_block
 
 
 def set_max_row(ws, row_num):
