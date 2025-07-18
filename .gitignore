@@ -34,6 +34,9 @@ tenders_positions/
 prompts/
 logs/
 
+# Исключаем директорию с файлами, ожидающими синхронизации
+pending_sync/
+
 # Test reports
 *.html
 htmlcov/

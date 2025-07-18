@@ -2,7 +2,7 @@
 
 # .PHONY гарантирует, что make выполнит команду, даже если в директории
 # уже есть файл или папка с таким же именем (например, "run").
-.PHONY: run help install test clean dev prod parse
+.PHONY: run help install test clean dev prod parse parse-offline sync-pending
 
 # Определяем переменные по умолчанию для удобства.
 # Эти значения можно переопределить в Makefile.local
@@ -54,6 +54,20 @@ parse:
 	@echo "Парсинг файла: $(FILE)"
 	@python -m app.parse "$(FILE)"
 
+# Парсинг в offline режиме (работает без подключения к серверу)
+parse-offline:
+	@if [ -z "$(FILE)" ]; then \
+		echo "Ошибка: Укажите файл для парсинга. Использование: make parse-offline FILE=path/to/file.xlsx"; \
+		exit 1; \
+	fi
+	@echo "Парсинг файла в offline режиме: $(FILE)"
+	@PARSER_FALLBACK_MODE=true python -m app.parse "$(FILE)"
+
+# Синхронизация файлов из pending_sync с сервером (будет реализовано отдельно)
+sync-pending:
+	@echo "Синхронизация ожидающих файлов с сервером..."
+	@echo "TODO: Реализовать утилиту синхронизации"
+
 # Команда для вывода справки по доступным командам
 help:
 	@echo "Доступные команды:"
@@ -62,7 +76,9 @@ help:
 	@echo "  make install     - Установить зависимости из requirements.txt"
 	@echo "  make test        - Запустить тесты"
 	@echo "  make clean       - Очистить временные файлы"
-	@echo "  make parse FILE=<path> - Парсить указанный XLSX файл"
+	@echo "  make parse FILE=<path>        - Парсить указанный XLSX файл"
+	@echo "  make parse-offline FILE=<path> - Парсить файл в offline режиме"
+	@echo "  make sync-pending - Синхронизировать файлы из pending_sync с сервером"
 	@echo "  make help        - Показать это справочное сообщение"
 	@echo ""
 	@echo "Персонализация:"
@@ -70,4 +86,9 @@ help:
 	@echo "  Пример содержимого Makefile.local:"
 	@echo "    HOST = 127.0.0.1"
 	@echo "    PORT = 8080"
+	@echo ""
+	@echo "Переменные окружения:"
+	@echo "  PARSER_FALLBACK_MODE=true  - Включить резервный режим"
+	@echo "  GO_SERVER_API_ENDPOINT     - URL API сервера"
+	@echo "  GO_SERVER_API_KEY          - API ключ для сервера"
 

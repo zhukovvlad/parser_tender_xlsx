@@ -126,17 +126,36 @@ def parse_file(xlsx_path: str) -> None:
         logging.error("Переменная окружения GO_SERVER_API_ENDPOINT не задана. Обработка прервана.")
         return
 
+    # Проверяем настройку резервного режима
+    fallback_mode = os.getenv("PARSER_FALLBACK_MODE", "false").lower() == "true"
+    
     logging.info("Этап 2: Регистрация тендера на Go сервере...")
+    if fallback_mode:
+        logging.info("Резервный режим включен - обработка продолжится даже при недоступности сервера")
+    
     go_server_api_key = os.getenv("GO_SERVER_API_KEY")
     
     # --- ИЗМЕНЕНИЕ: Получаем ID тендера и словарь с ID лотов ---
-    success, db_id, lot_ids_map = register_tender_in_go(processed_data, go_server_url, go_server_api_key)
+    success, db_id, lot_ids_map = register_tender_in_go(
+        processed_data, 
+        go_server_url, 
+        go_server_api_key, 
+        fallback_mode=fallback_mode
+    )
 
     if not success:
-        logging.error("Не удалось зарегистрировать тендер. Генерация артефактов и архивация отменены.")
+        logging.error("Не удалось зарегистрировать тендер и резервный режим отключен. Обработка прервана.")
         return
+    
+    # Проверяем, работаем ли мы с временными ID
+    is_temp_id = str(db_id).startswith("temp_")
+    if is_temp_id:
+        logging.warning(f"Работаем с временными ID. Тендер: {db_id}")
+        logging.warning("Файлы будут созданы с временными именами и помещены в директорию pending_sync")
+    else:
+        logging.info(f"Тендер успешно зарегистрирован. ID из БД: {db_id}")
         
-    logging.info(f"Тендер успешно зарегистрирован. ID из БД: {db_id}. Продолжаем генерацию артефактов.")
+    logging.info("Продолжаем генерацию артефактов.")
     
     # --- Этап 3: Генерация всех локальных артефактов ---
     base_name = str(db_id)
@@ -186,13 +205,26 @@ def parse_file(xlsx_path: str) -> None:
     logging.info("Этап 4: Перемещение всех файлов в целевые директории...")
     try:
         project_root = Path.cwd()
-        target_dirs = {
-            "xlsx": project_root / "tenders_xlsx",
-            "json": project_root / "tenders_json",
-            "md": project_root / "tenders_md",
-            "chunks": project_root / "tenders_chunks",
-            "positions": project_root / "tenders_positions"
-        }
+        
+        # Если используются временные ID, помещаем файлы в отдельную директорию
+        if is_temp_id:
+            target_dirs = {
+                "xlsx": project_root / "pending_sync" / "xlsx",
+                "json": project_root / "pending_sync" / "json",
+                "md": project_root / "pending_sync" / "md",
+                "chunks": project_root / "pending_sync" / "chunks",
+                "positions": project_root / "pending_sync" / "positions"
+            }
+            logging.info("Используются временные ID - файлы будут помещены в директорию pending_sync")
+        else:
+            target_dirs = {
+                "xlsx": project_root / "tenders_xlsx",
+                "json": project_root / "tenders_json",
+                "md": project_root / "tenders_md",
+                "chunks": project_root / "tenders_chunks",
+                "positions": project_root / "tenders_positions"
+            }
+            
         for dir_path in target_dirs.values():
             os.makedirs(dir_path, exist_ok=True)
 
