@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from prompts import PIT_EXCAVATION_PROMPT
 
+
 # --- 1. УПРАВЛЕНИЕ НАСТРОЙКАМИ (Pydantic) ---
 
 load_dotenv()
@@ -51,7 +52,7 @@ class Settings(BaseModel):
     ollama_url: str = Field(os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat"), description="URL API Ollama")
     model_name: str = Field(os.getenv("OLLAMA_MODEL", "mistral"), description="Название модели")
     ollama_token: Optional[str] = Field(os.getenv("OLLAMA_TOKEN"), description="Токен авторизации")
-    input_file: Path = Field(Path("test_10_positions.md"), description="Входной файл")
+    input_file: Path = Field(Path("160_160_positions.md"), description="Входной файл")
     batch_size: int = Field(10, description="Размер батча для обработки")
     timeout: int = Field(300, description="Таймаут запроса")
     max_retries: int = Field(3, description="Макс. кол-во повторных попыток")
@@ -72,7 +73,7 @@ class LLMResponse(BaseModel):
 
 # --- 3. РЕФАКТОРИНГ ЛОГИКИ ---
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def parse_lot_records(raw_text: str) -> list:
     """
@@ -180,6 +181,9 @@ class LLMProcessor:
                     if "message" not in response_json or "content" not in response_json["message"]:
                         logging.error(f"Батч {batch_num}: Некорректный ответ от LLM: {response_json.get('error')}")
                         return []
+                    
+                    llm_full_response_text = response_json["message"]["content"]
+                    logging.debug(f"Батч {batch_num}: Полный ответ от LLM:\n{llm_full_response_text}")
 
                     extracted_data = extract_final_json(response_json["message"]["content"])
 
