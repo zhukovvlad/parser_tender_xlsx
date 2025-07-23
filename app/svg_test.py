@@ -57,9 +57,9 @@ class Settings(BaseModel):
         os.getenv("OLLAMA_MODEL", "mistral"), description="Название модели")
     ollama_token: Optional[str] = Field(
         os.getenv("OLLAMA_TOKEN"), description="Токен авторизации")
-    input_file: Path = Field(Path("test_6_positions.md"),
+    input_file: Path = Field(Path("38_38_positions.md"),
                              description="Входной файл")
-    batch_size: int = Field(10, description="Размер батча для обработки")
+    batch_size: int = Field(5, description="Размер батча для обработки")
     timeout: int = Field(300, description="Таймаут запроса")
     max_retries: int = Field(3, description="Макс. кол-во повторных попыток")
     retry_delay: int = Field(5, description="Задержка между попытками (сек)")
