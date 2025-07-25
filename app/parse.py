@@ -25,10 +25,9 @@
     файлов гарантирует их уникальность и прямую связь с записями в системе.
     Создаются следующие файлы:
     - Основной JSON-файл (`{tender_db_id}.json`).
-    - Основной MD-отчет (`{tender_db_id}.md`).
-    - Файл с чанками для RAG (`{tender_db_id}_chunks.json`).
-    - Детализированные MD-отчеты по позициям для каждого лота
-      (`{tender_db_id}_{lot_db_id}_positions.md`).
+    - MD-отчеты для каждого лота (`{tender_db_id}_{lot_db_id}.md`).
+    - Файлы с чанками для каждого лота (`{tender_db_id}_{lot_db_id}_chunks.json`).
+    - Детализированные MD-отчеты по позициям для каждого лота (`{tender_db_id}_{lot_db_id}_positions.md`).
 
 5.  Архивация. Исходный XLSX-файл переименовывается в `{tender_db_id}.xlsx`,
     после чего он и все сгенерированные артефакты перемещаются в
@@ -52,10 +51,12 @@ from .helpers.postprocess import normalize_lots_json_structure, replace_div0_wit
 from .helpers.read_headers import read_headers
 from .helpers.read_lots_and_boundaries import read_lots_and_boundaries
 from .helpers.read_executer_block import read_executer_block
-from .markdown_utils.json_to_markdown import json_to_markdown
+# --- ИЗМЕНЕНИЕ: Импортируем новую функцию для MD ---
+from .markdown_utils.json_to_markdown import generate_markdown_for_lots
 from .markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
 from .json_to_server.send_json_to_go_server import register_tender_in_go
 from .markdown_utils.positions_report import generate_reports_for_all_lots
+
 
 load_dotenv()
 
@@ -75,29 +76,6 @@ logging.basicConfig(
 def parse_file(xlsx_path: str) -> None:
     """
     Оркестрирует полный цикл обработки одного тендерного XLSX-файла.
-
-    Функция является основной точкой входа для конвейера обработки. Она
-    выполняет последовательность шагов: извлекает данные из файла,
-    регистрирует их в основной системе через вызов API, и в случае успеха
-    генерирует все локальные артефакты (JSON, MD-отчеты, чанки) и
-    перемещает их вместе с исходным файлом в архивные директории.
-
-    Процесс прерывается, если на каком-либо из критических этапов
-    (парсинг, регистрация в API) происходит ошибка.
-
-    Args:
-        xlsx_path (str): Абсолютный или относительный путь к входному
-                         XLSX-файлу, который необходимо обработать.
-
-    Returns:
-        None: Функция ничего не возвращает. Результатом её работы являются
-              созданные и перемещенные файлы, а также записи в логах.
-
-    Side Effects:
-        - Создает в файловой системе несколько файлов-артефактов.
-        - Перемещает исходный XLSX-файл и созданные артефакты в другие директории.
-        - Выполняет HTTP-запрос к внешнему API-серверу.
-        - Записывает подробную информацию о ходе выполнения в лог-файл и консоль.
     """
     logging.info(f"--- Начало обработки файла: {xlsx_path} ---")
     source_path = Path(xlsx_path).resolve()
@@ -126,7 +104,6 @@ def parse_file(xlsx_path: str) -> None:
         logging.error("Переменная окружения GO_SERVER_API_ENDPOINT не задана. Обработка прервана.")
         return
 
-    # Проверяем настройку резервного режима
     fallback_mode = os.getenv("PARSER_FALLBACK_MODE", "false").lower() == "true"
     
     logging.info("Этап 2: Регистрация тендера на Go сервере...")
@@ -135,7 +112,6 @@ def parse_file(xlsx_path: str) -> None:
     
     go_server_api_key = os.getenv("GO_SERVER_API_KEY")
     
-    # --- ИЗМЕНЕНИЕ: Получаем ID тендера и словарь с ID лотов ---
     success, db_id, lot_ids_map = register_tender_in_go(
         processed_data, 
         go_server_url, 
@@ -147,7 +123,6 @@ def parse_file(xlsx_path: str) -> None:
         logging.error("Не удалось зарегистрировать тендер и резервный режим отключен. Обработка прервана.")
         return
     
-    # Проверяем, работаем ли мы с временными ID
     is_temp_id = str(db_id).startswith("temp_")
     if is_temp_id:
         logging.warning(f"Работаем с временными ID. Тендер: {db_id}")
@@ -161,41 +136,64 @@ def parse_file(xlsx_path: str) -> None:
     base_name = str(db_id)
     output_dir = source_path.parent
     
-    output_json_path = output_dir / f"{base_name}.json"
-    output_md_path = output_dir / f"{base_name}.md"
-    output_chunks_json_path = output_dir / f"{base_name}_chunks.json"
+    generated_md_paths: List[Path] = []
+    generated_chunks_paths: List[Path] = []
     position_reports_paths: List[Path] = []
 
     try:
-        logging.info(f"Этап 3: Генерация артефактов с базовым именем '{base_name}'...")
+        logging.info(f"Этап 3: Генерация артефактов...")
         
+        # 3.1 Сохраняем основной JSON
+        output_json_path = output_dir / f"{base_name}.json"
         with open(output_json_path, "w", encoding="utf-8") as f:
             json.dump(processed_data, f, ensure_ascii=False, indent=4)
         logging.info(f"Основной JSON сохранен в: {output_json_path.name}")
 
-        markdown_lines, initial_tender_metadata = json_to_markdown(processed_data)
-        markdown_content_str = "\n".join(markdown_lines)
-        with open(output_md_path, "w", encoding="utf-8") as f_md:
-            f_md.write(markdown_content_str)
-        logging.info(f"Основной MD-отчет сохранен в: {output_md_path.name}")
+        # 3.2 Генерируем словарь с MD-документами для каждого лота
+        lot_markdowns, initial_tender_metadata = generate_markdown_for_lots(processed_data)
 
-        # --- ИЗМЕНЕНИЕ: Передаем словарь с ID лотов в генератор отчетов ---
-        position_reports_paths = generate_reports_for_all_lots(
-            processed_data, 
-            output_dir, 
-            base_name, # ID тендера
-            lot_ids_map  # Словарь с ID лотов
-        )
-        logging.info("Детализированные MD-отчеты по позициям сгенерированы.")
+        # 3.3 В цикле создаем MD и чанки для КАЖДОГО лота
+        if not lot_ids_map:
+             logging.warning("От сервера не получена карта ID лотов. Пропускаем генерацию MD и чанков.")
+        else:
+            for lot_key, lot_db_id in lot_ids_map.items():
+                logging.info(f"--- Генерация для лота (ключ: {lot_key}, ID: {lot_db_id}) ---")
+                
+                markdown_lines = lot_markdowns.get(lot_key)
+                if not markdown_lines:
+                    logging.warning(f"Не найден MD-контент для ключа лота: {lot_key}. Пропускаем.")
+                    continue
 
-        if markdown_content_str:
-            tender_chunks = create_chunks_from_markdown_text(
-                markdown_content_str,
-                global_initial_metadata=initial_tender_metadata
+                # Создаем и сохраняем MD-файл для лота
+                markdown_content_str = "\n".join(markdown_lines)
+                md_path = output_dir / f"{base_name}_{lot_db_id}.md"
+                with open(md_path, "w", encoding="utf-8") as f_md:
+                    f_md.write(markdown_content_str)
+                generated_md_paths.append(md_path)
+                logging.info(f"MD-отчет для лота сохранен в: {md_path.name}")
+
+                # Создаем и сохраняем чанки для этого MD-файла
+                tender_chunks = create_chunks_from_markdown_text(
+                    markdown_text=markdown_content_str,
+                    tender_metadata=initial_tender_metadata,
+                    lot_db_id=lot_db_id
+                )
+                
+                chunks_path = output_dir / f"{base_name}_{lot_db_id}_chunks.json"
+                with open(chunks_path, "w", encoding="utf-8") as f_chunks:
+                    json.dump(tender_chunks, f_chunks, ensure_ascii=False, indent=2)
+                generated_chunks_paths.append(chunks_path)
+                logging.info(f"Текстовые чанки ({len(tender_chunks)} шт.) для лота сохранены в: {chunks_path.name}")
+        
+        # 3.4 Генерация детализированных отчетов по позициям
+        if lot_ids_map:
+            position_reports_paths = generate_reports_for_all_lots(
+                processed_data, 
+                output_dir, 
+                base_name,
+                lot_ids_map
             )
-            with open(output_chunks_json_path, "w", encoding="utf-8") as f_chunks:
-                json.dump(tender_chunks, f_chunks, ensure_ascii=False, indent=2)
-            logging.info(f"Текстовые чанки ({len(tender_chunks)} шт.) сохранены в: {output_chunks_json_path.name}")
+            logging.info("Детализированные MD-отчеты по позициям сгенерированы.")
 
     except Exception:
         logging.exception("Произошла ошибка во время генерации локальных артефактов.")
@@ -206,24 +204,17 @@ def parse_file(xlsx_path: str) -> None:
     try:
         project_root = Path.cwd()
         
-        # Если используются временные ID, помещаем файлы в отдельную директорию
+        target_dir_name = "pending_sync" if is_temp_id else "tenders"
         if is_temp_id:
-            target_dirs = {
-                "xlsx": project_root / "pending_sync" / "xlsx",
-                "json": project_root / "pending_sync" / "json",
-                "md": project_root / "pending_sync" / "md",
-                "chunks": project_root / "pending_sync" / "chunks",
-                "positions": project_root / "pending_sync" / "positions"
-            }
-            logging.info("Используются временные ID - файлы будут помещены в директорию pending_sync")
-        else:
-            target_dirs = {
-                "xlsx": project_root / "tenders_xlsx",
-                "json": project_root / "tenders_json",
-                "md": project_root / "tenders_md",
-                "chunks": project_root / "tenders_chunks",
-                "positions": project_root / "tenders_positions"
-            }
+             logging.info("Используются временные ID - файлы будут помещены в директорию pending_sync")
+
+        target_dirs = {
+            "xlsx": project_root / f"{target_dir_name}_xlsx",
+            "json": project_root / f"{target_dir_name}_json",
+            "md": project_root / f"{target_dir_name}_md",
+            "chunks": project_root / f"{target_dir_name}_chunks",
+            "positions": project_root / f"{target_dir_name}_positions"
+        }
             
         for dir_path in target_dirs.values():
             os.makedirs(dir_path, exist_ok=True)
@@ -233,15 +224,23 @@ def parse_file(xlsx_path: str) -> None:
                 shutil.move(str(src_path), str(dest_dir / src_path.name))
                 logging.info(f"Файл '{src_path.name}' перемещен в: {dest_dir.name}")
 
+        # Переименовываем и перемещаем XLSX
         renamed_xlsx_path = output_dir / f"{base_name}.xlsx"
         source_path.rename(renamed_xlsx_path)
-        
         move_if_exists(renamed_xlsx_path, target_dirs["xlsx"])
+        
+        # Перемещаем основной JSON
         move_if_exists(output_json_path, target_dirs["json"])
-        move_if_exists(output_chunks_json_path, target_dirs["chunks"])
-        move_if_exists(output_md_path, target_dirs["md"])
-        for pos_report_path in position_reports_paths:
-            move_if_exists(pos_report_path, target_dirs["positions"])
+        
+        # Перемещаем все сгенерированные MD и файлы чанков
+        for path in generated_md_paths:
+            move_if_exists(path, target_dirs["md"])
+        for path in generated_chunks_paths:
+            move_if_exists(path, target_dirs["chunks"])
+        
+        # Перемещаем отчеты по позициям
+        for path in position_reports_paths:
+            move_if_exists(path, target_dirs["positions"])
 
     except Exception:
         logging.exception("Ошибка при перемещении файлов в архив.")
