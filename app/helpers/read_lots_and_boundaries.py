@@ -25,8 +25,9 @@ from ..constants import (
     JSON_KEY_LOT_TITLE,
     JSON_KEY_PROPOSALS,
     PARSE_TABLE_LOT_NUMBER,
-    START_INDEXING_LOT_ROW
+    START_INDEXING_LOT_ROW,
 )
+
 # Локальный импорт. ПРИМЕЧАНИЕ: эту функцию нужно будет изменить следующей.
 from .get_proposals import get_proposals
 
@@ -72,44 +73,42 @@ def read_lots_and_boundaries(ws: Worksheet) -> Dict[str, Dict[str, Any]]:
     for current_row_num in range(START_INDEXING_LOT_ROW, max_sheet_row + 1):
         cell_value_col_d = ws.cell(row=current_row_num, column=4).value
 
-        if isinstance(cell_value_col_d, str) and \
-           cell_value_col_d.strip().lower().startswith(PARSE_TABLE_LOT_NUMBER.lower()):
-            
-            lot_starts.append({
-                'start_row': current_row_num,
-                'title': cell_value_col_d.strip()
-            })
+        if isinstance(
+            cell_value_col_d, str
+        ) and cell_value_col_d.strip().lower().startswith(
+            PARSE_TABLE_LOT_NUMBER.lower()
+        ):
+
+            lot_starts.append(
+                {"start_row": current_row_num, "title": cell_value_col_d.strip()}
+            )
 
     if not lot_starts:
         return {}
 
     # --- ШАГ 2: Определяем границы и извлекаем данные для каждого лота ---
     found_lots_data: Dict[str, Dict[str, Any]] = {}
-    
+
     for i, lot_info in enumerate(lot_starts):
-        start_row = lot_info['start_row']
-        lot_title = lot_info['title']
+        start_row = lot_info["start_row"]
+        lot_title = lot_info["title"]
 
         # Определяем конечную строку
         if i + 1 < len(lot_starts):
             # Если это не последний лот, он заканчивается перед началом следующего
-            end_row = lot_starts[i + 1]['start_row'] - 1
+            end_row = lot_starts[i + 1]["start_row"] - 1
         else:
             # Если это последний лот, он заканчивается в конце листа
             end_row = max_sheet_row
 
         # ПРИМЕЧАНИЕ: Следующий шаг - изменить get_proposals, чтобы он принимал
         # start_row и end_row.
-        proposals = get_proposals(
-            ws,
-            start_row=start_row,
-            end_row=end_row
-        )
+        proposals = get_proposals(ws, start_row=start_row, end_row=end_row)
 
         lot_key = f"{JSON_KEY_LOT_INDEX}{i + 1}"
         found_lots_data[lot_key] = {
             JSON_KEY_LOT_TITLE: lot_title,
-            JSON_KEY_PROPOSALS: proposals
+            JSON_KEY_PROPOSALS: proposals,
         }
-            
+
     return found_lots_data

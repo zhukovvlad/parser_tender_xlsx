@@ -33,6 +33,7 @@ from prompts import PIT_EXCAVATION_PROMPT
 
 load_dotenv()
 
+
 class Settings(BaseModel):
     """
     Класс для хранения и валидации всех настроек скрипта.
@@ -49,16 +50,26 @@ class Settings(BaseModel):
         max_retries (int): Максимальное количество повторных попыток при неудачном запросе.
         retry_delay (int): Задержка между повторными попытками в секундах.
     """
-    ollama_url: str = Field(os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat"), description="URL API Ollama")
-    model_name: str = Field(os.getenv("OLLAMA_MODEL", "mistral"), description="Название модели")
-    ollama_token: Optional[str] = Field(os.getenv("OLLAMA_TOKEN"), description="Токен авторизации")
+
+    ollama_url: str = Field(
+        os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat"),
+        description="URL API Ollama",
+    )
+    model_name: str = Field(
+        os.getenv("OLLAMA_MODEL", "mistral"), description="Название модели"
+    )
+    ollama_token: Optional[str] = Field(
+        os.getenv("OLLAMA_TOKEN"), description="Токен авторизации"
+    )
     input_file: Path = Field(Path("163_163_positions.md"), description="Входной файл")
     batch_size: int = Field(10, description="Размер батча для обработки")
     timeout: int = Field(300, description="Таймаут запроса")
     max_retries: int = Field(3, description="Макс. кол-во повторных попыток")
     retry_delay: int = Field(5, description="Задержка между попытками (сек)")
 
+
 # --- 2. ВАЛИДАЦИЯ ОТВЕТА LLM (Pydantic) ---
+
 
 class LLMResponse(BaseModel):
     """
@@ -69,11 +80,16 @@ class LLMResponse(BaseModel):
     Attributes:
         pit_volumes_m3 (List[float]): Список извлеченных объемов в кубических метрах.
     """
+
     pit_volumes_m3: List[float] = Field(default_factory=list)
+
 
 # --- 3. РЕФАКТОРИНГ ЛОГИКИ ---
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 
 def parse_lot_records(raw_text: str) -> list:
     """
@@ -82,8 +98,8 @@ def parse_lot_records(raw_text: str) -> list:
     """
     records = []
     # Разделяем документ на отдельные блоки по '---'
-    blocks = raw_text.strip().split('---')
-    
+    blocks = raw_text.strip().split("---")
+
     # Пропускаем заголовок документа (первый блок до '---')
     for i, block in enumerate(filter(None, blocks[1:])):
         clean_block = block.strip()
@@ -91,22 +107,29 @@ def parse_lot_records(raw_text: str) -> list:
             continue
 
         # Используем регулярные выражения для точного извлечения полей
-        title_match = re.search(r'\*\*Наименование:\*\*\s*(.*)', clean_block)
-        unit_match = re.search(r'\*\*Единица измерения:\*\*\s*([\w\.]+)', clean_block)
+        title_match = re.search(r"\*\*Наименование:\*\*\s*(.*)", clean_block)
+        unit_match = re.search(r"\*\*Единица измерения:\*\*\s*([\w\.]+)", clean_block)
 
-        title = title_match.group(1).strip() if title_match else f"Неизвестная позиция {i+1}"
+        title = (
+            title_match.group(1).strip()
+            if title_match
+            else f"Неизвестная позиция {i+1}"
+        )
         # Извлекаем единицу измерения и убираем точку в конце, если она есть
-        unit = unit_match.group(1).strip().replace('.', '') if unit_match else None
-        
-        records.append({
-            "record_id": i, 
-            "text": clean_block, 
-            "title": title,
-            "unit": unit  # Добавляем новое поле 'unit'
-        })
-        
+        unit = unit_match.group(1).strip().replace(".", "") if unit_match else None
+
+        records.append(
+            {
+                "record_id": i,
+                "text": clean_block,
+                "title": title,
+                "unit": unit,  # Добавляем новое поле 'unit'
+            }
+        )
+
     logging.info(f"Найдено и разобрано {len(records)} записей.")
     return records
+
 
 def filter_records_by_unit(records: list, target_unit: str = "м3") -> list:
     """
@@ -122,15 +145,15 @@ def filter_records_by_unit(records: list, target_unit: str = "м3") -> list:
     """
     # Фильтруем по точному совпадению в поле 'unit'
     filtered_records = [
-        record for record in records
-        if record.get("unit") == target_unit
+        record for record in records if record.get("unit") == target_unit
     ]
-    
+
     logging.info(
         f"Из {len(records)} записей после фильтрации по единице измерения '{target_unit}' "
         f"осталось {len(filtered_records)}."
     )
     return filtered_records
+
 
 def extract_final_json(response_text: str) -> dict:
     """
@@ -147,13 +170,14 @@ def extract_final_json(response_text: str) -> dict:
         dict: Распарсенный JSON-объект или пустой словарь, если JSON не найден
               или произошла ошибка декодирования.
     """
-    last_brace_index = response_text.rfind('{')
+    last_brace_index = response_text.rfind("{")
     if last_brace_index == -1:
         return {}
     try:
         return json.loads(response_text[last_brace_index:])
     except json.JSONDecodeError:
         return {}
+
 
 class LLMProcessor:
     """
@@ -182,7 +206,9 @@ class LLMProcessor:
         if self.settings.ollama_token:
             self.headers["Authorization"] = f"Bearer {self.settings.ollama_token}"
 
-    async def process_batch(self, session: aiohttp.ClientSession, batch_text: str, batch_num: int) -> List[float]:
+    async def process_batch(
+        self, session: aiohttp.ClientSession, batch_text: str, batch_num: int
+    ) -> List[float]:
         """
         Асинхронно отправляет один батч на обработку в LLM с логикой повторных попыток.
 
@@ -197,8 +223,14 @@ class LLMProcessor:
         """
         payload = {
             "model": self.settings.model_name,
-            "messages": [{"role": "system", "content": self.prompt.replace("{Document}", batch_text)}],
-            "stream": False, "options": {"temperature": 0.0}
+            "messages": [
+                {
+                    "role": "system",
+                    "content": self.prompt.replace("{Document}", batch_text),
+                }
+            ],
+            "stream": False,
+            "options": {"temperature": 0.0},
         }
 
         for attempt in range(self.settings.max_retries):
@@ -207,36 +239,50 @@ class LLMProcessor:
                     self.settings.ollama_url,
                     json=payload,
                     headers=self.headers,
-                    timeout=aiohttp.ClientTimeout(total=self.settings.timeout)
+                    timeout=aiohttp.ClientTimeout(total=self.settings.timeout),
                 ) as response:
                     response.raise_for_status()  # Вызовет исключение для статусов 4xx/5xx
                     response_json = await response.json()
 
-                    if "message" not in response_json or "content" not in response_json["message"]:
-                        logging.error(f"Батч {batch_num}: Некорректный ответ от LLM: {response_json.get('error')}")
+                    if (
+                        "message" not in response_json
+                        or "content" not in response_json["message"]
+                    ):
+                        logging.error(
+                            f"Батч {batch_num}: Некорректный ответ от LLM: {response_json.get('error')}"
+                        )
                         return []
-                    
-                    llm_full_response_text = response_json["message"]["content"]
-                    logging.debug(f"Батч {batch_num}: Полный ответ от LLM:\n{llm_full_response_text}")
 
-                    extracted_data = extract_final_json(response_json["message"]["content"])
+                    llm_full_response_text = response_json["message"]["content"]
+                    logging.debug(
+                        f"Батч {batch_num}: Полный ответ от LLM:\n{llm_full_response_text}"
+                    )
+
+                    extracted_data = extract_final_json(
+                        response_json["message"]["content"]
+                    )
 
                     validated_response = LLMResponse(**extracted_data)
                     return validated_response.pit_volumes_m3
 
             except aiohttp.ClientError as e:
-                logging.warning(f"Батч {batch_num} Попытка {attempt + 1}: Ошибка сети/сервера: {e}")
+                logging.warning(
+                    f"Батч {batch_num} Попытка {attempt + 1}: Ошибка сети/сервера: {e}"
+                )
             except asyncio.TimeoutError:
-                logging.warning(f"Батч {batch_num} Попытка {attempt + 1}: Таймаут запроса.")
+                logging.warning(
+                    f"Батч {batch_num} Попытка {attempt + 1}: Таймаут запроса."
+                )
             except ValidationError as e:
                 logging.error(f"Батч {batch_num}: Ошибка валидации данных от LLM: {e}")
-                return [] # Нет смысла повторять, если данные невалидны
+                return []  # Нет смысла повторять, если данные невалидны
 
             if attempt < self.settings.max_retries - 1:
                 await asyncio.sleep(self.settings.retry_delay)
 
         logging.error(f"Батч {batch_num}: Превышено количество попыток.")
         return []
+
 
 # --- 4. ОСНОВНАЯ АСИНХРОННАЯ ФУНКЦИЯ ---
 async def main():
@@ -263,7 +309,7 @@ async def main():
         return
 
     records_to_process = filter_records_by_unit(all_records, target_unit="м3")
-    
+
     if not records_to_process:
         logging.warning("После фильтрации не осталось записей для обработки.")
         return
@@ -281,8 +327,13 @@ async def main():
             current_batch = records_to_process[batch_start:batch_end]
             logging.info(f"Подготовка батча {i+1}/{num_batches}")
 
-            batch_text = "\n".join([f"### ЗАПИСЬ ID {record['record_id']} ###\n{record['text']}" for record in current_batch])
-            task = processor.process_batch(session, batch_text, i+1)
+            batch_text = "\n".join(
+                [
+                    f"### ЗАПИСЬ ID {record['record_id']} ###\n{record['text']}"
+                    for record in current_batch
+                ]
+            )
+            task = processor.process_batch(session, batch_text, i + 1)
             tasks.append(task)
 
         logging.info(f"Отправка {len(tasks)} батчей на асинхронную обработку...")
@@ -291,7 +342,9 @@ async def main():
         for i, volumes in enumerate(batch_results):
             if volumes:
                 all_volumes.extend(volumes)
-                logging.info(f"Батч {i+1}: Успешно обработан, найдено объемов: {volumes}")
+                logging.info(
+                    f"Батч {i+1}: Успешно обработан, найдено объемов: {volumes}"
+                )
             else:
                 logging.info(f"Батч {i+1}: Объемы не найдены или произошла ошибка.")
 

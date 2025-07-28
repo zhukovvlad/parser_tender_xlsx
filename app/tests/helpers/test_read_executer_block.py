@@ -13,14 +13,16 @@ TABLE_PARSE_TELEPHONE = "Телефон"
 TABLE_PARSE_PREPARATION_DATE = "Дата составления"
 
 # Импортируем тестируемую функцию
-from helpers.read_executer_block import read_executer_block
+from app.helpers.read_executer_block import read_executer_block
 
 
 def set_max_row(ws, row_num):
     """Хелпер для явного установления максимальной строки в тестах."""
-    ws[f'A{row_num}'] = 'dummy_data_to_set_max_row'
+    ws[f"A{row_num}"] = "dummy_data_to_set_max_row"
+
 
 # --- ОБНОВЛЕННЫЕ И НОВЫЕ ТЕСТЫ ---
+
 
 def test_read_executer_block_happy_path_with_colon():
     """
@@ -30,9 +32,9 @@ def test_read_executer_block_happy_path_with_colon():
     wb = Workbook()
     ws = wb.active
     set_max_row(ws, 20)
-    ws['B15'] = "Исполнитель: Иванов И.И."
-    ws['B16'] = "Телефон: +7 (999) 123-45-67"
-    ws['B17'] = "Дата составления: 15.07.2025"
+    ws["B15"] = "Исполнитель: Иванов И.И."
+    ws["B16"] = "Телефон: +7 (999) 123-45-67"
+    ws["B17"] = "Дата составления: 15.07.2025"
 
     # Act
     result = read_executer_block(ws)
@@ -53,7 +55,7 @@ def test_read_executer_block_date_format_without_colon():
     wb = Workbook()
     ws = wb.active
     set_max_row(ws, 20)
-    ws['B17'] = "Дата составления 07.05.2025 18:49:35"
+    ws["B17"] = "Дата составления 07.05.2025 18:49:35"
 
     # Act
     result = read_executer_block(ws)
@@ -72,7 +74,7 @@ def test_read_executer_block_date_format_with_space_before_colon():
     wb = Workbook()
     ws = wb.active
     set_max_row(ws, 20)
-    ws['B17'] = "Дата составления : 12.12.2025"
+    ws["B17"] = "Дата составления : 12.12.2025"
 
     # Act
     result = read_executer_block(ws)
@@ -88,10 +90,10 @@ def test_read_executer_block_is_case_insensitive():
     # Arrange
     wb = Workbook()
     ws = wb.active
-    set_max_row(ws, 10) # Сканируем 5, 6, 7
-    ws['B5'] = "ИСПОЛНИТЕЛЬ: Петров П.П."
-    ws['B6'] = "телефон: 88005553535"
-    ws['B7'] = "ДАТА СОСТАВЛЕНИЯ: 01.01.2025"
+    set_max_row(ws, 10)  # Сканируем 5, 6, 7
+    ws["B5"] = "ИСПОЛНИТЕЛЬ: Петров П.П."
+    ws["B6"] = "телефон: 88005553535"
+    ws["B7"] = "ДАТА СОСТАВЛЕНИЯ: 01.01.2025"
 
     # Act
     result = read_executer_block(ws)
@@ -102,7 +104,9 @@ def test_read_executer_block_is_case_insensitive():
     # ОБНОВЛЕНО: Проверяем, что дата извлечена без двоеточия
     assert result[JSON_KEY_EXECUTOR_DATE] == "01.01.2025"
 
+
 # --- ОСТАЛЬНЫЕ ТЕСТЫ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ, ТАК КАК ОНИ ПРОВЕРЯЮТ ОБЩУЮ ЛОГИКУ ---
+
 
 def test_read_executer_block_no_data_found():
     """
@@ -112,7 +116,7 @@ def test_read_executer_block_no_data_found():
     wb = Workbook()
     ws = wb.active
     set_max_row(ws, 20)
-    ws['B15'] = "Просто какой-то текст"
+    ws["B15"] = "Просто какой-то текст"
 
     # Act
     result = read_executer_block(ws)
@@ -129,7 +133,7 @@ def test_read_executer_block_ignores_data_in_wrong_column():
     wb = Workbook()
     ws = wb.active
     set_max_row(ws, 20)
-    ws['A15'] = "Исполнитель: Иванов И.И."
+    ws["A15"] = "Исполнитель: Иванов И.И."
 
     # Act
     result = read_executer_block(ws)
@@ -145,8 +149,8 @@ def test_read_executer_block_handles_small_sheet_gracefully():
     # Arrange
     wb = Workbook()
     ws = wb.active
-    ws['A1'] = 'data'
-    ws['A2'] = 'data'
+    ws["A1"] = "data"
+    ws["A2"] = "data"
 
     # Act
     try:
@@ -157,6 +161,7 @@ def test_read_executer_block_handles_small_sheet_gracefully():
     # Assert
     assert all(value is None for value in result.values())
 
+
 def test_read_executer_block_ignores_non_string_values():
     """
     Проверяет, что функция игнорирует ячейки с не-строковыми данными (числа, None и т.д.).
@@ -165,13 +170,14 @@ def test_read_executer_block_ignores_non_string_values():
     wb = Workbook()
     ws = wb.active
     set_max_row(ws, 20)
-    ws['B15'] = 123456789 # Число вместо строки
+    ws["B15"] = 123456789  # Число вместо строки
 
     # Act
     result = read_executer_block(ws)
 
     # Assert
     assert all(value is None for value in result.values())
+
 
 def test_read_executer_block_handles_missing_colon_for_name():
     """
@@ -181,7 +187,7 @@ def test_read_executer_block_handles_missing_colon_for_name():
     wb = Workbook()
     ws = wb.active
     set_max_row(ws, 20)
-    ws['B15'] = "Исполнитель Иванов И.И." # Нет двоеточия
+    ws["B15"] = "Исполнитель Иванов И.И."  # Нет двоеточия
 
     # Act
     result = read_executer_block(ws)
@@ -190,6 +196,7 @@ def test_read_executer_block_handles_missing_colon_for_name():
     # Ошибка IndexError должна быть обработана, и значение останется None
     assert result[JSON_KEY_EXECUTOR_NAME] is None
 
+
 def test_read_executer_block_ignores_data_in_wrong_rows():
     """
     Проверяет, что сканируется только предопределенный диапазон строк.
@@ -197,17 +204,18 @@ def test_read_executer_block_ignores_data_in_wrong_rows():
     # Arrange
     wb = Workbook()
     ws = wb.active
-    set_max_row(ws, 20) # -> сканируем 15, 16, 17
-    
+    set_max_row(ws, 20)  # -> сканируем 15, 16, 17
+
     # Данные в строках 14 и 18 должны быть проигнорированы
-    ws['B14'] = "Исполнитель: Неправильный"
-    ws['B18'] = "Телефон: 555-55-55"
+    ws["B14"] = "Исполнитель: Неправильный"
+    ws["B18"] = "Телефон: 555-55-55"
 
     # Act
     result = read_executer_block(ws)
 
     # Assert
     assert all(value is None for value in result.values())
+
 
 def test_read_executer_block_handles_missing_colon_for_phone():
     """
@@ -218,7 +226,7 @@ def test_read_executer_block_handles_missing_colon_for_phone():
     ws = wb.active
     set_max_row(ws, 20)
     # Ключевое слово есть, а двоеточия нет
-    ws['B16'] = "Телефон 89991234567"
+    ws["B16"] = "Телефон 89991234567"
 
     # Act
     result = read_executer_block(ws)
@@ -226,6 +234,7 @@ def test_read_executer_block_handles_missing_colon_for_phone():
     # Assert
     # Код должен обработать IndexError и оставить значение None
     assert result[JSON_KEY_EXECUTOR_PHONE] is None
+
 
 def test_read_executer_block_handles_missing_colon_for_phone():
     """
@@ -236,7 +245,7 @@ def test_read_executer_block_handles_missing_colon_for_phone():
     ws = wb.active
     set_max_row(ws, 20)
     # Ключевое слово есть, а двоеточия нет
-    ws['B16'] = "Телефон 89991234567"
+    ws["B16"] = "Телефон 89991234567"
 
     # Act
     result = read_executer_block(ws)

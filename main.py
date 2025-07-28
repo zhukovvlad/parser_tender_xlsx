@@ -11,20 +11,22 @@
 Для управления фоновыми задачами используется встроенный механизм BackgroundTasks.
 Статусы задач хранятся в памяти (для демонстрационных целей).
 """
+
 import logging
 import os
 import shutil
 import uuid
 from pathlib import Path
-from dotenv import load_dotenv
+from typing import Dict, Any
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 
 from app.parse import parse_file
 
 # --- ЕДИНСТВЕННЫЙ БЛОК НАСТРОЙКИ ЛОГГИРОВАНИЯ ---
 
-load_dotenv() # Загружаем переменные из .env
+load_dotenv()  # Загружаем переменные из .env
 
 # 1. Определяем директорию для логов
 log_dir = Path("logs")
@@ -43,11 +45,11 @@ log_level = log_levels.get(log_level_str, logging.INFO)
 # 3. Конфигурируем logging ОДИН РАЗ с двумя обработчиками
 logging.basicConfig(
     level=log_level,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler(log_dir / "parser_service.log", mode='w', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+        logging.FileHandler(log_dir / "parser_service.log", mode="w", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
 )
 
 # 4. Получаем логгер для текущего модуля
@@ -56,20 +58,20 @@ log = logging.getLogger(__name__)
 # --- КОНЕЦ БЛОКА НАСТРОЙКИ ЛОГГИРОВАНИЯ ---
 
 # Хранилище статусов задач в памяти
-tasks_db = {}
+tasks_db: Dict[str, Dict[str, Any]] = {}
 
 # Настройка FastAPI приложения
 app = FastAPI(
     title="Tender Parser Service",
     description="Сервис для асинхронной обработки тендерных XLSX файлов.",
-    version="2.0.0"
+    version="2.0.0",
 )
 
 UPLOAD_DIRECTORY = Path("temp_uploads")
-os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
+UPLOAD_DIRECTORY.mkdir(exist_ok=True)
 
 
-def run_parsing_in_background(task_id: str, file_path: str):
+def run_parsing_in_background(task_id: str, file_path: str) -> None:
     """
     Выполняет парсинг в фоновом режиме и обновляет статус задачи.
     """
@@ -85,19 +87,24 @@ def run_parsing_in_background(task_id: str, file_path: str):
 
 
 @app.post("/parse-tender/", status_code=202, tags=["Tender Processing"])
-async def create_parsing_task(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def create_parsing_task(
+    background_tasks: BackgroundTasks, file: UploadFile = File(...)
+):
     """
     Принимает файл, создает для него уникальную задачу и запускает
     обработку в фоновом режиме, немедленно возвращая ID задачи.
     """
-    if not file.filename or not file.filename.endswith(('.xlsx', '.xls')):
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(
-            status_code=400, detail="Неверный формат файла. Пожалуйста, загрузите XLSX или XLS файл.")
+            status_code=400,
+            detail="Неверный формат файла. Пожалуйста, загрузите XLSX или XLS файл.",
+        )
 
     task_id = str(uuid.uuid4())
     temp_file_path = UPLOAD_DIRECTORY / f"{task_id}_{file.filename}"
     log.info(
-        f"Task {task_id}: Получен файл {file.filename}. Сохранение в: {temp_file_path}")
+        f"Task {task_id}: Получен файл {file.filename}. Сохранение в: {temp_file_path}"
+    )
 
     try:
         with open(temp_file_path, "wb") as buffer:
@@ -105,12 +112,12 @@ async def create_parsing_task(background_tasks: BackgroundTasks, file: UploadFil
     except Exception as e:
         log.error(f"Task {task_id}: Не удалось сохранить файл: {e}")
         raise HTTPException(
-            status_code=500, detail="Не удалось сохранить файл на сервере.")
+            status_code=500, detail="Не удалось сохранить файл на сервере."
+        )
     finally:
         file.file.close()
 
-    background_tasks.add_task(
-        run_parsing_in_background, task_id, str(temp_file_path))
+    background_tasks.add_task(run_parsing_in_background, task_id, str(temp_file_path))
 
     return {"task_id": task_id, "message": "Задача по обработке файла принята."}
 
@@ -122,8 +129,7 @@ async def get_task_status(task_id: str):
     """
     task = tasks_db.get(task_id)
     if not task:
-        raise HTTPException(
-            status_code=404, detail="Задача с таким ID не найдена.")
+        raise HTTPException(status_code=404, detail="Задача с таким ID не найдена.")
     return task
 
 

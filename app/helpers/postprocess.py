@@ -18,26 +18,37 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..constants import (
-    JSON_KEY_BASELINE_PROPOSAL, JSON_KEY_CHAPTER_NUMBER,
-    JSON_KEY_CHAPTER_REF, JSON_KEY_CONTRACTOR_ADDITIONAL_INFO,
-    JSON_KEY_CONTRACTOR_INDEX, JSON_KEY_CONTRACTOR_ITEMS,
-    JSON_KEY_CONTRACTOR_POSITIONS, JSON_KEY_CONTRACTOR_SUMMARY,
-    JSON_KEY_CONTRACTOR_TITLE, JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
-    JSON_KEY_IS_CHAPTER, JSON_KEY_LOTS, JSON_KEY_PROPOSALS,
-    JSON_KEY_TOTAL_COST, TABLE_PARSE_BASELINE_COST
+    JSON_KEY_BASELINE_PROPOSAL,
+    JSON_KEY_CHAPTER_NUMBER,
+    JSON_KEY_CHAPTER_REF,
+    JSON_KEY_CONTRACTOR_ADDITIONAL_INFO,
+    JSON_KEY_CONTRACTOR_INDEX,
+    JSON_KEY_CONTRACTOR_ITEMS,
+    JSON_KEY_CONTRACTOR_POSITIONS,
+    JSON_KEY_CONTRACTOR_SUMMARY,
+    JSON_KEY_CONTRACTOR_TITLE,
+    JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
+    JSON_KEY_IS_CHAPTER,
+    JSON_KEY_LOTS,
+    JSON_KEY_PROPOSALS,
+    JSON_KEY_TOTAL_COST,
+    TABLE_PARSE_BASELINE_COST,
 )
 
 DIV_ZERO_ERROR_STRINGS = {"div/0", "#div/0!", "деление на 0"}
 
+
 class DataIntegrityError(Exception):
     """Вызывается, когда структура данных не соответствует ожиданиям."""
+
     pass
 
 
 # --- Вспомогательные ("приватные") функции ---
 
+
 def _separate_proposals(
-    proposals_in_lot: Dict[str, Any]
+    proposals_in_lot: Dict[str, Any],
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     """
     Разделяет словарь предложений на "Расчетную стоимость" и "реальные" предложения.
@@ -57,7 +68,7 @@ def _separate_proposals(
         title = str(proposal_data.get(JSON_KEY_CONTRACTOR_TITLE, "")).strip().lower()
         if title == TABLE_PARSE_BASELINE_COST:
             baseline_proposal = proposal_data
-        elif title: # Добавляем только предложения с непустым названием
+        elif title:  # Добавляем только предложения с непустым названием
             actual_proposals[proposal_data[JSON_KEY_CONTRACTOR_TITLE]] = proposal_data
 
     return baseline_proposal, actual_proposals
@@ -88,7 +99,9 @@ def _is_baseline_valid(baseline_proposal: Optional[Dict[str, Any]]) -> bool:
     if not baseline_proposal:
         return False
 
-    summary_data = baseline_proposal.get(JSON_KEY_CONTRACTOR_ITEMS, {}).get(JSON_KEY_CONTRACTOR_SUMMARY, {})
+    summary_data = baseline_proposal.get(JSON_KEY_CONTRACTOR_ITEMS, {}).get(
+        JSON_KEY_CONTRACTOR_SUMMARY, {}
+    )
     all_total_values = []
     for summary_block in summary_data.values():
         if isinstance(summary_block, dict):
@@ -115,12 +128,15 @@ def _clean_deviation_fields(proposals: Dict[str, Any]) -> Dict[str, Any]:
                 pos_item.pop(JSON_KEY_DEVIATION_FROM_CALCULATED_COST, None)
 
         if JSON_KEY_CONTRACTOR_SUMMARY in items_data:
-            items_data[JSON_KEY_CONTRACTOR_SUMMARY].pop(JSON_KEY_DEVIATION_FROM_CALCULATED_COST, None)
-            
+            items_data[JSON_KEY_CONTRACTOR_SUMMARY].pop(
+                JSON_KEY_DEVIATION_FROM_CALCULATED_COST, None
+            )
+
     return cleaned_proposals
 
 
 # --- Основные публичные функции ---
+
 
 def normalize_lots_json_structure(data: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -144,29 +160,31 @@ def normalize_lots_json_structure(data: Dict[str, Any]) -> Dict[str, Any]:
 
     for lot_key, lot_content in lots_data.items():
         proposals_in_lot = lot_content.get(JSON_KEY_PROPOSALS, {})
-        
+
         baseline_proposal, actual_proposals = _separate_proposals(proposals_in_lot)
-        
+
         if _is_baseline_valid(baseline_proposal) and baseline_proposal:
             baseline_proposal.pop(JSON_KEY_CONTRACTOR_ADDITIONAL_INFO, None)
             lot_content[JSON_KEY_BASELINE_PROPOSAL] = baseline_proposal
         else:
-            lot_content[JSON_KEY_BASELINE_PROPOSAL] = {JSON_KEY_CONTRACTOR_TITLE: "Расчетная стоимость отсутствует"}
+            lot_content[JSON_KEY_BASELINE_PROPOSAL] = {
+                JSON_KEY_CONTRACTOR_TITLE: "Расчетная стоимость отсутствует"
+            }
             actual_proposals = _clean_deviation_fields(actual_proposals)
-            
+
         reindexed_proposals = {}
         for idx, proposal in enumerate(actual_proposals.values(), 1):
             items = proposal.get(JSON_KEY_CONTRACTOR_ITEMS, {})
             positions = items.get(JSON_KEY_CONTRACTOR_POSITIONS)
-            
+
             if positions:
                 annotated_positions = annotate_structure_fields(positions)
                 items[JSON_KEY_CONTRACTOR_POSITIONS] = annotated_positions
-            
+
             reindexed_proposals[f"{JSON_KEY_CONTRACTOR_INDEX}{idx}"] = proposal
-            
+
         lot_content[JSON_KEY_PROPOSALS] = reindexed_proposals
-        
+
     return processed_data
 
 
@@ -189,7 +207,9 @@ def replace_div0_with_null(data: Any) -> Any:
     return data
 
 
-def annotate_structure_fields(positions: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+def annotate_structure_fields(
+    positions: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
     """
     Добавляет иерархические поля 'is_chapter' и 'chapter_ref' в каждую позицию.
 
@@ -207,7 +227,7 @@ def annotate_structure_fields(positions: Dict[str, Dict[str, Any]]) -> Dict[str,
 
     # Работаем с копией, чтобы не изменять оригинал
     positions_copy = copy.deepcopy(positions)
-    
+
     try:
         # Сортируем по числовым ключам для правильного порядка обработки
         sorted_items: List[Tuple[str, Dict[str, Any]]] = sorted(
@@ -238,12 +258,12 @@ def annotate_structure_fields(positions: Dict[str, Dict[str, Any]]) -> Dict[str,
             if "." in current_chapter_number:
                 parent_ref = ".".join(current_chapter_number.split(".")[:-1])
                 pos_item[JSON_KEY_CHAPTER_REF] = parent_ref
-            else: # Раздел верхнего уровня
+            else:  # Раздел верхнего уровня
                 pos_item[JSON_KEY_CHAPTER_REF] = None
         else:
             # Обычная позиция ссылается на текущий активный раздел
             pos_item[JSON_KEY_CHAPTER_REF] = current_chapter_number
-            
+
     # Собираем итоговый словарь из измененных данных
     final_positions = {key: value for key, value in sorted_items}
     return final_positions

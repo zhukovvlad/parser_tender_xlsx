@@ -25,18 +25,20 @@ from openpyxl.worksheet.worksheet import Worksheet
 from app.helpers.parse_contractor_row import parse_contractor_row
 
 from ..constants import (
-    JSON_KEY_JOB_TITLE, JSON_KEY_TOTAL_COST_VAT, JSON_KEY_VAT,
-    JSON_KEY_DEVIATION_FROM_CALCULATED_COST, JSON_KEY_INITIAL_COST, START_INDEXING_POSITION_ROW,
-    TABLE_PARSE_DEVIATION_FROM_CALCULATED_COST, TABLE_PARSE_INITIAL_COST
+    JSON_KEY_JOB_TITLE,
+    JSON_KEY_TOTAL_COST_VAT,
+    JSON_KEY_VAT,
+    JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
+    JSON_KEY_INITIAL_COST,
+    START_INDEXING_POSITION_ROW,
+    TABLE_PARSE_DEVIATION_FROM_CALCULATED_COST,
+    TABLE_PARSE_INITIAL_COST,
 )
 
 log = logging.getLogger(__name__)
 
 
-def get_summary(
-    ws: Worksheet,
-    contractor: Dict[str, Any]
-) -> Dict[str, Any]:
+def get_summary(ws: Worksheet, contractor: Dict[str, Any]) -> Dict[str, Any]:
     """Извлекает итоговые (summary) строки для подрядчика со всего листа.
 
     Функция предназначена для парсинга глобального блока итогов, который,
@@ -77,7 +79,7 @@ def get_summary(
     # Находим, где начинается блок summary
     for row_num in range(START_INDEXING_POSITION_ROW, ws.max_row + 1):
         first_cell = ws.cell(row=row_num, column=1)
-        
+
         is_merged = False
         for merged_range in ws.merged_cells.ranges:
             if first_cell.coordinate in merged_range:
@@ -103,14 +105,19 @@ def get_summary(
             f"get_summary: Обработка summary-строки {current_row_num} "
             f"со значением '{first_cell_in_row.value}'"
         )
-        
-        summary_label_raw = str(first_cell_in_row.value).strip(
-        ).lower() if first_cell_in_row.value is not None else ""
+
+        summary_label_raw = (
+            str(first_cell_in_row.value).strip().lower()
+            if first_cell_in_row.value is not None
+            else ""
+        )
         summary_key = f"merged_{current_row_num}"
 
         if "итого" in summary_label_raw and "ндс" in summary_label_raw:
             summary_key = JSON_KEY_TOTAL_COST_VAT
-        elif "в том числе ндс" in summary_label_raw or ("ндс" in summary_label_raw and "итого" not in summary_label_raw):
+        elif "в том числе ндс" in summary_label_raw or (
+            "ндс" in summary_label_raw and "итого" not in summary_label_raw
+        ):
             summary_key = JSON_KEY_VAT
         elif TABLE_PARSE_DEVIATION_FROM_CALCULATED_COST in summary_label_raw:
             summary_key = JSON_KEY_DEVIATION_FROM_CALCULATED_COST
@@ -121,7 +128,8 @@ def get_summary(
             JSON_KEY_JOB_TITLE: first_cell_in_row.value,
         }
         contractor_specific_summary_data = parse_contractor_row(
-            ws, current_row_num, contractor)
+            ws, current_row_num, contractor
+        )
         summary_item_data.update(contractor_specific_summary_data)
 
         summary[summary_key] = summary_item_data

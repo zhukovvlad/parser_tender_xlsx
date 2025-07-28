@@ -18,9 +18,10 @@ from ..constants import (
     JSON_KEY_TENDER_TITLE,
     TABLE_PARSE_ADDRESS,
     TABLE_PARSE_OBJECT,
-    TABLE_PARSE_TENDER_SUBJECT
+    TABLE_PARSE_TENDER_SUBJECT,
 )
 from ..helpers.sanitize_text import sanitize_text
+
 
 def read_headers(ws: Worksheet) -> Dict[str, Optional[str]]:
     """
@@ -68,51 +69,67 @@ def read_headers(ws: Worksheet) -> Dict[str, Optional[str]]:
         JSON_KEY_TENDER_ID: None,
         JSON_KEY_TENDER_TITLE: None,
         JSON_KEY_TENDER_OBJECT: None,
-        JSON_KEY_TENDER_ADDRESS: None
+        JSON_KEY_TENDER_ADDRESS: None,
     }
 
     # Сканируем строки с 3-й по 5-ю (1-индексация в Excel)
     for row_num in range(3, 6):
         # Собираем все непустые строковые значения из текущей строки
         current_row_non_empty_values: List[str] = []
-        for cell in ws[row_num]: # ws[row_num] - это кортеж ячеек (Cell) строки
+        for cell in ws[row_num]:  # ws[row_num] - это кортеж ячеек (Cell) строки
             if cell.value is not None:
                 cell_str_value = str(cell.value).strip()
-                if cell_str_value: # Добавляем, только если строка не пуста после strip()
+                if (
+                    cell_str_value
+                ):  # Добавляем, только если строка не пуста после strip()
                     current_row_non_empty_values.append(cell_str_value)
-        
-        if not current_row_non_empty_values:
-            continue # Переходим к следующей строке, если текущая не содержит значащих данных
 
-        first_cell_text = current_row_non_empty_values[0] # Текст из первой непустой ячейки
+        if not current_row_non_empty_values:
+            continue  # Переходим к следующей строке, если текущая не содержит значащих данных
+
+        first_cell_text = current_row_non_empty_values[
+            0
+        ]  # Текст из первой непустой ячейки
 
         # Обработка "Предмет тендера"
-        if first_cell_text.startswith(TABLE_PARSE_TENDER_SUBJECT): # Например, "Предмет тендера:"
+        if first_cell_text.startswith(
+            TABLE_PARSE_TENDER_SUBJECT
+        ):  # Например, "Предмет тендера:"
             if len(current_row_non_empty_values) > 1:
                 tender_details_full_str = sanitize_text(current_row_non_empty_values[1])
-                parts = tender_details_full_str.split(" ", 1) # Разделяем по первому пробелу
-                
+                parts = tender_details_full_str.split(
+                    " ", 1
+                )  # Разделяем по первому пробелу
+
                 id_candidate = parts[0].replace("№", "").strip()
                 header_data[JSON_KEY_TENDER_ID] = id_candidate if id_candidate else None
 
-                if len(parts) > 1: # Есть и ID, и название
+                if len(parts) > 1:  # Есть и ID, и название
                     title_candidate = parts[1].strip()
-                    header_data[JSON_KEY_TENDER_TITLE] = title_candidate if title_candidate else None
-                elif id_candidate: # Только ID, без пробела после него; используем ID как название
-                                   # (соответствует поведению оригинального кода пользователя, где
-                                   # `if " " not in tender_details: title = tender_details` )
+                    header_data[JSON_KEY_TENDER_TITLE] = (
+                        title_candidate if title_candidate else None
+                    )
+                elif (
+                    id_candidate
+                ):  # Только ID, без пробела после него; используем ID как название
+                    # (соответствует поведению оригинального кода пользователя, где
+                    # `if " " not in tender_details: title = tender_details` )
                     header_data[JSON_KEY_TENDER_TITLE] = id_candidate
-        
+
         # Обработка "Объект"
-        elif first_cell_text.startswith(TABLE_PARSE_OBJECT): # Например, "Объект"
+        elif first_cell_text.startswith(TABLE_PARSE_OBJECT):  # Например, "Объект"
             if len(current_row_non_empty_values) > 1:
                 object_text = current_row_non_empty_values[1].strip()
-                header_data[JSON_KEY_TENDER_OBJECT] = object_text if object_text else None
-        
+                header_data[JSON_KEY_TENDER_OBJECT] = (
+                    object_text if object_text else None
+                )
+
         # Обработка "Адрес"
-        elif first_cell_text.startswith(TABLE_PARSE_ADDRESS): # Например, "Адрес"
+        elif first_cell_text.startswith(TABLE_PARSE_ADDRESS):  # Например, "Адрес"
             if len(current_row_non_empty_values) > 1:
                 address_text = current_row_non_empty_values[1].strip()
-                header_data[JSON_KEY_TENDER_ADDRESS] = address_text if address_text else None
+                header_data[JSON_KEY_TENDER_ADDRESS] = (
+                    address_text if address_text else None
+                )
 
     return header_data

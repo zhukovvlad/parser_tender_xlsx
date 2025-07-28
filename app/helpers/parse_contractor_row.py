@@ -10,7 +10,7 @@
 
 from typing import List, Dict, Any
 from openpyxl.worksheet.worksheet import Worksheet
-from openpyxl.cell import Cell # Для аннотации типа списка ячеек
+from openpyxl.cell import Cell  # Для аннотации типа списка ячеек
 
 # Импорт необходимых констант для ключей JSON
 from ..constants import (
@@ -23,13 +23,12 @@ from ..constants import (
     JSON_KEY_TOTAL_COST,
     JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST,
     JSON_KEY_COMMENT_CONTRACTOR,
-    JSON_KEY_DEVIATION_FROM_CALCULATED_COST
+    JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
 )
 
+
 def parse_contractor_row(
-    ws: Worksheet,
-    row_index: int,
-    contractor: Dict[str, Any]
+    ws: Worksheet, row_index: int, contractor: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
     Извлекает значения, относящиеся к подрядчику, из одной строки листа Excel
@@ -93,7 +92,7 @@ def parse_contractor_row(
         uc_wrk = f"{JSON_KEY_UNIT_COST}.{JSON_KEY_WORKS}"
         uc_ind = f"{JSON_KEY_UNIT_COST}.{JSON_KEY_INDIRECT_COSTS}"
         uc_tot = f"{JSON_KEY_UNIT_COST}.{JSON_KEY_TOTAL}"
-        
+
         tc_mat = f"{JSON_KEY_TOTAL_COST}.{JSON_KEY_MATERIALS}"
         tc_wrk = f"{JSON_KEY_TOTAL_COST}.{JSON_KEY_WORKS}"
         tc_ind = f"{JSON_KEY_TOTAL_COST}.{JSON_KEY_INDIRECT_COSTS}"
@@ -102,39 +101,60 @@ def parse_contractor_row(
         if colspan == 12:
             return [
                 JSON_KEY_SUGGESTED_QUANTITY,
-                uc_mat, uc_wrk, uc_ind, uc_tot,
-                tc_mat, tc_wrk, tc_ind, tc_tot,
+                uc_mat,
+                uc_wrk,
+                uc_ind,
+                uc_tot,
+                tc_mat,
+                tc_wrk,
+                tc_ind,
+                tc_tot,
                 JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST,
                 JSON_KEY_COMMENT_CONTRACTOR,
-                JSON_KEY_DEVIATION_FROM_CALCULATED_COST
+                JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
             ]
         elif colspan == 11:
             return [
                 JSON_KEY_SUGGESTED_QUANTITY,
-                uc_mat, uc_wrk, uc_ind, uc_tot,
-                tc_mat, tc_wrk, tc_ind, tc_tot,
+                uc_mat,
+                uc_wrk,
+                uc_ind,
+                uc_tot,
+                tc_mat,
+                tc_wrk,
+                tc_ind,
+                tc_tot,
                 JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST,
                 # JSON_KEY_COMMENT_CONTRACTOR - отсутствует для colspan 11
-                JSON_KEY_DEVIATION_FROM_CALCULATED_COST
+                JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
             ]
         elif colspan == 10:
             return [
-                uc_mat, uc_wrk, uc_ind, uc_tot,
-                tc_mat, tc_wrk, tc_ind, tc_tot,
+                uc_mat,
+                uc_wrk,
+                uc_ind,
+                uc_tot,
+                tc_mat,
+                tc_wrk,
+                tc_ind,
+                tc_tot,
                 JSON_KEY_COMMENT_CONTRACTOR,
-                JSON_KEY_DEVIATION_FROM_CALCULATED_COST
+                JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
             ]
         elif colspan == 9:
             return [
-                uc_mat, uc_wrk, uc_ind, uc_tot,
-                tc_mat, tc_wrk, tc_ind, tc_tot,
-                JSON_KEY_DEVIATION_FROM_CALCULATED_COST
+                uc_mat,
+                uc_wrk,
+                uc_ind,
+                uc_tot,
+                tc_mat,
+                tc_wrk,
+                tc_ind,
+                tc_tot,
+                JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
             ]
         elif colspan == 8:
-            return [
-                uc_mat, uc_wrk, uc_ind, uc_tot,
-                tc_mat, tc_wrk, tc_ind, tc_tot
-            ]
+            return [uc_mat, uc_wrk, uc_ind, uc_tot, tc_mat, tc_wrk, tc_ind, tc_tot]
         else:
             raise ValueError(
                 f"Неподдерживаемый colspan подрядчика: {colspan}. Ожидались значения 8, 9, 10, 11 или 12."
@@ -174,7 +194,7 @@ def parse_contractor_row(
     # ----- Основная логика функции parse_contractor_row -----
     contractor_col_start: int = contractor["column_start"]
     contractor_colspan: int = contractor["merged_shape"]["colspan"]
-    
+
     # Получаем список ключей JSON, соответствующий colspan данного подрядчика
     list_of_keys = get_column_keys(contractor_colspan)
 
@@ -182,9 +202,11 @@ def parse_contractor_row(
     # Диапазон колонок: от contractor_col_start до contractor_col_start + contractor_colspan - 1
     cells_to_parse: List[Cell] = [
         ws.cell(row=row_index, column=col_idx)
-        for col_idx in range(contractor_col_start, contractor_col_start + contractor_colspan)
+        for col_idx in range(
+            contractor_col_start, contractor_col_start + contractor_colspan
+        )
     ]
-    
+
     # Гарантируется, что get_column_keys вернет список ключей,
     # длина которого равна colspan, если colspan поддерживается.
     # Если colspan не поддерживается, get_column_keys вызовет ValueError.

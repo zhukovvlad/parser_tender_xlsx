@@ -29,18 +29,22 @@ from .sanitize_text import normalize_job_title_with_lemmatization
 from .get_items_dict import get_items_dict
 from .parse_contractor_row import parse_contractor_row
 from ..constants import (
-    START_INDEXING_POSITION_ROW, JSON_KEY_NUMBER, JSON_KEY_CHAPTER_NUMBER,
-    JSON_KEY_ARTICLE_SMR, JSON_KEY_JOB_TITLE, JSON_KEY_JOB_TITLE_NORMALIZED,
-    JSON_KEY_COMMENT_ORGANIZER, JSON_KEY_UNIT, JSON_KEY_QUANTITY
+    START_INDEXING_POSITION_ROW,
+    JSON_KEY_NUMBER,
+    JSON_KEY_CHAPTER_NUMBER,
+    JSON_KEY_ARTICLE_SMR,
+    JSON_KEY_JOB_TITLE,
+    JSON_KEY_JOB_TITLE_NORMALIZED,
+    JSON_KEY_COMMENT_ORGANIZER,
+    JSON_KEY_UNIT,
+    JSON_KEY_QUANTITY,
 )
 
 log = logging.getLogger(__name__)
 
+
 def get_lot_positions(
-    ws: Worksheet,
-    contractor: Dict[str, Any],
-    lot_start_row: int,
-    lot_end_row: int
+    ws: Worksheet, contractor: Dict[str, Any], lot_start_row: int, lot_end_row: int
 ) -> Dict[str, Any]:
     """
     Извлекает детализированные позиции для подрядчика строго в границах лота.
@@ -112,21 +116,18 @@ def get_lot_positions(
 
         item = get_items_dict(contractor["merged_shape"]["colspan"])
         item[JSON_KEY_NUMBER] = ws.cell(row=current_row_num, column=1).value
-        item[JSON_KEY_CHAPTER_NUMBER] = ws.cell(
-            row=current_row_num, column=2).value
-        item[JSON_KEY_ARTICLE_SMR] = ws.cell(
-            row=current_row_num, column=3).value
+        item[JSON_KEY_CHAPTER_NUMBER] = ws.cell(row=current_row_num, column=2).value
+        item[JSON_KEY_ARTICLE_SMR] = ws.cell(row=current_row_num, column=3).value
         original_job_title = ws.cell(row=current_row_num, column=4).value
         item[JSON_KEY_JOB_TITLE] = original_job_title
         item[JSON_KEY_JOB_TITLE_NORMALIZED] = normalize_job_title_with_lemmatization(
-            original_job_title)
-        item[JSON_KEY_COMMENT_ORGANIZER] = ws.cell(
-            row=current_row_num, column=6).value
+            original_job_title
+        )
+        item[JSON_KEY_COMMENT_ORGANIZER] = ws.cell(row=current_row_num, column=6).value
         item[JSON_KEY_UNIT] = ws.cell(row=current_row_num, column=7).value
         item[JSON_KEY_QUANTITY] = ws.cell(row=current_row_num, column=8).value
 
-        contractor_specific_data = parse_contractor_row(
-            ws, current_row_num, contractor)
+        contractor_specific_data = parse_contractor_row(ws, current_row_num, contractor)
         item.update(contractor_specific_data)
 
         positions[str(item_index)] = item

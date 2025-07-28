@@ -41,10 +41,13 @@ from ..constants import (
     JSON_KEY_CONTRACTOR_TITLE,
     JSON_KEY_CONTRACTOR_WIDTH,
     JSON_KEY_CONTRACTOR_POSITIONS,
-    JSON_KEY_CONTRACTOR_SUMMARY
+    JSON_KEY_CONTRACTOR_SUMMARY,
 )
 
-def get_proposals(ws: Worksheet, start_row: int, end_row: int) -> Dict[str, Dict[str, Any]]:
+
+def get_proposals(
+    ws: Worksheet, start_row: int, end_row: int
+) -> Dict[str, Dict[str, Any]]:
     """Собирает предложения всех подрядчиков для одного конкретного лота.
 
     Функция выступает в роли агрегатора, который для каждого подрядчика,
@@ -102,33 +105,40 @@ def get_proposals(ws: Worksheet, start_row: int, end_row: int) -> Dict[str, Dict
         address_val: Optional[str] = None
         accreditation_val: Optional[str] = None
 
-        if rowspan == 1 and contractor_row_start is not None and contractor_col_start is not None:
-            inn_val = ws.cell(row=contractor_row_start + 1, column=contractor_col_start).value
-            address_val = ws.cell(row=contractor_row_start + 2, column=contractor_col_start).value
-            accreditation_val = ws.cell(row=contractor_row_start + 3, column=contractor_col_start).value
-        
+        if (
+            rowspan == 1
+            and contractor_row_start is not None
+            and contractor_col_start is not None
+        ):
+            inn_val = ws.cell(
+                row=contractor_row_start + 1, column=contractor_col_start
+            ).value
+            address_val = ws.cell(
+                row=contractor_row_start + 2, column=contractor_col_start
+            ).value
+            accreditation_val = ws.cell(
+                row=contractor_row_start + 3, column=contractor_col_start
+            ).value
+
         # --- ИЗМЕНЕНИЕ 2: Раздельные вызовы для позиций и итогов ---
-        
+
         # 1. Получаем позиции, относящиеся только к текущему лоту
         positions_data = get_lot_positions(
-            ws,
-            contractor_details,
-            lot_start_row=start_row,
-            lot_end_row=end_row
+            ws, contractor_details, lot_start_row=start_row, lot_end_row=end_row
         )
-        
+
         # 2. Получаем общие итоги по всему тендеру
         summary_data = get_summary(ws, contractor_details)
-        
+
         # 3. Собираем их в единую структуру
         contractor_items_data = {
             JSON_KEY_CONTRACTOR_POSITIONS: positions_data,
-            JSON_KEY_CONTRACTOR_SUMMARY: summary_data
+            JSON_KEY_CONTRACTOR_SUMMARY: summary_data,
         }
-        
+
         # 4. Получаем дополнительную информацию (не зависит от лотов)
         contractor_additional_info_data = get_additional_info(ws, contractor_details)
-        
+
         proposal_key = f"{JSON_KEY_CONTRACTOR_INDEX}{i}"
         proposals[proposal_key] = {
             JSON_KEY_CONTRACTOR_TITLE: contractor_name,
@@ -141,5 +151,5 @@ def get_proposals(ws: Worksheet, start_row: int, end_row: int) -> Dict[str, Dict
             JSON_KEY_CONTRACTOR_ITEMS: contractor_items_data,
             JSON_KEY_CONTRACTOR_ADDITIONAL_INFO: contractor_additional_info_data,
         }
-            
+
     return proposals

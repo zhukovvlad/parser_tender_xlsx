@@ -7,6 +7,7 @@
 Это полезно при парсинге сложных Excel-таблиц, где структура ячеек
 имеет значение.
 """
+
 from openpyxl.worksheet.worksheet import Worksheet
 
 
@@ -38,7 +39,7 @@ def build_merged_shape_map(ws: Worksheet) -> dict:
                                    ячейка (включительно).
                 - "colspan" (int): Количество столбцов, которые занимает объединенная
                                    ячейка (включительно).
-    
+
     Пример возвращаемого значения для листа, где ячейки A1:C2 объединены:
     {
         "A1": {"rowspan": 2, "colspan": 3},
@@ -53,13 +54,13 @@ def build_merged_shape_map(ws: Worksheet) -> dict:
     merged_map = {}
     # ws.merged_cells.ranges возвращает список объектов MergedCellRange,
     # каждый из которых описывает один объединенный диапазон.
-    if hasattr(ws, 'merged_cells') and hasattr(ws.merged_cells, 'ranges'):
+    if hasattr(ws, "merged_cells") and hasattr(ws.merged_cells, "ranges"):
         for merged_range in ws.merged_cells.ranges:
             # Вычисляем rowspan и colspan для текущего объединенного диапазона.
             # Координаты в merged_range являются 1-индексированными.
             rowspan = merged_range.max_row - merged_range.min_row + 1
             colspan = merged_range.max_col - merged_range.min_col + 1
-            
+
             # Итерируемся по всем ячейкам внутри этого объединенного диапазона.
             # ws[merged_range.coord] возвращает кортеж кортежей ячеек (Cell objects),
             # представляющих строки и ячейки в указанном диапазоне.
@@ -67,5 +68,8 @@ def build_merged_shape_map(ws: Worksheet) -> dict:
                 for cell in row_of_cells:
                     # Каждой ячейке в объединенном диапазоне сопоставляем
                     # вычисленные размеры всего этого диапазона.
-                    merged_map[cell.coordinate] = {"rowspan": rowspan, "colspan": colspan}
+                    merged_map[cell.coordinate] = {
+                        "rowspan": rowspan,
+                        "colspan": colspan,
+                    }
     return merged_map

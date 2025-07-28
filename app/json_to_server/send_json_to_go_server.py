@@ -12,6 +12,7 @@ json_to_server/send_json_to_go_server.py
   обрабатывает различные сценарии ответа (успех, сетевые ошибки, ошибки
   сервера) и возвращает унифицированный результат.
 """
+
 import json
 import requests
 import os
@@ -21,7 +22,9 @@ from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
 
 
-def generate_fallback_ids(data_to_send: Dict[str, Any], source_filename: str) -> Tuple[str, Dict[str, int]]:
+def generate_fallback_ids(
+    data_to_send: Dict[str, Any], source_filename: str
+) -> Tuple[str, Dict[str, int]]:
     """
     Генерирует временные ID для offline режима когда сервер недоступен.
 
@@ -48,7 +51,8 @@ def generate_fallback_ids(data_to_send: Dict[str, Any], source_filename: str) ->
         temp_lot_ids[lot_key] = f"temp_{timestamp}_{filename_hash}_lot_{i}"
 
     logging.warning(
-        f"Сгенерированы временные ID: tender={temp_tender_id}, lots={temp_lot_ids}")
+        f"Сгенерированы временные ID: tender={temp_tender_id}, lots={temp_lot_ids}"
+    )
     return temp_tender_id, temp_lot_ids
 
 
@@ -56,7 +60,7 @@ def register_tender_in_go(
     data_to_send: Dict[str, Any],
     server_url: str,
     api_key: str = None,
-    fallback_mode: bool = False
+    fallback_mode: bool = False,
 ) -> Tuple[bool, Optional[str], Optional[Dict[str, int]]]:
     """
     Отправляет JSON-данные тендера на Go-сервер для регистрации в базе данных.
@@ -96,11 +100,11 @@ def register_tender_in_go(
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
-        logging.info(
-            f"Отправка JSON для регистрации тендера на сервер: {server_url}")
+        logging.info(f"Отправка JSON для регистрации тендера на сервер: {server_url}")
 
         response = requests.post(
-            server_url, json=data_to_send, headers=headers, timeout=60)
+            server_url, json=data_to_send, headers=headers, timeout=60
+        )
 
         # Генерирует исключение для HTTP-статусов 4xx (ошибки клиента) и 5xx (ошибки сервера).
         response.raise_for_status()
@@ -113,15 +117,16 @@ def register_tender_in_go(
         # lot_ids может быть пустым словарём {}, если лотов нет, и это валидный случай.
         if not db_id or lot_ids is None:
             logging.error(
-                "Сервер вернул успешный статус, но не предоставил 'db_id' и/или 'lots_id' в ответе.")
+                "Сервер вернул успешный статус, но не предоставил 'db_id' и/или 'lots_id' в ответе."
+            )
             if fallback_mode:
                 logging.warning(
-                    "Активирован резервный режим из-за некорректного ответа сервера")
+                    "Активирован резервный режим из-за некорректного ответа сервера"
+                )
                 return _handle_fallback_mode(data_to_send)
             return False, None, None
 
-        logging.info(
-            f"Тендер успешно зарегистрирован. Получен ID из БД: {db_id}")
+        logging.info(f"Тендер успешно зарегистрирован. Получен ID из БД: {db_id}")
         logging.info(f"Получены ID лотов: {lot_ids}")
         return True, str(db_id), lot_ids
 
@@ -139,17 +144,19 @@ def register_tender_in_go(
             return _handle_fallback_mode(data_to_send)
     except (json.JSONDecodeError, KeyError) as parse_err:
         logging.error(
-            f"ОШИБКА: Не удалось обработать JSON или найти ключ в ответе сервера: {parse_err}")
+            f"ОШИБКА: Не удалось обработать JSON или найти ключ в ответе сервера: {parse_err}"
+        )
         if fallback_mode:
-            logging.warning(
-                "Активирован резервный режим из-за ошибки парсинга ответа")
+            logging.warning("Активирован резервный режим из-за ошибки парсинга ответа")
             return _handle_fallback_mode(data_to_send)
 
     # Если выполнение дошло досюда, значит, в блоке try произошла ошибка.
     return False, None, None
 
 
-def _handle_fallback_mode(data_to_send: Dict[str, Any]) -> Tuple[bool, str, Dict[str, int]]:
+def _handle_fallback_mode(
+    data_to_send: Dict[str, Any],
+) -> Tuple[bool, str, Dict[str, int]]:
     """
     Обрабатывает резервный режим: генерирует временные ID и создает файл для последующей синхронизации.
 
@@ -160,8 +167,7 @@ def _handle_fallback_mode(data_to_send: Dict[str, Any]) -> Tuple[bool, str, Dict
         Tuple[bool, str, Dict[str, int]]: True, временный ID тендера, словарь временных ID лотов
     """
     # Генерируем временные ID
-    temp_tender_id, temp_lot_ids = generate_fallback_ids(
-        data_to_send, "unknown_source")
+    temp_tender_id, temp_lot_ids = generate_fallback_ids(data_to_send, "unknown_source")
 
     # Создаем директорию для неотправленных файлов
     pending_dir = Path("pending_sync")
@@ -174,14 +180,13 @@ def _handle_fallback_mode(data_to_send: Dict[str, Any]) -> Tuple[bool, str, Dict
         "temp_tender_id": temp_tender_id,
         "temp_lot_ids": temp_lot_ids,
         "tender_data": data_to_send,
-        "sync_status": "pending"
+        "sync_status": "pending",
     }
 
     try:
-        with open(pending_file, 'w', encoding='utf-8') as f:
+        with open(pending_file, "w", encoding="utf-8") as f:
             json.dump(sync_data, f, ensure_ascii=False, indent=2)
-        logging.info(
-            f"Данные сохранены для последующей синхронизации: {pending_file}")
+        logging.info(f"Данные сохранены для последующей синхронизации: {pending_file}")
     except Exception as e:
         logging.error(f"Не удалось сохранить файл для синхронизации: {e}")
 

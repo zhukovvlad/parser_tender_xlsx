@@ -1,0 +1,47 @@
+# Development Makefile for Code Quality
+# This file provides convenient commands for code quality maintenance
+
+.PHONY: help install test lint format check clean
+
+help:			## Show this help message
+	@echo 'Usage: make [target]'
+	@echo 'Targets:'
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+install:		## Install dependencies
+	pip install -r requirements.txt
+
+test:			## Run tests
+	pytest app/tests/ -v
+
+test-cov:		## Run tests with coverage
+	pytest app/tests/ --cov=app --cov-report=html --cov-report=term
+
+format:			## Format code with black and isort
+	black app/ main.py --line-length 88
+	isort app/ main.py --profile black
+
+lint:			## Lint code with flake8
+	flake8 app/ main.py --max-line-length=88 --ignore=E203,W503
+
+check:			## Check code formatting without making changes
+	black --check --diff app/ main.py
+	isort --check-only --diff app/ main.py
+
+clean:			## Clean temporary files
+	find . -type f -name "*.pyc" -delete
+	find . -type d -name "__pycache__" -delete
+	find . -type d -name "*.egg-info" -exec rm -rf {} +
+	rm -rf .pytest_cache
+	rm -rf htmlcov/
+	rm -rf dist/
+	rm -rf build/
+
+quality:		## Run all quality checks
+	@echo "Running code formatting check..."
+	@make check
+	@echo "Running linting..."
+	@make lint  
+	@echo "Running tests..."
+	@make test
+	@echo "All quality checks passed! ✨"

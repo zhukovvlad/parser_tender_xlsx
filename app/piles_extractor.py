@@ -11,6 +11,7 @@
 в консоль. Скрипт обладает отказоустойчивостью за счет механизма
 повторных попыток и гибкой валидации ответов от LLM.
 """
+
 import asyncio
 import json
 import logging
@@ -31,35 +32,47 @@ from prompts import PILE_PROMPT
 load_dotenv()
 
 # Настройка логирования
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 # --- 1. НАСТРОЙКИ И КОНФИГУРАЦИЯ ---
+
 
 class Settings(BaseModel):
     """
     Класс для хранения и валидации всех настроек скрипта.
     Загружает конфигурацию из переменных окружения или использует значения по умолчанию.
     """
-    ollama_url: str = Field(os.getenv(
-        "OLLAMA_URL", "http://localhost:11434/api/chat"), description="URL API Ollama")
+
+    ollama_url: str = Field(
+        os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat"),
+        description="URL API Ollama",
+    )
     model_name: str = Field(
-        os.getenv("OLLAMA_MODEL", "mistral"), description="Название модели")
+        os.getenv("OLLAMA_MODEL", "mistral"), description="Название модели"
+    )
     ollama_token: Optional[str] = Field(
-        os.getenv("OLLAMA_TOKEN"), description="Токен авторизации")
-    input_file: Path = Field(Path("38_38_positions.md"), # Изменено имя файла по умолчанию
-                             description="Входной файл")
+        os.getenv("OLLAMA_TOKEN"), description="Токен авторизации"
+    )
+    input_file: Path = Field(
+        Path("38_38_positions.md"),  # Изменено имя файла по умолчанию
+        description="Входной файл",
+    )
     batch_size: int = Field(10, description="Размер батча для обработки")
     timeout: int = Field(300, description="Таймаут запроса")
     max_retries: int = Field(2, description="Макс. кол-во повторных попыток")
     retry_delay: int = Field(5, description="Задержка между попытками (сек)")
 
+
 # --- 2. ВАЛИДАЦИЯ ОТВЕТА LLM (Pydantic) ---
+
 
 class PileSpecs(BaseModel):
     """
     Модель Pydantic для хранения извлеченных характеристик свай.
     """
+
     diameter_mm: Optional[float] = None
     count: Optional[int] = None
     concrete_volume_m3: Optional[List[float]] = None
@@ -73,9 +86,12 @@ class LLMResponse(BaseModel):
     """
     Модель Pydantic для валидации корневой структуры JSON-ответа от LLM.
     """
+
     pile_specs: Optional[PileSpecs] = None
 
+
 # --- 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ И КЛАССЫ ---
+
 
 def parse_lot_records(raw_text: str) -> list:
     """
@@ -84,14 +100,17 @@ def parse_lot_records(raw_text: str) -> list:
     """
     records = []
     # Разделение по маркеру, сохраняя сам маркер в начале каждой строки
-    blocks = re.split(r'(?=\*\*Наименование:)', raw_text.strip())
+    blocks = re.split(r"(?=\*\*Наименование:)", raw_text.strip())
     for i, block in enumerate(filter(None, blocks)):
         clean_block = block.strip()
         if not clean_block:
             continue
-        title_match = re.search(r'\*\*Наименование:\*\*\s*(.*)', clean_block)
-        title = title_match.group(
-            1).strip() if title_match else f"Неизвестная позиция {i+1}"
+        title_match = re.search(r"\*\*Наименование:\*\*\s*(.*)", clean_block)
+        title = (
+            title_match.group(1).strip()
+            if title_match
+            else f"Неизвестная позиция {i+1}"
+        )
         records.append({"record_id": i, "text": clean_block, "title": title})
     logging.info(f"Найдено и разобрано {len(records)} записей.")
     return records
@@ -99,14 +118,15 @@ def parse_lot_records(raw_text: str) -> list:
 
 decoder = json.JSONDecoder()
 
+
 def extract_final_json(text: str) -> dict:
     """
     Находит и декодирует первый валидный JSON-объект из строки,
     содержащий ключ 'pile_specs'.
     """
-    for m in re.finditer(r'\{', text):
+    for m in re.finditer(r"\{", text):
         try:
-            obj, _ = decoder.raw_decode(text[m.start():])
+            obj, _ = decoder.raw_decode(text[m.start() :])
             if isinstance(obj, dict) and "pile_specs" in obj:
                 return obj
         except json.JSONDecodeError:
@@ -126,53 +146,89 @@ class LLMProcessor:
         if self.settings.ollama_token:
             self.headers["Authorization"] = f"Bearer {self.settings.ollama_token}"
 
-    async def process_batch(self, session: aiohttp.ClientSession, batch_text: str, batch_num: int) -> Optional[PileSpecs]:
+    async def process_batch(
+        self, session: aiohttp.ClientSession, batch_text: str, batch_num: int
+    ) -> Optional[PileSpecs]:
         """
         Асинхронно отправляет один батч на обработку и валидирует результат.
         """
         payload = {
             "model": self.settings.model_name,
-            "messages": [{"role": "system", "content": self.prompt.replace("{Document}", batch_text)}],
+            "messages": [
+                {
+                    "role": "system",
+                    "content": self.prompt.replace("{Document}", batch_text),
+                }
+            ],
             "stream": False,
-            "options": {"temperature": 0.0}
+            "options": {"temperature": 0.0},
         }
 
         for attempt in range(self.settings.max_retries):
             try:
-                async with session.post(self.settings.ollama_url, json=payload, headers=self.headers, timeout=aiohttp.ClientTimeout(total=self.settings.timeout)) as response:
+                async with session.post(
+                    self.settings.ollama_url,
+                    json=payload,
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(total=self.settings.timeout),
+                ) as response:
                     response.raise_for_status()
                     response_json = await response.json()
 
-                    if "message" not in response_json or "content" not in response_json["message"]:
-                        logging.error(f"Батч {batch_num}: Некорректный ответ от LLM: {response_json.get('error')}")
+                    if (
+                        "message" not in response_json
+                        or "content" not in response_json["message"]
+                    ):
+                        logging.error(
+                            f"Батч {batch_num}: Некорректный ответ от LLM: {response_json.get('error')}"
+                        )
                         continue
 
                     raw_content = response_json["message"]["content"]
-                    logging.debug(f"Батч {batch_num}: Получен сырой ответ:\n{raw_content}")
+                    logging.debug(
+                        f"Батч {batch_num}: Получен сырой ответ:\n{raw_content}"
+                    )
 
                     extracted_data = extract_final_json(raw_content)
                     if not extracted_data:
-                        logging.warning(f"Батч {batch_num}: Не удалось извлечь JSON из ответа.")
+                        logging.warning(
+                            f"Батч {batch_num}: Не удалось извлечь JSON из ответа."
+                        )
                         return None
 
                     try:
                         validated_response = LLMResponse(**extracted_data)
-                        if validated_response.pile_specs and any(v is not None for v in validated_response.pile_specs.model_dump().values()):
-                            logging.info(f"Батч {batch_num}: Данные успешно валидированы.")
+                        if validated_response.pile_specs and any(
+                            v is not None
+                            for v in validated_response.pile_specs.model_dump().values()
+                        ):
+                            logging.info(
+                                f"Батч {batch_num}: Данные успешно валидированы."
+                            )
                             return validated_response.pile_specs
                         else:
-                            logging.warning(f"Батч {batch_num}: Извлеченные данные пусты.")
+                            logging.warning(
+                                f"Батч {batch_num}: Извлеченные данные пусты."
+                            )
                             return None
                     except ValidationError as e:
-                        logging.error(f"Батч {batch_num}: Ошибка валидации Pydantic: {e}\nИзвлеченные данные: {extracted_data}")
+                        logging.error(
+                            f"Батч {batch_num}: Ошибка валидации Pydantic: {e}\nИзвлеченные данные: {extracted_data}"
+                        )
                         return None
 
             except aiohttp.ClientError as e:
-                logging.warning(f"Батч {batch_num} Попытка {attempt + 1}: Ошибка сети/сервера: {e}")
+                logging.warning(
+                    f"Батч {batch_num} Попытка {attempt + 1}: Ошибка сети/сервера: {e}"
+                )
             except asyncio.TimeoutError:
-                logging.warning(f"Батч {batch_num} Попытка {attempt + 1}: Таймаут запроса.")
+                logging.warning(
+                    f"Батч {batch_num} Попытка {attempt + 1}: Таймаут запроса."
+                )
             except Exception as e:
-                logging.error(f"Батч {batch_num} Попытка {attempt + 1}: Произошла непредвиденная ошибка: {e}")
+                logging.error(
+                    f"Батч {batch_num} Попытка {attempt + 1}: Произошла непредвиденная ошибка: {e}"
+                )
 
             if attempt < self.settings.max_retries - 1:
                 await asyncio.sleep(self.settings.retry_delay)
@@ -226,7 +282,7 @@ async def main():
     """
     Главная асинхронная функция, управляющая процессом обработки.
     """
-    settings = Settings() # type: ignore
+    settings = Settings()  # type: ignore
 
     if not settings.input_file.exists():
         logging.error(f"Файл не найден: {settings.input_file}")
@@ -250,13 +306,13 @@ async def main():
             current_batch = records[start:end]
             logging.info(f"Подготовка батча {i+1}/{num_batches}")
 
-            batch_text = "\n---\n".join([record['text'] for record in current_batch])
-            task = processor.process_batch(session, batch_text, i+1)
+            batch_text = "\n---\n".join([record["text"] for record in current_batch])
+            task = processor.process_batch(session, batch_text, i + 1)
             tasks.append(task)
 
         logging.info(f"Отправка {len(tasks)} батчей на асинхронную обработку...")
         batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Фильтруем результаты, чтобы исключить исключения перед слиянием
         valid_results = [r for r in batch_results if isinstance(r, PileSpecs)]
 
@@ -264,6 +320,7 @@ async def main():
 
     print("\n--- ИТОГОВЫЙ РЕЗУЛЬТАТ ---")
     print(json.dumps(final_result, indent=2, ensure_ascii=False))
+
 
 if __name__ == "__main__":
     asyncio.run(main())
