@@ -1,91 +1,91 @@
-"""
-Модуль для агрегации предложений всех подрядчиков с листа Excel.
+# helpers/get_proposals.py
 
-Этот модуль использует другие вспомогательные функции для сбора полной
-информации по каждому подрядчику, включая его основные данные,
-детализированные позиции по работам/материалам, и дополнительную информацию.
-Результатом является структурированный словарь всех предложений.
+"""Модуль-оркестратор для агрегации предложений подрядчиков.
+
+Назначение:
+    Этот модуль выполняет роль "дирижера". Его основная функция `get_proposals`
+    отвечает за сборку полной информации о предложениях всех подрядчиков,
+    но делает это для одного конкретного лота, границы которого (`start_row`,
+    `end_row`) ей передаются.
+
+    Для этого она вызывает ряд более специализированных функций:
+    - `read_contractors`: для получения общего списка всех подрядчиков
+      из заголовка таблицы.
+    - `get_lot_positions`: для сбора детализированных позиций, которые
+      находятся строго в границах переданного лота.
+    - `get_summary`: для сбора общих итоговых сумм, которые находятся
+      в конце таблицы и относятся ко всему тендеру.
+    - `get_additional_info`: для сбора дополнительной информации, также
+      относящейся ко всему тендеру.
 """
 
 from typing import Dict, Any, List, Optional
 from openpyxl.worksheet.worksheet import Worksheet
 
-# Локальные импорты (из той же директории helpers)
+# --- ИЗМЕНЕНИЕ 1: Обновлены импорты ---
 from .get_additional_info import get_additional_info
-from .get_positions import get_positions
-from .read_contractors import read_contractors # Эта функция возвращает список словарей подрядчиков
+from .get_lot_positions import get_lot_positions
+from .get_summary import get_summary
+from .read_contractors import read_contractors
 
-# Импорт констант для ключей JSON
+# Импорт констант
 from ..constants import (
     JSON_KEY_CONTRACTOR_ACCREDITATION,
     JSON_KEY_CONTRACTOR_ADDITIONAL_INFO,
     JSON_KEY_CONTRACTOR_ADDRESS,
     JSON_KEY_CONTRACTOR_COORDINATE,
-    JSON_KEY_CONTRACTOR_HEIGHT,      # Используется для 'rowspan'
+    JSON_KEY_CONTRACTOR_HEIGHT,
     JSON_KEY_CONTRACTOR_INDEX,
     JSON_KEY_CONTRACTOR_INN,
     JSON_KEY_CONTRACTOR_ITEMS,
     JSON_KEY_CONTRACTOR_TITLE,
-    JSON_KEY_CONTRACTOR_WIDTH        # Используется для 'colspan'
+    JSON_KEY_CONTRACTOR_WIDTH,
+    JSON_KEY_CONTRACTOR_POSITIONS,
+    JSON_KEY_CONTRACTOR_SUMMARY
 )
 
-def get_proposals(ws: Worksheet) -> Dict[str, Dict[str, Any]]:
-    """
-    Извлекает и структурирует данные по предложениям всех подрядчиков с листа Excel.
+def get_proposals(ws: Worksheet, start_row: int, end_row: int) -> Dict[str, Dict[str, Any]]:
+    """Собирает предложения всех подрядчиков для одного конкретного лота.
 
-    Сначала с помощью `read_contractors(ws)` получается список словарей,
-    каждый из которых описывает заголовок одного подрядчика. Предполагается,
-    что первый элемент этого списка (`contractors_list[0]`) может быть общим
-    заголовком колонки (например, "Наименование контрагента") и пропускается.
+    Функция выступает в роли агрегатора, который для каждого подрядчика,
+    найденного на листе, собирает полный набор данных, корректно разделяя
+    информацию, привязанную к лоту, и информацию, общую для всего тендера.
 
-    Для каждого последующего подрядчика (начиная с `contractors_list[1]`):
-    1.  Извлекаются основные данные: имя (`value`), координаты (`coordinate`),
-        информация об объединении ячеек (`merged_shape`, если есть) из словаря подрядчика.
-    2.  На основе `merged_shape` определяются `rowspan` (высота) и `colspan` (ширина).
-    3.  Если `rowspan == 1`, извлекаются ИНН, адрес и сведения об аккредитации
-        из ячеек, расположенных со смещением +1, +2, +3 строки относительно
-        `contractor["row_start"]` и в той же колонке `contractor["column_start"]`.
-        В противном случае, эти поля устанавливаются в `None`.
-    4.  Вызываются `get_positions(ws, contractor_details)` для получения
-        детализированных позиций и итогов.
-    5.  Вызываются `get_additional_info(ws, contractor_details)` для получения
-        дополнительной информации.
-
-    Результат собирается в словарь, где ключи — это идентификаторы подрядчиков
-    (например, "contractor_1"), а значения — словари с полной информацией.
+    Логика работы:
+    1.  С помощью `read_contractors(ws)` получает полный список всех
+        подрядчиков, присутствующих в документе.
+    2.  Итерируется по этому списку.
+    3.  Для каждого подрядчика:
+        а. Извлекает базовую информацию (ИНН, адрес и т.д.) из строк,
+           следующих сразу за заголовком подрядчика.
+        б. Вызывает `get_lot_positions()`, передавая ей границы `start_row`
+           и `end_row`, чтобы получить список позиций, относящихся
+           **только к текущему лоту**.
+        в. Вызывает `get_summary()`, которая сканирует нижнюю часть таблицы
+           и возвращает общие итоговые суммы **по всему тендеру**.
+        г. Вызывает `get_additional_info()` для получения дополнительной
+           информации, также общей для всего тендера.
+        д. Собирает все полученные данные в единый словарь-предложение
+           для данного подрядчика.
 
     Args:
-        ws (Worksheet): Лист Excel (объект openpyxl.worksheet.worksheet.Worksheet),
-            с которого считываются данные.
+        ws (Worksheet): Активный лист Excel для анализа.
+        start_row (int): Номер начальной строки лота на листе.
+        end_row (int): Номер конечной строки лота на листе.
 
     Returns:
-        Dict[str, Dict[str, Any]]: Словарь, где ключи - это строковые
-            идентификаторы подрядчиков (например, "contractor_1", "contractor_2", ...),
-            а значения - словари с подробной информацией по каждому подрядчику.
-            Структура информации для каждого подрядчика:
-            {
-                JSON_KEY_CONTRACTOR_TITLE (str): Наименование подрядчика,
-                JSON_KEY_CONTRACTOR_INN (Optional[str]): ИНН,
-                JSON_KEY_CONTRACTOR_ADDRESS (Optional[str]): Адрес,
-                JSON_KEY_CONTRACTOR_ACCREDITATION (Optional[str]): Сведения об аккредитации,
-                JSON_KEY_CONTRACTOR_COORDINATE (Optional[str]): Координата начальной ячейки заголовка подрядчика,
-                JSON_KEY_CONTRACTOR_WIDTH (int): Ширина объединенной ячейки (colspan),
-                JSON_KEY_CONTRACTOR_HEIGHT (int): Высота объединенной ячейки (rowspan),
-                JSON_KEY_CONTRACTOR_ITEMS (Dict): Структура, возвращаемая get_positions(),
-                JSON_KEY_CONTRACTOR_ADDITIONAL_INFO (Dict): Структура, возвращаемая get_additional_info()
-            }
-            Если подрядчики не найдены, возвращается пустой словарь.
+        Dict[str, Dict[str, Any]]: Словарь, где ключи - это идентификаторы
+        подрядчиков ("contractor_1", "contractor_2", ...), а значения -
+        словари с полной информацией по их предложениям.
+        Важно: `positions` в результате будут уникальны для каждого лота,
+        а `summary` будет одинаковым.
     """
-    # Получаем список словарей, каждый из которых представляет заголовок подрядчика
-    # (или общий заголовок "Наименование контрагента" как первый элемент).
     contractors_list: Optional[List[Dict[str, Any]]] = read_contractors(ws)
     proposals: Dict[str, Dict[str, Any]] = {}
 
     if not contractors_list:
-        return proposals # Нет подрядчиков - нет предложений
+        return proposals
 
-    # Итерация по списку подрядчиков, начиная со второго элемента (индекс 1),
-    # так как первый элемент (индекс 0) часто является общим заголовком колонки.
     for i in range(1, len(contractors_list)):
         contractor_details = contractors_list[i]
 
@@ -94,30 +94,41 @@ def get_proposals(ws: Worksheet) -> Dict[str, Dict[str, Any]]:
         contractor_col_start: Optional[int] = contractor_details.get("column_start")
         contractor_coordinate: Optional[str] = contractor_details.get("coordinate")
 
-        # Информация об объединении ячейки (если есть)
         merged_shape: Dict[str, int] = contractor_details.get("merged_shape", {})
-        rowspan: int = merged_shape.get("rowspan", 1) # Высота ячейки (по умолчанию 1)
-        colspan: int = merged_shape.get("colspan", 1) # Ширина ячейки (по умолчанию 1)
+        rowspan: int = merged_shape.get("rowspan", 1)
+        colspan: int = merged_shape.get("colspan", 1)
 
         inn_val: Optional[str] = None
         address_val: Optional[str] = None
         accreditation_val: Optional[str] = None
 
-        # ИНН, адрес и аккредитация извлекаются только если заголовок подрядчика не объединен по строкам (rowspan == 1)
-        # и если известны начальная строка и колонка.
         if rowspan == 1 and contractor_row_start is not None and contractor_col_start is not None:
             inn_val = ws.cell(row=contractor_row_start + 1, column=contractor_col_start).value
             address_val = ws.cell(row=contractor_row_start + 2, column=contractor_col_start).value
             accreditation_val = ws.cell(row=contractor_row_start + 3, column=contractor_col_start).value
         
-        # Получение детализированных позиций и дополнительной информации для текущего подрядчика
-        # Функции get_positions и get_additional_info ожидают словарь contractor_details
-        # с ключами "column_start" и "merged_shape".
-        contractor_items_data = get_positions(ws, contractor_details)
+        # --- ИЗМЕНЕНИЕ 2: Раздельные вызовы для позиций и итогов ---
+        
+        # 1. Получаем позиции, относящиеся только к текущему лоту
+        positions_data = get_lot_positions(
+            ws,
+            contractor_details,
+            lot_start_row=start_row,
+            lot_end_row=end_row
+        )
+        
+        # 2. Получаем общие итоги по всему тендеру
+        summary_data = get_summary(ws, contractor_details)
+        
+        # 3. Собираем их в единую структуру
+        contractor_items_data = {
+            JSON_KEY_CONTRACTOR_POSITIONS: positions_data,
+            JSON_KEY_CONTRACTOR_SUMMARY: summary_data
+        }
+        
+        # 4. Получаем дополнительную информацию (не зависит от лотов)
         contractor_additional_info_data = get_additional_info(ws, contractor_details)
         
-        # Формирование итогового словаря для данного подрядчика
-        # Ключ генерируется как "contractor_1", "contractor_2", и т.д. (i начинается с 1)
         proposal_key = f"{JSON_KEY_CONTRACTOR_INDEX}{i}"
         proposals[proposal_key] = {
             JSON_KEY_CONTRACTOR_TITLE: contractor_name,
@@ -125,8 +136,8 @@ def get_proposals(ws: Worksheet) -> Dict[str, Dict[str, Any]]:
             JSON_KEY_CONTRACTOR_ADDRESS: address_val,
             JSON_KEY_CONTRACTOR_ACCREDITATION: accreditation_val,
             JSON_KEY_CONTRACTOR_COORDINATE: contractor_coordinate,
-            JSON_KEY_CONTRACTOR_WIDTH: colspan,    # Ширина (colspan)
-            JSON_KEY_CONTRACTOR_HEIGHT: rowspan,   # Высота (rowspan)
+            JSON_KEY_CONTRACTOR_WIDTH: colspan,
+            JSON_KEY_CONTRACTOR_HEIGHT: rowspan,
             JSON_KEY_CONTRACTOR_ITEMS: contractor_items_data,
             JSON_KEY_CONTRACTOR_ADDITIONAL_INFO: contractor_additional_info_data,
         }

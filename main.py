@@ -3,9 +3,9 @@
 
 Этот модуль запускает FastAPI приложение и определяет следующие API эндпоинты:
 - POST /parse-tender/: Принимает XLSX файл, создает фоновую задачу для его
-  парсинга и немедленно возвращает ID задачи.
+  парсинга и немедленно возвращает ID задачи.
 - GET /tasks/{task_id}/status: Позволяет отслеживать статус выполнения
-  фоновой задачи (processing, completed, failed).
+  фоновой задачи (processing, completed, failed).
 - GET /health: Проверяет работоспособность сервиса.
 
 Для управления фоновыми задачами используется встроенный механизм BackgroundTasks.
@@ -16,15 +16,46 @@ import os
 import shutil
 import uuid
 from pathlib import Path
+from dotenv import load_dotenv
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 
-# Убедитесь, что все импорты внутри пакета app используют относительный синтаксис (с точкой)
 from app.parse import parse_file
 
-# ВАЖНО: Это простое хранилище в памяти. Если вы перезапустите сервер,
-# все статусы пропадут. Для продакшена лучше использовать
-# более надежное решение, например, Redis или отдельную таблицу в БД.
+# --- ЕДИНСТВЕННЫЙ БЛОК НАСТРОЙКИ ЛОГГИРОВАНИЯ ---
+
+load_dotenv() # Загружаем переменные из .env
+
+# 1. Определяем директорию для логов
+log_dir = Path("logs")
+os.makedirs(log_dir, exist_ok=True)
+
+# 2. Читаем уровень логирования из .env
+log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+log_levels = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+}
+log_level = log_levels.get(log_level_str, logging.INFO)
+
+# 3. Конфигурируем logging ОДИН РАЗ с двумя обработчиками
+logging.basicConfig(
+    level=log_level,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_dir / "parser_service.log", mode='w', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+
+# 4. Получаем логгер для текущего модуля
+log = logging.getLogger(__name__)
+
+# --- КОНЕЦ БЛОКА НАСТРОЙКИ ЛОГГИРОВАНИЯ ---
+
+# Хранилище статусов задач в памяти
 tasks_db = {}
 
 # Настройка FastAPI приложения
@@ -36,10 +67,6 @@ app = FastAPI(
 
 UPLOAD_DIRECTORY = Path("temp_uploads")
 os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
-
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-log = logging.getLogger(__name__)
 
 
 def run_parsing_in_background(task_id: str, file_path: str):
