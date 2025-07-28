@@ -23,6 +23,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 
 from app.parse import parse_file
+from app.config import config
+from app.exceptions import TenderParsingError
 
 # --- ЕДИНСТВЕННЫЙ БЛОК НАСТРОЙКИ ЛОГГИРОВАНИЯ ---
 
@@ -67,13 +69,17 @@ app = FastAPI(
     version="2.0.0",
 )
 
-UPLOAD_DIRECTORY = Path("temp_uploads")
+UPLOAD_DIRECTORY = config.UPLOAD_DIR
 UPLOAD_DIRECTORY.mkdir(exist_ok=True)
 
 
 def run_parsing_in_background(task_id: str, file_path: str) -> None:
     """
     Выполняет парсинг в фоновом режиме и обновляет статус задачи.
+    
+    Args:
+        task_id: Уникальный идентификатор задачи
+        file_path: Путь к файлу для обработки
     """
     log.info(f"Task {task_id}: Обработка файла {file_path} началась в фоне.")
     tasks_db[task_id] = {"status": "processing"}
@@ -81,9 +87,12 @@ def run_parsing_in_background(task_id: str, file_path: str) -> None:
         parse_file(file_path)
         tasks_db[task_id] = {"status": "completed"}
         log.info(f"Task {task_id}: Обработка успешно завершена.")
+    except TenderParsingError as e:
+        log.error(f"Task {task_id}: Ошибка парсинга тендера - {e}", exc_info=True)
+        tasks_db[task_id] = {"status": "failed", "error": f"Parsing error: {e}"}
     except Exception as e:
-        log.error(f"Task {task_id}: Произошла ошибка - {e}", exc_info=True)
-        tasks_db[task_id] = {"status": "failed", "error": str(e)}
+        log.error(f"Task {task_id}: Произошла неожиданная ошибка - {e}", exc_info=True)
+        tasks_db[task_id] = {"status": "failed", "error": f"Unexpected error: {e}"}
 
 
 @app.post("/parse-tender/", status_code=202, tags=["Tender Processing"])

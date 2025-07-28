@@ -47,6 +47,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 # Используем относительные импорты
 from .constants import JSON_KEY_EXECUTOR, JSON_KEY_LOTS
+from .exceptions import XLSXFileError, ServerRegistrationError, ArtifactGenerationError
 from .helpers.postprocess import normalize_lots_json_structure, replace_div0_with_null
 from .helpers.read_headers import read_headers
 from .helpers.read_lots_and_boundaries import read_lots_and_boundaries
@@ -70,21 +71,28 @@ def _extract_xlsx_data(source_path: Path) -> Dict[str, Any]:
         Словарь с извлеченными данными
 
     Raises:
-        Exception: При ошибках чтения файла или парсинга данных
+        XLSXFileError: При ошибках чтения файла или парсинга данных
     """
     log.info("Этап 1: Извлечение данных из XLSX...")
-    wb = openpyxl.load_workbook(source_path, data_only=True)
-    ws: Worksheet = wb.active
+    
+    try:
+        wb = openpyxl.load_workbook(source_path, data_only=True)
+        ws: Worksheet = wb.active
 
-    processed_data: Dict[str, Any] = {
-        **read_headers(ws),
-        JSON_KEY_EXECUTOR: read_executer_block(ws),
-        JSON_KEY_LOTS: read_lots_and_boundaries(ws),
-    }
-    processed_data = normalize_lots_json_structure(processed_data)
-    processed_data = replace_div0_with_null(processed_data)
-    log.info("Данные успешно извлечены.")
-    return processed_data
+        processed_data: Dict[str, Any] = {
+            **read_headers(ws),
+            JSON_KEY_EXECUTOR: read_executer_block(ws),
+            JSON_KEY_LOTS: read_lots_and_boundaries(ws),
+        }
+        processed_data = normalize_lots_json_structure(processed_data)
+        processed_data = replace_div0_with_null(processed_data)
+        log.info("Данные успешно извлечены.")
+        return processed_data
+    except Exception as e:
+        raise XLSXFileError(
+            f"Ошибка при извлечении данных из XLSX файла: {e}", 
+            str(source_path)
+        ) from e
 
 
 def _register_tender(
