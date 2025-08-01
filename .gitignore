@@ -14,6 +14,9 @@ Makefile.local
 !readme.md
 !Readme.md
 
+# Не игнорировать документацию
+!TESTING.md
+
 # Исключаем виртуальное окружение и настройки VSCode
 .venv/
 .vscode/
