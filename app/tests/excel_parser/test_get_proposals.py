@@ -11,12 +11,12 @@
 - Тестируем ИНТЕГРАЦИЮ: взаимодействие с read_contractors, get_lot_positions, get_summary, get_additional_info
 """
 
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from app.excel_parser.get_proposals import get_proposals
 from app.constants import (
     JSON_KEY_CONTRACTOR_ACCREDITATION,
     JSON_KEY_CONTRACTOR_ADDITIONAL_INFO,
@@ -31,6 +31,7 @@ from app.constants import (
     JSON_KEY_CONTRACTOR_TITLE,
     JSON_KEY_CONTRACTOR_WIDTH,
 )
+from app.excel_parser.get_proposals import get_proposals
 
 
 @pytest.fixture
