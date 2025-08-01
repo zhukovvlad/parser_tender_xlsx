@@ -1,0 +1,56 @@
+# --- Зависимости для веб-сервиса ---
+fastapi
+uvicorn[standard]
+python-multipart
+redis
+
+# --- HTTP клиенты для API запросов ---
+requests>=2.31.0
+aiohttp>=3.8.0
+
+# --- Работа с переменными окружения ---
+python-dotenv>=1.0.0
+
+# --- Валидация данных и схемы ---
+pydantic>=2.0.0
+
+# --- Основная логика парсера и работа с данными ---
+openpyxl>=3.1.2
+langchain
+pandas>=2.1.0
+pgvector>=0.2.0
+sentence-transformers>=2.2.2
+psycopg2-binary>=2.9.0
+sqlalchemy>=2.0.0
+
+# --- AI и LLM интеграции ---
+google-genai>=1.28.0
+
+# --- Обработка естественного языка ---
+spacy>=3.8.0
+# После установки spacy выполните: python -m spacy download ru_core_news_sm
+
+# --- Русскоязычный NLP ---
+natasha>=1.6.0
+pymorphy2>=0.9.1
+pymorphy3>=2.0.3
+razdel>=0.5.0
+slovnet>=0.6.0
+yargy>=0.16.0
+navec>=0.10.0
+ipymarkup>=0.9.0
+marisa-trie>=1.2.1
+
+# --- Научные вычисления ---
+numpy>=1.24.0
+
+# --- Зависимости для тестирования ---
+pytest
+pytest-cov
+pytest-html
+pytest-mock
+
+# --- Инструменты разработки ---
+black
+isort
+flake8
