@@ -1,7 +1,7 @@
 # tests/helpers/test_postprocess.py
 
 import pytest
-from constants import (
+from app.constants import (
     JSON_KEY_BASELINE_PROPOSAL,
     JSON_KEY_CHAPTER_NUMBER,
     JSON_KEY_CHAPTER_REF,
@@ -16,8 +16,8 @@ from constants import (
     JSON_KEY_TOTAL_COST,
     TABLE_PARSE_BASELINE_COST,
 )
-from helpers.postprocess import _is_value_zero  # Импортируем для прямого тестирования
-from helpers.postprocess import (
+from app.helpers.postprocess import _is_value_zero  # Импортируем для прямого тестирования
+from app.helpers.postprocess import (
     DataIntegrityError,
     _clean_deviation_fields,
     annotate_structure_fields,

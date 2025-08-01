@@ -14,24 +14,24 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from test_logging import test_gemini_logging_basic
-from test_gemini_logging import test_gemini_logging_integration  
+from test_gemini_logging import test_gemini_logging_integration
 from test_processor_logging import test_processor_logging
 
 
 def run_all_tests():
     """Запускает все тесты gemini_module."""
-    
+
     print("🧪 Запуск всех тестов для gemini_module\n")
-    
+
     tests = [
         ("Базовое логгирование", test_gemini_logging_basic),
         ("Интеграция логгирования", test_gemini_logging_integration),
         ("Логгирование процессора", test_processor_logging),
     ]
-    
+
     passed = 0
     failed = 0
-    
+
     for test_name, test_func in tests:
         try:
             print(f"▶️  Запуск теста: {test_name}")
@@ -41,12 +41,12 @@ def run_all_tests():
         except Exception as e:
             print(f"❌ {test_name} - ОШИБКА: {e}\n")
             failed += 1
-    
+
     print(f"📊 Результаты:")
     print(f"   ✅ Успешно: {passed}")
     print(f"   ❌ Ошибок: {failed}")
     print(f"   📈 Всего: {passed + failed}")
-    
+
     if failed == 0:
         print("\n🎉 Все тесты прошли успешно!")
         return True

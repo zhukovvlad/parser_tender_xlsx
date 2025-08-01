@@ -3,7 +3,7 @@
 import pytest
 
 # 1. Импортируем РЕАЛЬНЫЕ константы, которые использует ваша функция
-from constants import (
+from app.constants import (
     JSON_KEY_TENDER_ADDRESS,
     JSON_KEY_TENDER_ID,
     JSON_KEY_TENDER_OBJECT,
@@ -12,7 +12,7 @@ from constants import (
     TABLE_PARSE_OBJECT,
     TABLE_PARSE_TENDER_SUBJECT,
 )
-from helpers.read_headers import read_headers
+from app.helpers.read_headers import read_headers
 from openpyxl import Workbook
 
 
@@ -20,7 +20,7 @@ from openpyxl import Workbook
 @pytest.fixture
 def mock_sanitize_text(mocker):
     """Мокает функцию sanitize_text, чтобы она просто возвращала входные данные."""
-    mocker.patch("helpers.read_headers.sanitize_text", side_effect=lambda text: text)
+    mocker.patch("app.helpers.read_headers.sanitize_text", side_effect=lambda text: text)
 
 
 # --- Существующие и улучшенные тесты ---
