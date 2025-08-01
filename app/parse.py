@@ -47,10 +47,10 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 # Используем относительные импорты
 from .constants import JSON_KEY_EXECUTOR, JSON_KEY_LOTS
-from .helpers.postprocess import normalize_lots_json_structure, replace_div0_with_null
-from .helpers.read_executer_block import read_executer_block
-from .helpers.read_headers import read_headers
-from .helpers.read_lots_and_boundaries import read_lots_and_boundaries
+from .excel_parser.postprocess import normalize_lots_json_structure, replace_div0_with_null
+from .excel_parser.read_executer_block import read_executer_block
+from .excel_parser.read_headers import read_headers
+from .excel_parser.read_lots_and_boundaries import read_lots_and_boundaries
 from .json_to_server.send_json_to_go_server import register_tender_in_go
 from .markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
 from .markdown_utils.json_to_markdown import generate_markdown_for_lots

@@ -12,7 +12,7 @@ from app.constants import (
     TABLE_PARSE_OBJECT,
     TABLE_PARSE_TENDER_SUBJECT,
 )
-from app.helpers.read_headers import read_headers
+from app.excel_parser.read_headers import read_headers
 from openpyxl import Workbook
 
 
@@ -20,7 +20,7 @@ from openpyxl import Workbook
 @pytest.fixture
 def mock_sanitize_text(mocker):
     """Мокает функцию sanitize_text, чтобы она просто возвращала входные данные."""
-    mocker.patch("app.helpers.read_headers.sanitize_text", side_effect=lambda text: text)
+    mocker.patch("app.excel_parser.read_headers.sanitize_text", side_effect=lambda text: text)
 
 
 # --- Существующие и улучшенные тесты ---

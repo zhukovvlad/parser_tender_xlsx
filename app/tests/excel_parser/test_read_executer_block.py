@@ -6,7 +6,7 @@ from openpyxl import Workbook
 # Импортируем константы из проекта
 from app.constants import (
     JSON_KEY_EXECUTOR_NAME,
-    JSON_KEY_EXECUTOR_PHONE, 
+    JSON_KEY_EXECUTOR_PHONE,
     JSON_KEY_EXECUTOR_DATE,
     TABLE_PARSE_EXECUTOR,
     TABLE_PARSE_TELEPHONE,
@@ -14,7 +14,7 @@ from app.constants import (
 )
 
 # Импортируем тестируемую функцию
-from app.helpers.read_executer_block import read_executer_block
+from app.excel_parser.read_executer_block import read_executer_block
 
 
 def set_max_row(ws, row_num):

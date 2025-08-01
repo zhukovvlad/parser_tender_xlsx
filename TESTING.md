@@ -8,18 +8,19 @@
 
 ```
 app/tests/
-├── conftest.py                    # Конфигурация pytest
-├── __init__.py                    # Инициализация пакета тестов
-├── gemini_module/                 # Тесты для gemini_module
+├── conftest.py                       # Конфигурация pytest
+├── __init__.py                       # Инициализация пакета тестов
+├── excel_parser/                     # Тесты для excel_parser модуля
 │   ├── __init__.py
-│   ├── run_tests.py               # Скрипт запуска тестов модуля
-│   ├── test_gemini_logging.py     # Интеграционные тесты логгирования
-│   ├── test_logging.py            # Модульные тесты логгирования
-│   └── test_processor_logging.py  # Тесты логгирования процессора
-└── helpers/                       # Тесты для вспомогательных функций
-    ├── test_postprocess.py
-    ├── test_read_executer_block.py
-    └── test_read_headers.py
+│   ├── test_postprocess.py           # Тесты постобработки данных
+│   ├── test_read_executer_block.py   # Тесты чтения блока исполнителя
+│   └── test_read_headers.py          # Тесты чтения заголовков Excel
+└── gemini_module/                    # Тесты для gemini_module
+    ├── __init__.py
+    ├── run_tests.py                  # Скрипт запуска тестов модуля
+    ├── test_gemini_logging.py        # Интеграционные тесты логгирования
+    ├── test_logging.py               # Модульные тесты логгирования
+    └── test_processor_logging.py     # Тесты логгирования процессора
 ```
 
 ## Команды тестирования (Makefile)
@@ -34,9 +35,15 @@ make test
 make test-coverage
 ```
 
-### Специфичные команды для gemini_module
+### Специфичные команды для модулей
 
 ```bash
+# Только тесты excel_parser
+make test-excel-parser
+
+# Тесты excel_parser с покрытием кода
+make test-excel-parser-coverage
+
 # Только тесты gemini_module
 make test-gemini
 
@@ -50,9 +57,6 @@ make test-new
 ### Другие команды
 
 ```bash
-# Тесты helpers (могут иметь проблемы с импортами)
-make test-helpers
-
 # Быстрый запуск с остановкой на первой ошибке
 make test-fast
 ```
@@ -63,8 +67,14 @@ make test-fast
 # Все тесты с детальным выводом
 python -m pytest -v
 
+# Только тесты excel_parser
+python -m pytest app/tests/excel_parser/ -v
+
 # Только тесты gemini_module
 python -m pytest app/tests/gemini_module/ -v
+
+# С покрытием кода для excel_parser
+python -m pytest app/tests/excel_parser/ --cov=app.excel_parser --cov-report=html -v
 
 # С покрытием кода для gemini_module
 python -m pytest app/tests/gemini_module/ --cov=app.gemini_module --cov-report=html -v
@@ -83,8 +93,15 @@ python -m pytest app/tests/gemini_module/test_logging.py::test_setup_gemini_logg
 - **Терминал**: сводная таблица покрытия
 - **HTML**: подробный отчет в директории `htmlcov/`
 
-### Текущее покрытие gemini_module:
+### Текущее покрытие модулей:
 
+**excel_parser модуль:**
+- `postprocess.py`: 100% покрытие
+- `read_headers.py`: 100% покрытие
+- `read_executer_block.py`: 95% покрытие
+- Другие модули: частичное покрытие (требуют доработки тестов)
+
+**gemini_module:**
 - `logger.py`: 94% покрытие
 - `__init__.py`: 100% покрытие
 - Тесты: 90%+ покрытие
@@ -102,17 +119,32 @@ python -m pytest app/tests/gemini_module/test_logging.py::test_setup_gemini_logg
 
 Автоматически добавляет корень проекта в Python path для корректных импортов.
 
-## Проблемы и решения
+## Архитектура тестов
 
-### Проблемы с импортами в helpers тестах
+### excel_parser тесты
 
-Существующие тесты в `app/tests/helpers/` имеют проблемы с относительными импортами.
+Модуль excel_parser имеет полноценные модульные тесты:
+- **test_postprocess.py** (24 теста): тестирует постобработку данных Excel
+- **test_read_executer_block.py** (11 тестов): тестирует чтение блока исполнителя  
+- **test_read_headers.py** (12 тестов): тестирует чтение заголовков Excel
 
-**Решение**: Используйте `make test-new` или `make test-gemini` для тестирования только исправленных модулей.
+### gemini_module тесты
 
-### Временные файлы тестов
+Модуль gemini_module имеет комплексные тесты логгирования:
+- **test_logging.py** (4 теста): базовые тесты настройки логгера
+- **test_gemini_logging.py** (1 тест): интеграционный тест
+- **test_processor_logging.py** (1 тест): тест логгирования процессора
 
-Тесты создают временные лог-файлы в `logs/`. Автоматически очищаются после тестов.
+## Статистика тестов
+
+**Общее количество тестов: 53**
+- excel_parser: 47 тестов
+- gemini_module: 6 тестов
+
+**Время выполнения:**
+- Все тесты: ~9 секунд
+- excel_parser: ~5 секунд  
+- gemini_module: ~4 секунды
 
 ## CI/CD интеграция
 
@@ -120,7 +152,13 @@ python -m pytest app/tests/gemini_module/test_logging.py::test_setup_gemini_logg
 
 ```yaml
 # Пример для GitHub Actions
-- name: Run tests
+- name: Run all tests
+  run: make test
+
+- name: Run excel parser tests  
+  run: make test-excel-parser-coverage
+
+- name: Run gemini tests
   run: make test-gemini-coverage
 
 - name: Upload coverage

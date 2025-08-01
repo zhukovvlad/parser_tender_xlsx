@@ -2,7 +2,7 @@
 
 # .PHONY гарантирует, что make выполнит команду, даже если в директории
 # уже есть файл или папка с таким же именем (например, "run").
-.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-helpers test-fast test-new clean dev prod parse parse-offline sync-pending format lint check
+.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-new clean dev prod parse parse-offline sync-pending format lint check
 
 # Определяем переменные по умолчанию для удобства.
 # Эти значения можно переопределить в Makefile.local
@@ -52,17 +52,22 @@ test-gemini-coverage:
 	@echo "Запуск тестов gemini_module с анализом покрытия..."
 	@python -m pytest app/tests/gemini_module/ --cov=app.gemini_module --cov-report=html --cov-report=term -v
 
-# Запуск только тестов helpers
-test-helpers:
-	@echo "Запуск тестов для helpers..."
-	@python -m pytest app/tests/helpers/ -v
+# Запуск только тестов excel_parser  
+test-excel-parser:
+	@echo "Запуск тестов для excel_parser..."
+	@python -m pytest app/tests/excel_parser/ -v
+
+# Запуск тестов excel_parser с покрытием
+test-excel-parser-coverage:
+	@echo "Запуск тестов excel_parser с анализом покрытия..."
+	@python -m pytest app/tests/excel_parser/ --cov=app.excel_parser --cov-report=html --cov-report=term -v
 
 # Быстрый запуск тестов (без покрытия)
 test-fast:
 	@echo "Быстрый запуск тестов..."
 	@python -m pytest -x --tb=short
 
-# Запуск только новых тестов (без helpers с проблемными импортами)
+# Запуск только новых тестов (основные модули)
 test-new:
 	@echo "Запуск только новых тестов (gemini_module)..."
 	@python -m pytest app/tests/gemini_module/ -x --tb=short
@@ -125,7 +130,8 @@ help:
 	@echo "  make test-coverage - Запустить тесты с анализом покрытия кода"
 	@echo "  make test-gemini - Запустить тесты для gemini_module"
 	@echo "  make test-gemini-coverage - Запустить тесты gemini_module с покрытием"
-	@echo "  make test-helpers - Запустить тесты для helpers"
+	@echo "  make test-excel-parser - Запустить тесты для excel_parser"
+	@echo "  make test-excel-parser-coverage - Запустить тесты excel_parser с покрытием"
 	@echo "  make test-fast   - Быстрый запуск тестов (остановка на первой ошибке)"
 	@echo "  make test-new    - Запустить только новые тесты (gemini_module)"
 	@echo "  make clean       - Очистить временные файлы"

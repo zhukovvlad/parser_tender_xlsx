@@ -52,7 +52,7 @@ from ..constants import (
     JSON_KEY_VAT,
     JSON_KEY_WORKS,
 )
-from ..helpers.sanitize_text import sanitize_object_and_address_text, sanitize_text
+from ..excel_parser.sanitize_text import sanitize_object_and_address_text, sanitize_text
 
 
 def _safe_float(val: Any) -> float:

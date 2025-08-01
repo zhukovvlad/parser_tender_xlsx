@@ -23,7 +23,7 @@ from typing import Any, Dict
 
 from openpyxl.worksheet.worksheet import Worksheet
 
-from app.helpers.parse_contractor_row import parse_contractor_row
+from .parse_contractor_row import parse_contractor_row
 
 from ..constants import (
     JSON_KEY_DEVIATION_FROM_CALCULATED_COST,

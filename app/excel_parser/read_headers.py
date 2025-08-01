@@ -21,7 +21,7 @@ from ..constants import (
     TABLE_PARSE_OBJECT,
     TABLE_PARSE_TENDER_SUBJECT,
 )
-from ..helpers.sanitize_text import sanitize_text
+from .sanitize_text import sanitize_text
 
 
 def read_headers(ws: Worksheet) -> Dict[str, Optional[str]]:

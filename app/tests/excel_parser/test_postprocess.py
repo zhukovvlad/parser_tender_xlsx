@@ -16,8 +16,8 @@ from app.constants import (
     JSON_KEY_TOTAL_COST,
     TABLE_PARSE_BASELINE_COST,
 )
-from app.helpers.postprocess import _is_value_zero  # Импортируем для прямого тестирования
-from app.helpers.postprocess import (
+from app.excel_parser.postprocess import _is_value_zero  # Импортируем для прямого тестирования
+from app.excel_parser.postprocess import (
     DataIntegrityError,
     _clean_deviation_fields,
     annotate_structure_fields,
