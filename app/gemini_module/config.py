@@ -34,9 +34,10 @@ FILE_CONFIG = {
 LOGGING_CONFIG = {
     "default_level": "INFO",
     "verbose_level": "DEBUG",
-    "format": "%(asctime)s - %(levelname)s - %(message)s",
-    "enable_file_logging": False,
-    "log_file": "parser.log",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "enable_file_logging": True,
+    "log_file": "logs/gemini.log",
+    "logger_name": "gemini_module",
 }
 
 # Настройки для retry и таймаутов
