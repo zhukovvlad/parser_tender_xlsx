@@ -45,4 +45,9 @@ pending_sync/
 htmlcov/
 .coverage
 
+# Тестовые данные (могут содержать конфиденциальную информацию)
+# Тестовые Excel файлы (содержат реальные данные)
+app/tests/test_data/*.xlsx
+app/tests/test_data/*.xls
+
 temp_uploads/

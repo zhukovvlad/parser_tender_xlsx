@@ -24,7 +24,6 @@ from .get_items_dict import get_items_dict
 from .get_lot_positions import get_lot_positions
 
 # Position and data extraction
-from .get_positions import get_positions
 from .get_proposals import get_proposals
 from .get_summary import get_summary
 
@@ -46,7 +45,6 @@ __all__ = [
     "read_lots_and_boundaries",
     "read_executer_block",
     # Data extraction
-    "get_positions",
     "get_lot_positions",
     "get_proposals",
     "get_summary",
