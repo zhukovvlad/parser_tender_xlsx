@@ -314,3 +314,59 @@ class TestGetLotPositionsDataIntegrity:
             position = list(result.values())[0]
             assert JSON_KEY_JOB_TITLE in position
             assert position[JSON_KEY_JOB_TITLE] == "Тест работа"
+
+    def test_stops_at_merged_cell_in_first_column(self, sample_worksheet):
+        """
+        ПОВЕДЕНИЕ: Функция должна прекращать обработку при встрече
+        объединенной ячейки в первом столбце (признак блока итогов).
+        """
+        ws = sample_worksheet
+
+        # Добавляем позицию
+        ws.cell(row=17, column=1, value="5")
+        ws.cell(row=17, column=4, value="Обычная позиция")
+
+        # Создаем объединенную ячейку в первом столбце (имитация блока итогов)
+        ws.merge_cells("A18:A19")
+        ws.cell(row=18, column=1, value="ИТОГО")
+
+        # Добавляем еще одну позицию ПОСЛЕ объединенной ячейки (не должна обрабатываться)
+        ws.cell(row=20, column=1, value="6")
+        ws.cell(row=20, column=4, value="Не должна обрабатываться")
+
+        contractor = {"column_start": 9, "merged_shape": {"colspan": 8}}
+
+        result = get_lot_positions(ws, contractor, lot_start_row=17, lot_end_row=21)
+
+        # Должна обработаться только первая позиция (до объединенной ячейки)
+        assert len(result) == 1
+        assert "1" in result
+        assert result["1"][JSON_KEY_JOB_TITLE] == "Обычная позиция"
+
+    def test_skips_completely_empty_rows(self, sample_worksheet):
+        """
+        ПОВЕДЕНИЕ: Функция должна пропускать полностью пустые строки
+        и продолжать обработку следующих строк.
+        """
+        ws = sample_worksheet
+
+        # Добавляем первую позицию
+        ws.cell(row=22, column=1, value="7")
+        ws.cell(row=22, column=4, value="Первая позиция")
+
+        # Строка 23 остается полностью пустой
+
+        # Добавляем вторую позицию после пустой строки
+        ws.cell(row=24, column=1, value="8")
+        ws.cell(row=24, column=4, value="Вторая позиция")
+
+        contractor = {"column_start": 9, "merged_shape": {"colspan": 8}}
+
+        result = get_lot_positions(ws, contractor, lot_start_row=22, lot_end_row=24)
+
+        # Должны обработаться обе позиции, пустая строка пропущена
+        assert len(result) == 2
+        assert "1" in result
+        assert "2" in result
+        assert result["1"][JSON_KEY_JOB_TITLE] == "Первая позиция"
+        assert result["2"][JSON_KEY_JOB_TITLE] == "Вторая позиция"
