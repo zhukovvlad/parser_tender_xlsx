@@ -1,6 +1,7 @@
 # tests/helpers/test_read_headers.py
 
 import pytest
+from openpyxl import Workbook
 
 # 1. Импортируем РЕАЛЬНЫЕ константы, которые использует ваша функция
 from app.constants import (
@@ -13,7 +14,6 @@ from app.constants import (
     TABLE_PARSE_TENDER_SUBJECT,
 )
 from app.excel_parser.read_headers import read_headers
-from openpyxl import Workbook
 
 
 # Фикстура для мока зависимости sanitize_text

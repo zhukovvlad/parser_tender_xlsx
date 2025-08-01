@@ -1,6 +1,7 @@
 # tests/helpers/test_postprocess.py
 
 import pytest
+
 from app.constants import (
     JSON_KEY_BASELINE_PROPOSAL,
     JSON_KEY_CHAPTER_NUMBER,

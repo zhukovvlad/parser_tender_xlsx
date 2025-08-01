@@ -24,7 +24,7 @@ from typing import Dict, Optional
 
 from dotenv import load_dotenv
 
-from app.gemini_module import TenderProcessor, validate_input_file, get_message
+from app.gemini_module import TenderProcessor, get_message, validate_input_file
 from app.gemini_module.constants import FALLBACK_CATEGORY, TENDER_CATEGORIES, TENDER_CONFIGS
 
 # Загружаем переменные окружения в начале

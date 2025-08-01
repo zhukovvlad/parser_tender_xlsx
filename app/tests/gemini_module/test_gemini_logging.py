@@ -3,9 +3,8 @@
 Тест интеграции логгирования gemini_module с основной системой проекта.
 """
 
-import os
 import logging
-from pathlib import Path
+import os
 
 # Добавляем путь к корню проекта для импортов
 import sys
@@ -15,7 +14,7 @@ current_dir = Path(__file__).parent
 project_root = current_dir.parent.parent
 sys.path.insert(0, str(project_root))
 
-from app.gemini_module.logger import setup_gemini_logger, get_gemini_logger
+from app.gemini_module.logger import get_gemini_logger, setup_gemini_logger
 
 
 def test_gemini_logging_integration():

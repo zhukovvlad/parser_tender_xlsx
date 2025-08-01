@@ -5,12 +5,12 @@ from openpyxl import Workbook
 
 # Импортируем константы из проекта
 from app.constants import (
+    JSON_KEY_EXECUTOR_DATE,
     JSON_KEY_EXECUTOR_NAME,
     JSON_KEY_EXECUTOR_PHONE,
-    JSON_KEY_EXECUTOR_DATE,
     TABLE_PARSE_EXECUTOR,
-    TABLE_PARSE_TELEPHONE,
     TABLE_PARSE_PREPARATION_DATE,
+    TABLE_PARSE_TELEPHONE,
 )
 
 # Импортируем тестируемую функцию

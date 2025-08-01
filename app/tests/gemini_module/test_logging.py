@@ -5,10 +5,11 @@
 """
 
 import os
-import pytest
 from pathlib import Path
 
-from app.gemini_module.logger import setup_gemini_logger, get_gemini_logger
+import pytest
+
+from app.gemini_module.logger import get_gemini_logger, setup_gemini_logger
 
 
 def test_setup_gemini_logger():

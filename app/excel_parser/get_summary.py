@@ -23,8 +23,6 @@ from typing import Any, Dict
 
 from openpyxl.worksheet.worksheet import Worksheet
 
-from .parse_contractor_row import parse_contractor_row
-
 from ..constants import (
     JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
     JSON_KEY_INITIAL_COST,
@@ -35,6 +33,7 @@ from ..constants import (
     TABLE_PARSE_DEVIATION_FROM_CALCULATED_COST,
     TABLE_PARSE_INITIAL_COST,
 )
+from .parse_contractor_row import parse_contractor_row
 
 log = logging.getLogger(__name__)
 

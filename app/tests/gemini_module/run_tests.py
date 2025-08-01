@@ -13,8 +13,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from test_logging import test_gemini_logging_basic
 from test_gemini_logging import test_gemini_logging_integration
+from test_logging import test_gemini_logging_basic
 from test_processor_logging import test_processor_logging
 
 
