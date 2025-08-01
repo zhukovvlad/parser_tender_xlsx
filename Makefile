@@ -2,7 +2,7 @@
 
 # .PHONY гарантирует, что make выполнит команду, даже если в директории
 # уже есть файл или папка с таким же именем (например, "run").
-.PHONY: run help install test clean dev prod parse parse-offline sync-pending format lint check
+.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-helpers test-fast test-new clean dev prod parse parse-offline sync-pending format lint check
 
 # Определяем переменные по умолчанию для удобства.
 # Эти значения можно переопределить в Makefile.local
@@ -32,10 +32,40 @@ install:
 	@echo "Установка зависимостей..."
 	@pip install -r requirements.txt
 
-# Запуск тестов
+# Запуск всех тестов
 test:
-	@echo "Запуск тестов..."
+	@echo "Запуск всех тестов..."
 	@python -m pytest -v
+
+# Запуск тестов с покрытием кода
+test-coverage:
+	@echo "Запуск тестов с анализом покрытия кода..."
+	@python -m pytest --cov=app --cov-report=html --cov-report=term -v
+
+# Запуск только тестов gemini_module
+test-gemini:
+	@echo "Запуск тестов для gemini_module..."
+	@python -m pytest app/tests/gemini_module/ -v
+
+# Запуск тестов gemini_module с покрытием
+test-gemini-coverage:
+	@echo "Запуск тестов gemini_module с анализом покрытия..."
+	@python -m pytest app/tests/gemini_module/ --cov=app.gemini_module --cov-report=html --cov-report=term -v
+
+# Запуск только тестов helpers
+test-helpers:
+	@echo "Запуск тестов для helpers..."
+	@python -m pytest app/tests/helpers/ -v
+
+# Быстрый запуск тестов (без покрытия)
+test-fast:
+	@echo "Быстрый запуск тестов..."
+	@python -m pytest -x --tb=short
+
+# Запуск только новых тестов (без helpers с проблемными импортами)
+test-new:
+	@echo "Запуск только новых тестов (gemini_module)..."
+	@python -m pytest app/tests/gemini_module/ -x --tb=short
 
 # Очистка временных файлов
 clean:
@@ -91,7 +121,13 @@ help:
 	@echo "  make run         - Запустить веб-сервер в режиме разработки с автоперезагрузкой"
 	@echo "  make prod        - Запустить веб-сервер в продакшн режиме"
 	@echo "  make install     - Установить зависимости из requirements.txt"
-	@echo "  make test        - Запустить тесты"
+	@echo "  make test        - Запустить все тесты"
+	@echo "  make test-coverage - Запустить тесты с анализом покрытия кода"
+	@echo "  make test-gemini - Запустить тесты для gemini_module"
+	@echo "  make test-gemini-coverage - Запустить тесты gemini_module с покрытием"
+	@echo "  make test-helpers - Запустить тесты для helpers"
+	@echo "  make test-fast   - Быстрый запуск тестов (остановка на первой ошибке)"
+	@echo "  make test-new    - Запустить только новые тесты (gemini_module)"
 	@echo "  make clean       - Очистить временные файлы"
 	@echo "  make parse FILE=<path>        - Парсить указанный XLSX файл"
 	@echo "  make parse-offline FILE=<path> - Парсить файл в offline режиме"
