@@ -3,18 +3,20 @@
 
 Этот модуль содержит тесты для функций очистки и нормализации текста:
 - sanitize_text: базовая очистка текста
-- sanitize_object_and_address_text: специфическая очистка для объектов и адресов  
+- sanitize_object_and_address_text: специфическая очистка для объектов и адресов
 - normalize_job_title_with_lemmatization: продвинутая нормализация с лемматизацией
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
 from app.excel_parser.sanitize_text import (
-    sanitize_text,
-    sanitize_object_and_address_text,
-    normalize_job_title_with_lemmatization,
+    NLP_SPACY,
     SPACY_AVAILABLE,
-    NLP_SPACY
+    normalize_job_title_with_lemmatization,
+    sanitize_object_and_address_text,
+    sanitize_text,
 )
 
 
@@ -42,7 +44,7 @@ class TestSanitizeText:
         assert result is None
 
     def test_sanitize_text_with_number(self):
-        """Тест, что числа возвращаются без изменений."""  
+        """Тест, что числа возвращаются без изменений."""
         result = sanitize_text(123)
         assert result == 123
 
@@ -130,7 +132,7 @@ class TestNormalizeJobTitleWithLemmatization:
 
     def test_normalize_job_title_basic_cleanup(self):
         """Тест базовой очистки без spaCy."""
-        with patch('app.excel_parser.sanitize_text.SPACY_AVAILABLE', False):
+        with patch("app.excel_parser.sanitize_text.SPACY_AVAILABLE", False):
             text = "**Старший** разработчик! (Python)"
             result = normalize_job_title_with_lemmatization(text)
             # Должно убрать пунктуацию и привести к нижнему регистру
@@ -139,22 +141,22 @@ class TestNormalizeJobTitleWithLemmatization:
 
     def test_normalize_job_title_with_numbers(self):
         """Тест очистки должности с числами."""
-        with patch('app.excel_parser.sanitize_text.SPACY_AVAILABLE', False):
+        with patch("app.excel_parser.sanitize_text.SPACY_AVAILABLE", False):
             text = "Менеджер 1С версия 8.3"
-            result = normalize_job_title_with_lemmatization(text) 
+            result = normalize_job_title_with_lemmatization(text)
             # Точка заменяется на пробел в regex [^\w\s-]
             expected = "менеджер 1с версия 8 3"
             assert result == expected
 
     def test_normalize_job_title_markdown_cleanup(self):
         """Тест удаления Markdown разметки."""
-        with patch('app.excel_parser.sanitize_text.SPACY_AVAILABLE', False):
+        with patch("app.excel_parser.sanitize_text.SPACY_AVAILABLE", False):
             text = "# Заголовок\n**жирный текст** и *курсив*"
             result = normalize_job_title_with_lemmatization(text)
-            expected = "заголовок жирный текст и курсив" 
+            expected = "заголовок жирный текст и курсив"
             assert result == expected
 
-    @patch('app.excel_parser.sanitize_text.SPACY_AVAILABLE', True)
+    @patch("app.excel_parser.sanitize_text.SPACY_AVAILABLE", True)
     def test_normalize_job_title_with_spacy_mock(self):
         """Тест лемматизации с мокированным spaCy."""
         # Создаем мок для spaCy
@@ -164,18 +166,18 @@ class TestNormalizeJobTitleWithLemmatization:
         mock_token1.pos_ = "NOUN"
         mock_token1.is_punct = False
         mock_token1.is_space = False
-        
+
         mock_token2 = MagicMock()
         mock_token2.lemma_ = "программа"
-        mock_token2.pos_ = "NOUN" 
+        mock_token2.pos_ = "NOUN"
         mock_token2.is_punct = False
         mock_token2.is_space = False
-        
+
         mock_doc.__iter__ = MagicMock(return_value=iter([mock_token1, mock_token2]))
-        
-        with patch('app.excel_parser.sanitize_text.NLP_SPACY') as mock_nlp:
+
+        with patch("app.excel_parser.sanitize_text.NLP_SPACY") as mock_nlp:
             mock_nlp.return_value = mock_doc
-            
+
             text = "разработчики программ"
             result = normalize_job_title_with_lemmatization(text)
             expected = "разработчик программа"
@@ -183,7 +185,7 @@ class TestNormalizeJobTitleWithLemmatization:
 
     def test_normalize_job_title_special_characters(self):
         """Тест удаления специальных символов."""
-        with patch('app.excel_parser.sanitize_text.SPACY_AVAILABLE', False):
+        with patch("app.excel_parser.sanitize_text.SPACY_AVAILABLE", False):
             text = "Java-разработчик @company #senior $$$"
             result = normalize_job_title_with_lemmatization(text)
             # Дефис сохраняется согласно regex [^\w\s-], остальные символы заменяются на пробелы
@@ -192,7 +194,7 @@ class TestNormalizeJobTitleWithLemmatization:
 
     def test_normalize_job_title_whitespace_normalization(self):
         """Тест нормализации пробелов."""
-        with patch('app.excel_parser.sanitize_text.SPACY_AVAILABLE', False):
+        with patch("app.excel_parser.sanitize_text.SPACY_AVAILABLE", False):
             text = "   Senior    Developer   \n\t  "
             result = normalize_job_title_with_lemmatization(text)
             expected = "senior developer"
@@ -224,11 +226,11 @@ class TestSpacyIntegration:
         if SPACY_AVAILABLE:
             assert NLP_SPACY is not None
             # Проверяем, что это действительно модель spaCy
-            assert hasattr(NLP_SPACY, '__call__')
+            assert hasattr(NLP_SPACY, "__call__")
         else:
             assert NLP_SPACY is None
 
-    @patch('app.excel_parser.sanitize_text.SPACY_AVAILABLE', False)  
+    @patch("app.excel_parser.sanitize_text.SPACY_AVAILABLE", False)
     def test_normalize_without_spacy(self):
         """Тест нормализации когда spaCy недоступен."""
         text = "Тестовый текст для проверки"
