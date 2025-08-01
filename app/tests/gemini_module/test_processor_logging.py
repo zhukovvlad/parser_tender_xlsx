@@ -5,8 +5,11 @@
 
 import os
 import sys
+from pathlib import Path
 
-sys.path.append("/root/Projects/Python_projects/parser")
+# Добавляем путь к корню проекта для импортов
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 from app.gemini_module.logger import get_gemini_logger
 
