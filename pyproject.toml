@@ -40,3 +40,7 @@ python_files = [
     "test_*.py",
     "*_test.py"
 ]
+markers = [
+    "integration: marks tests as integration tests (require API keys)",
+    "slow: marks tests as slow running",
+]

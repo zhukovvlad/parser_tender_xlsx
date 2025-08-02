@@ -2,7 +2,7 @@
 
 # .PHONY гарантирует, что make выполнит команду, даже если в директории
 # уже есть файл или папка с таким же именем (например, "run").
-.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-new clean dev prod parse parse-offline sync-pending format lint check
+.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-new clean dev prod parse parse-offline parse-gemini parse-gemini-async worker-start worker-status sync-pending format lint check
 
 # Определяем переменные по умолчанию для удобства.
 # Эти значения можно переопределить в Makefile.local
@@ -103,6 +103,52 @@ sync-pending:
 	@echo "Синхронизация ожидающих файлов с сервером..."
 	@echo "TODO: Реализовать утилиту синхронизации"
 
+# ======================================================================
+# === НОВЫЕ КОМАНДЫ ДЛЯ РАБОТЫ С GEMINI AI ===
+# ======================================================================
+
+# Парсинг с Gemini AI (синхронный режим)
+parse-gemini:
+	@if [ -z "$(FILE)" ]; then \
+		echo "❌ Ошибка: Укажите файл. Использование: make parse-gemini FILE=path/to/file.xlsx"; \
+		exit 1; \
+	fi
+	@echo "🧠 Парсинг с Gemini AI: $(FILE)"
+	@.venv/bin/python -m app.parse_with_gemini process "$(FILE)" --verbose
+
+# Парсинг с Gemini AI (асинхронный режим через Redis)
+parse-gemini-async:
+	@if [ -z "$(FILE)" ]; then \
+		echo "❌ Ошибка: Укажите файл. Использование: make parse-gemini-async FILE=path/to/file.xlsx"; \
+		exit 1; \
+	fi
+	@echo "🧠 Асинхронный парсинг с Gemini AI: $(FILE)"
+	@.venv/bin/python -m app.parse_with_gemini process "$(FILE)" --async --verbose
+
+# Запуск воркера очереди Redis
+worker-start:
+	worker-start:
+	@echo "🚀 Запускаю Gemini воркер очереди..."
+	.venv/bin/python -m app.workers.gemini.cli worker
+
+# Проверка статуса обработки тендера
+worker-status:
+	@if [ -z "$(TENDER_ID)" ] || [ -z "$(LOT_IDS)" ]; then \
+		echo "❌ Ошибка: Укажите TENDER_ID и LOT_IDS. Использование: make worker-status TENDER_ID=123 LOT_IDS='1 2 3'"; \
+		exit 1; \
+	fi
+	@echo "📊 Проверяю статус тендера $(TENDER_ID), лоты: $(LOT_IDS)"
+	@.venv/bin/python -m app.parse_with_gemini status $(TENDER_ID) $(LOT_IDS)
+
+# Обработка одного файла позиций (для тестирования)
+process-positions:
+	@if [ -z "$(TENDER_ID)" ] || [ -z "$(LOT_ID)" ] || [ -z "$(FILE)" ]; then \
+		echo "❌ Ошибка: Укажите все параметры. Использование: make process-positions TENDER_ID=123 LOT_ID=456 FILE=path/to/positions.md"; \
+		exit 1; \
+	fi
+	@echo "🔍 Обрабатываю позиции: тендер $(TENDER_ID), лот $(LOT_ID)"
+	@.venv/bin/python -m app.workers.gemini.cli --verbose process $(TENDER_ID) $(LOT_ID) "$(FILE)"
+
 # Форматирование кода
 format:
 	@echo "Форматирование кода с помощью black и isort..."
@@ -137,6 +183,14 @@ help:
 	@echo "  make clean       - Очистить временные файлы"
 	@echo "  make parse FILE=<path>        - Парсить указанный XLSX файл"
 	@echo "  make parse-offline FILE=<path> - Парсить файл в offline режиме"
+	@echo ""
+	@echo "🧠 Команды Gemini AI:"
+	@echo "  make parse-gemini FILE=<path> - Парсить файл с Gemini AI (синхронно)"
+	@echo "  make parse-gemini-async FILE=<path> - Парсить файл с Gemini AI (через Redis)"
+	@echo "  make worker-start             - Запустить воркер Gemini AI"
+	@echo "  make worker-status TENDER_ID=<id> LOT_IDS='<ids>' - Статус обработки"
+	@echo "  make process-positions TENDER_ID=<id> LOT_ID=<id> FILE=<path> - Обработать позиции"
+	@echo ""
 	@echo "  make sync-pending - Синхронизировать файлы из pending_sync с сервером"
 	@echo "  make format      - Форматировать код с помощью black и isort"
 	@echo "  make lint        - Проверить стиль кода с помощью flake8"
@@ -153,4 +207,5 @@ help:
 	@echo "  PARSER_FALLBACK_MODE=true  - Включить резервный режим"
 	@echo "  GO_SERVER_API_ENDPOINT     - URL API сервера"
 	@echo "  GO_SERVER_API_KEY          - API ключ для сервера"
+	@echo "  GOOGLE_API_KEY             - API ключ для Gemini AI"
 
