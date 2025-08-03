@@ -3,12 +3,12 @@
 Gemini AI воркер для обработки тендерных позиций.
 """
 
-from .worker import GeminiWorker
-from .manager import GeminiManager
 from .integration import GeminiIntegration
+from .manager import GeminiManager
+from .worker import GeminiWorker
 
 __all__ = [
-    'GeminiWorker',
-    'GeminiManager', 
-    'GeminiIntegration',
+    "GeminiWorker",
+    "GeminiManager",
+    "GeminiIntegration",
 ]

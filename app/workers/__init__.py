@@ -4,10 +4,10 @@
 Каждый воркер находится в отдельной папке со всей своей функциональностью.
 """
 
-from .gemini import GeminiWorker, GeminiManager, GeminiIntegration
+from .gemini import GeminiIntegration, GeminiManager, GeminiWorker
 
 __all__ = [
-    'GeminiWorker',
-    'GeminiManager', 
-    'GeminiIntegration',
+    "GeminiWorker",
+    "GeminiManager",
+    "GeminiIntegration",
 ]

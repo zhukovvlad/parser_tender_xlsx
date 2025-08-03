@@ -23,9 +23,9 @@ import redis
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 
-from app.parse import parse_file
 from app.celery_app import celery_app
-from app.workers.gemini.tasks import process_tender_positions, process_tender_batch
+from app.parse import parse_file
+from app.workers.gemini.tasks import process_tender_batch, process_tender_positions
 
 # --- ЦЕНТРАЛИЗОВАННАЯ НАСТРОЙКА ПРИЛОЖЕНИЯ ---
 
@@ -165,7 +165,7 @@ async def health_check():
 @app.post("/parse-tender-ai/", status_code=202, tags=["AI Processing"])
 async def create_ai_parsing_task(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """
-    Принимает файл, парсит его стандартным способом, а затем запускает 
+    Принимает файл, парсит его стандартным способом, а затем запускает
     AI обработку через Celery для извлечения ключевых параметров.
     """
     if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
@@ -182,72 +182,64 @@ async def create_ai_parsing_task(background_tasks: BackgroundTasks, file: Upload
         # Сохраняем файл
         with open(temp_file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        
+
         # Сначала выполняем стандартный парсинг
         log.info(f"AI Task {task_id}: Запускаю стандартный парсинг")
         parse_file(str(temp_file_path))
-        
+
         # После парсинга ищем созданные файлы positions в директориях
         lots_data = []
-        
+
         # Ищем в основных директориях
-        positions_dirs = [
-            Path("tenders_positions"),
-            Path("pending_sync_positions")
-        ]
-        
+        positions_dirs = [Path("tenders_positions"), Path("pending_sync_positions")]
+
         positions_files = []
         for pos_dir in positions_dirs:
             if pos_dir.exists():
                 positions_files.extend(pos_dir.glob("*_positions.md"))
-        
+
         # Сортируем по времени создания (новые сначала)
         positions_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-        
+
         # Берем недавно созданные файлы (в течение последних 30 секунд)
         import time
+
         current_time = time.time()
-        recent_files = [
-            f for f in positions_files 
-            if current_time - f.stat().st_mtime < 30
-        ]
-        
+        recent_files = [f for f in positions_files if current_time - f.stat().st_mtime < 30]
+
         log.info(f"AI Task {task_id}: Найдено {len(recent_files)} недавно созданных файлов positions")
-        
+
         for positions_file in recent_files:
             # Извлекаем lot_id из имени файла (например: temp_1754203333_5037_594277_positions.md)
             stem = positions_file.stem  # без .md
             if stem.endswith("_positions"):
                 lot_id = stem.replace("_positions", "").split("_")[-1]  # последняя часть
-                lots_data.append({
-                    "lot_id": lot_id,
-                    "positions_file_path": str(positions_file.absolute())
-                })
+                lots_data.append({"lot_id": lot_id, "positions_file_path": str(positions_file.absolute())})
                 log.info(f"AI Task {task_id}: Добавлен лот {lot_id} с файлом {positions_file.name}")
-        
+
             if lots_data:
                 # Получаем API ключ из окружения
                 api_key = os.getenv("GOOGLE_API_KEY")
                 if not api_key:
                     raise Exception("GOOGLE_API_KEY не найден в переменных окружения")
-                
+
                 # Запускаем AI обработку через Celery
                 log.info(f"AI Task {task_id}: Запускаю AI обработку для {len(lots_data)} лотов")
                 celery_task = process_tender_batch.delay(task_id, lots_data, api_key)
-                
+
                 return {
-                "task_id": task_id,
-                "celery_task_id": celery_task.id,
-                "message": f"Стандартный парсинг завершен. AI обработка запущена для {len(lots_data)} лотов.",
-                "lots_count": len(lots_data)
-            }
+                    "task_id": task_id,
+                    "celery_task_id": celery_task.id,
+                    "message": f"Стандартный парсинг завершен. AI обработка запущена для {len(lots_data)} лотов.",
+                    "lots_count": len(lots_data),
+                }
         else:
             return {
                 "task_id": task_id,
                 "message": "Стандартный парсинг завершен, но не найдены файлы позиций для AI обработки.",
-                "lots_count": 0
+                "lots_count": 0,
             }
-            
+
     except Exception as e:
         log.error(f"AI Task {task_id}: Ошибка: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при обработке файла: {str(e)}")
@@ -262,17 +254,17 @@ async def process_single_positions_file(tender_id: str, lot_id: str, positions_f
     """
     if not Path(positions_file_path).exists():
         raise HTTPException(status_code=404, detail="Файл позиций не найден")
-    
+
     # Запускаем задачу через Celery
     celery_task = process_tender_positions.delay(tender_id, lot_id, positions_file_path)
-    
+
     log.info(f"Запущена AI обработка для {tender_id}_{lot_id}, Celery task: {celery_task.id}")
-    
+
     return {
         "task_id": celery_task.id,
         "tender_id": tender_id,
         "lot_id": lot_id,
-        "message": "AI обработка позиций запущена"
+        "message": "AI обработка позиций запущена",
     }
 
 
@@ -283,33 +275,22 @@ async def get_celery_task_status(task_id: str):
     """
     try:
         task_result = celery_app.AsyncResult(task_id)
-        
-        if task_result.state == 'PENDING':
+
+        if task_result.state == "PENDING":
+            response = {"state": task_result.state, "status": "Task is waiting to be processed"}
+        elif task_result.state == "PROCESSING":
+            response = {"state": task_result.state, "status": "Task is being processed", "meta": task_result.info}
+        elif task_result.state == "SUCCESS":
             response = {
-                'state': task_result.state,
-                'status': 'Task is waiting to be processed'
-            }
-        elif task_result.state == 'PROCESSING':
-            response = {
-                'state': task_result.state,
-                'status': 'Task is being processed',
-                'meta': task_result.info
-            }
-        elif task_result.state == 'SUCCESS':
-            response = {
-                'state': task_result.state,
-                'status': 'Task completed successfully',
-                'result': task_result.result
+                "state": task_result.state,
+                "status": "Task completed successfully",
+                "result": task_result.result,
             }
         else:  # FAILURE
-            response = {
-                'state': task_result.state,
-                'status': 'Task failed',
-                'error': str(task_result.info)
-            }
-        
+            response = {"state": task_result.state, "status": "Task failed", "error": str(task_result.info)}
+
         return response
-        
+
     except Exception as e:
         log.error(f"Ошибка получения статуса задачи {task_id}: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении статуса задачи")
@@ -323,22 +304,18 @@ async def get_celery_workers_status():
     try:
         # Получаем информацию о воркерах
         inspect = celery_app.control.inspect()
-        
+
         active_workers = inspect.active()
         registered_tasks = inspect.registered()
         stats = inspect.stats()
-        
+
         return {
             "active_workers": active_workers or {},
             "registered_tasks": registered_tasks or {},
             "stats": stats or {},
-            "total_workers": len(active_workers) if active_workers else 0
+            "total_workers": len(active_workers) if active_workers else 0,
         }
-        
+
     except Exception as e:
         log.error(f"Ошибка получения статуса воркеров: {e}")
-        return {
-            "error": str(e),
-            "active_workers": {},
-            "total_workers": 0
-        }
+        return {"error": str(e), "active_workers": {}, "total_workers": 0}
