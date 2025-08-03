@@ -7,6 +7,7 @@ Celery задачи для обработки тендерных позиций 
 
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any, Dict
 
@@ -97,6 +98,12 @@ def process_tender_positions(
             meta={"tender_id": tender_id, "lot_id": lot_id, "stage": "completed", "progress": 100, "result": result},
         )
 
+        # Архивируем обработанный файл (перемещаем в finalized директорию)
+        try:
+            _archive_processed_file(positions_file_path)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not archive file {positions_file_path}: {e}")
+
         return result
 
     except Exception as e:
@@ -108,6 +115,31 @@ def process_tender_positions(
             meta={"tender_id": tender_id, "lot_id": lot_id, "stage": "failed", "error": str(e), "progress": 0},
         )
         raise
+
+
+def _archive_processed_file(file_path: str):
+    """
+    Архивирует успешно обработанный файл из pending_sync_positions в tenders_positions.
+
+    Args:
+        file_path: Путь к обработанному файлу
+    """
+    import shutil
+    from pathlib import Path
+
+    source_path = Path(file_path)
+    if not source_path.exists():
+        return
+
+    # Определяем целевую директорию
+    if "pending_sync_positions" in str(source_path):
+        target_dir = Path("tenders_positions")
+        target_dir.mkdir(exist_ok=True)
+
+        target_path = target_dir / source_path.name
+        shutil.move(str(source_path), str(target_path))
+
+        logger.info(f"📂 File archived: {source_path.name} -> tenders_positions/")
 
 
 @celery_app.task(bind=True)
@@ -202,29 +234,44 @@ def cleanup_old_results():
     logger.info("🧹 Starting cleanup of old results and temporary files")
 
     try:
-        # Здесь можно добавить логику очистки:
-        # - Удаление старых файлов из temp_uploads
-        # - Очистка старых результатов из Redis
-        # - Архивирование логов
+        cleanup_stats = {"temp_uploads": 0, "pending_sync_positions": 0, "redis_keys": 0}
 
-        cleanup_count = 0
-
-        # Пример: очистка файлов старше 24 часов
         import time
         from pathlib import Path
 
+        current_time = time.time()
+
+        # 1. Очистка temp_uploads (файлы старше 24 часов)
         temp_dir = Path("temp_uploads")
         if temp_dir.exists():
-            current_time = time.time()
             for file_path in temp_dir.iterdir():
                 if file_path.is_file():
                     file_age = current_time - file_path.stat().st_mtime
                     if file_age > 86400:  # 24 часа
                         file_path.unlink()
-                        cleanup_count += 1
+                        cleanup_stats["temp_uploads"] += 1
 
-        logger.info(f"✅ Cleanup completed. Removed {cleanup_count} old files")
-        return {"cleaned_files": cleanup_count}
+        # 2. Архивация обработанных positions файлов (старше 6 часов)
+        pending_positions_dir = Path("pending_sync_positions")
+        tenders_positions_dir = Path("tenders_positions")
+        tenders_positions_dir.mkdir(exist_ok=True)
+
+        if pending_positions_dir.exists():
+            for file_path in pending_positions_dir.iterdir():
+                if file_path.is_file() and file_path.suffix == ".md":
+                    file_age = current_time - file_path.stat().st_mtime
+                    if file_age > 21600:  # 6 часов
+                        # Перемещаем в финальную директорию
+                        target_path = tenders_positions_dir / file_path.name
+                        shutil.move(str(file_path), str(target_path))
+                        cleanup_stats["pending_sync_positions"] += 1
+                        logger.info(f"📂 Archived: {file_path.name} -> tenders_positions/")
+
+        # 3. Очистка старых Redis ключей (опционально)
+        # Можно добавить очистку ключей задач старше определенного времени
+
+        logger.info(f"✅ Cleanup completed: {cleanup_stats}")
+        return cleanup_stats
 
     except Exception as e:
         logger.error(f"❌ Cleanup error: {str(e)}")
