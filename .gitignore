@@ -36,9 +36,20 @@ tenders_xlsx/
 tenders_positions/
 prompts/
 logs/
+temp_uploads/
 
-# Исключаем директорию с файлами, ожидающими синхронизации
+# Celery
+celerybeat-schedule
+celerybeat.pid
+.dependencies_installed
+
+# Исключаем директории с файлами, ожидающими синхронизации
 pending_sync/
+pending_sync_chunks/
+pending_sync_json/
+pending_sync_md/
+pending_sync_positions/
+pending_sync_xlsx/
 
 # Test reports
 *.html
@@ -49,5 +60,3 @@ htmlcov/
 # Тестовые Excel файлы (содержат реальные данные)
 app/tests/test_data/*.xlsx
 app/tests/test_data/*.xls
-
-temp_uploads/

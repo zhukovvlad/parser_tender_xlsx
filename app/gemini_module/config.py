@@ -15,8 +15,8 @@ from typing import Dict, List, Optional
 
 # Настройки модели по умолчанию
 MODEL_CONFIG = {
-    "default_model": "models/gemini-1.5-pro",  # Обновляем до актуальной версии
-    "fallback_model": "models/gemini-1.5-pro",
+    "default_model": "models/gemini-2.5-flash",  # Обновляем до актуальной версии
+    "fallback_model": "models/gemini-2.5-flash",
     "temperature": 0.1,  # Низкая температура для более детерминированных результатов
     "max_tokens": 8192,
 }

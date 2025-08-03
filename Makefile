@@ -131,6 +131,40 @@ worker-start:
 	@echo "🚀 Запускаю Gemini воркер очереди..."
 	.venv/bin/python -m app.workers.gemini.cli worker
 
+# === CELERY КОМАНДЫ ===
+
+celery-worker:
+	@echo "🚀 Запускаю Celery воркер для AI обработки..."
+	.venv/bin/celery -A app.celery_app worker --loglevel=INFO --queues=gemini_tasks,default
+
+celery-beat:
+	@echo "⏰ Запускаю Celery Beat планировщик..."
+	.venv/bin/celery -A app.celery_app beat --loglevel=INFO
+
+celery-flower:
+	@echo "🌸 Запускаю Flower мониторинг на http://localhost:5555..."
+	.venv/bin/celery -A app.celery_app flower --port=5555
+
+celery-status:
+	@echo "📊 Статус Celery воркеров:"
+	.venv/bin/celery -A app.celery_app inspect ping
+
+celery-tasks:
+	@echo "📋 Активные задачи Celery:"
+	.venv/bin/celery -A app.celery_app inspect active
+
+celery-purge:
+	@echo "🧹 Очищаю очередь задач Celery..."
+	.venv/bin/celery -A app.celery_app purge -f
+
+start-all:
+	@echo "🚀 Запускаю все сервисы..."
+	./scripts/start_services.sh
+
+stop-all:
+	@echo "🛑 Останавливаю все сервисы..."
+	./scripts/stop_services.sh
+
 # Проверка статуса обработки тендера
 worker-status:
 	@if [ -z "$(TENDER_ID)" ] || [ -z "$(LOT_IDS)" ]; then \
@@ -187,9 +221,21 @@ help:
 	@echo "🧠 Команды Gemini AI:"
 	@echo "  make parse-gemini FILE=<path> - Парсить файл с Gemini AI (синхронно)"
 	@echo "  make parse-gemini-async FILE=<path> - Парсить файл с Gemini AI (через Redis)"
-	@echo "  make worker-start             - Запустить воркер Gemini AI"
+	@echo "  make worker-start             - Запустить простой воркер Gemini AI"
 	@echo "  make worker-status TENDER_ID=<id> LOT_IDS='<ids>' - Статус обработки"
 	@echo "  make process-positions TENDER_ID=<id> LOT_ID=<id> FILE=<path> - Обработать позиции"
+	@echo ""
+	@echo "🐝 Команды Celery:"
+	@echo "  make celery-worker            - Запустить Celery воркер"
+	@echo "  make celery-beat              - Запустить планировщик задач"
+	@echo "  make celery-flower            - Запустить мониторинг (localhost:5555)"
+	@echo "  make celery-status            - Статус воркеров"
+	@echo "  make celery-tasks             - Активные задачи"
+	@echo "  make celery-purge             - Очистить очередь"
+	@echo ""
+	@echo "🚀 Управление сервисами:"
+	@echo "  make start-all                - Запустить все сервисы"
+	@echo "  make stop-all                 - Остановить все сервисы"
 	@echo ""
 	@echo "  make sync-pending - Синхронизировать файлы из pending_sync с сервером"
 	@echo "  make format      - Форматировать код с помощью black и isort"
