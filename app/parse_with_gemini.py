@@ -52,7 +52,7 @@ def parse_file_with_gemini(xlsx_path: str, async_processing: bool = False, redis
     try:
         # Получаем реальные ID от Go-сервера через стандартную обработку
         db_id, lot_ids_map, tender_data = parse_with_ids(xlsx_path)
-        
+
         if not db_id:
             log.error("❌ Не удалось получить ID от Go-сервера")
             return False
@@ -85,16 +85,17 @@ def parse_with_ids(xlsx_path: str) -> tuple[Optional[str], Optional[Dict[str, in
     Returns:
         Кортеж (db_id, lot_ids_map, tender_data) или (None, None, None) при ошибке
     """
-    from pathlib import Path
     import json
     import os
+    from pathlib import Path
+
     import openpyxl
     from openpyxl.worksheet.worksheet import Worksheet
-    
-    from .excel_parser.read_headers import read_headers
-    from .excel_parser.read_executer_block import read_executer_block
-    from .excel_parser.read_lots_and_boundaries import read_lots_and_boundaries
+
     from .excel_parser.postprocess import normalize_lots_json_structure, replace_div0_with_null
+    from .excel_parser.read_executer_block import read_executer_block
+    from .excel_parser.read_headers import read_headers
+    from .excel_parser.read_lots_and_boundaries import read_lots_and_boundaries
     from .json_to_server.send_json_to_go_server import register_tender_in_go
 
     source_path = Path(xlsx_path)
@@ -138,15 +139,31 @@ def parse_with_ids(xlsx_path: str) -> tuple[Optional[str], Optional[Dict[str, in
         log.error("❌ Не удалось зарегистрировать тендер")
         return None, None, None
 
+    # Этап 3: Создание positions файлов с реальными ID
+    log.info("🔄 Создание positions файлов...")
+    try:
+        from pathlib import Path
+
+        from .markdown_utils.positions_report import generate_reports_for_all_lots
+
+        output_dir = Path(".")  # Текущая директория
+        base_name = db_id  # Используем реальный DB ID
+
+        position_reports_paths = generate_reports_for_all_lots(processed_data, output_dir, base_name, lot_ids_map)
+        log.info("✅ Positions файлы созданы с реальными ID")
+    except Exception as e:
+        log.error(f"❌ Ошибка создания positions файлов: {e}")
+        # Не критично - продолжаем без positions файлов
+
     return db_id, lot_ids_map, processed_data
 
 
 def process_tender_with_gemini_ids(
-    tender_db_id: str, 
-    lot_ids_map: Dict[str, int], 
-    tender_data: Dict, 
-    async_processing: bool = False, 
-    redis_config: Optional[Dict] = None
+    tender_db_id: str,
+    lot_ids_map: Dict[str, int],
+    tender_data: Dict,
+    async_processing: bool = False,
+    redis_config: Optional[Dict] = None,
 ) -> bool:
     """
     Выполняет AI обработку с использованием реальных ID из БД.
@@ -220,6 +237,24 @@ def process_tender_with_gemini_ids(
                 gemini_logger.info(f"💾 Результаты сохранены: {results_path}")
             except Exception as e:
                 gemini_logger.warning(f"⚠️ Не удалось сохранить результаты: {e}")
+
+            # НОВОЕ: Пересоздание MD отчетов с интеграцией AI данных
+            if successful > 0:
+                gemini_logger.info("🔄 Пересоздание MD отчетов с AI данными...")
+                try:
+                    from .markdown_utils.ai_enhanced_reports import regenerate_reports_with_ai_data
+
+                    md_success = regenerate_reports_with_ai_data(
+                        tender_data=tender_data, ai_results=results, db_id=tender_db_id, lot_ids_map=lot_ids_map
+                    )
+
+                    if md_success:
+                        gemini_logger.info("✅ MD отчеты с AI данными успешно созданы")
+                    else:
+                        gemini_logger.warning("⚠️ Не удалось создать MD отчеты с AI данными")
+
+                except Exception as e:
+                    gemini_logger.error(f"❌ Ошибка создания MD отчетов с AI: {e}")
 
             return successful > 0
 

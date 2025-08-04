@@ -64,7 +64,7 @@ def _safe_float(val: Any) -> float:
 
 
 def generate_markdown_for_lots(
-    data: Dict[str, Any],
+    data: Dict[str, Any], ai_results: Optional[List[Dict]] = None, lot_ids_map: Optional[Dict[str, int]] = None
 ) -> Tuple[Dict[str, List[str]], Dict[str, Optional[str]]]:
     """
     Преобразует JSON-объект в отдельные Markdown-документы для каждого лота.
@@ -72,6 +72,11 @@ def generate_markdown_for_lots(
     Функция генерирует общую "шапку" с информацией о тендере и исполнителе,
     а затем для каждого лота в исходных данных создает свой список строк
     Markdown, добавляя в начало эту общую шапку.
+
+    Args:
+        data: JSON данные тендера
+        ai_results: Результаты AI обработки (опционально)
+        lot_ids_map: Маппинг лотов к их реальным ID (опционально)
     """
     # --- 1. Генерация общей "шапки" и метаданных (информация о тендере и исполнителе) ---
     header_md_lines: List[str] = []
@@ -126,6 +131,36 @@ def generate_markdown_for_lots(
 
         lot_title_s = sanitize_text(lot_data_dict.get(JSON_KEY_LOT_TITLE, "Лот без названия"))
         lot_specific_md_lines.append(f"\n---\n\n## {sanitize_text(lot_key_str).upper()}: {lot_title_s}\n")
+
+        # --- AI СЕКЦИЯ ---
+        if ai_results and lot_ids_map:
+            real_lot_id = lot_ids_map.get(lot_key_str)
+            if real_lot_id:
+                # Ищем AI результат для этого лота
+                ai_by_lot_id = {str(result.get("lot_id")): result for result in ai_results}
+                lot_ai_result = ai_by_lot_id.get(str(real_lot_id))
+
+                if lot_ai_result:
+                    lot_specific_md_lines.append("### 🤖 AI Анализ документа\n")
+
+                    # Категория и дата обработки
+                    category = lot_ai_result.get("category", "Не определена")
+                    processed_at = lot_ai_result.get("processed_at", "")
+                    lot_specific_md_lines.append(f"**Категория:** {category}  ")
+                    if processed_at:
+                        lot_specific_md_lines.append(f"**Обработано:** {processed_at}\n")
+
+                    # RAW JSON данные - ищем в правильном поле
+                    extraction_data = lot_ai_result.get("extraction_data") or lot_ai_result.get("ai_data")
+                    if extraction_data:
+                        lot_specific_md_lines.append("#### 📊 Извлеченные технические данные:\n")
+                        lot_specific_md_lines.append("```json")
+                        import json
+
+                        lot_specific_md_lines.append(json.dumps(extraction_data, ensure_ascii=False, indent=2))
+                        lot_specific_md_lines.append("```\n")
+                    else:
+                        lot_specific_md_lines.append("*AI данные не найдены или не обработаны*\n")
 
         # -- 3.1 Расчетная стоимость (Baseline Proposal) --
         baseline_prop = lot_data_dict.get(JSON_KEY_BASELINE_PROPOSAL, {})
