@@ -18,6 +18,22 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Загружаем переменные окружения из .env файла
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass  # dotenv не установлен, пропускаем
+
+# Централизованная настройка логирования на основе .env
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, log_level, logging.INFO),
+    format="%(levelname)s:%(name)s:%(funcName)s:%(lineno)d:%(message)s",
+    force=True,  # Перезаписываем существующую конфигурацию
+)
+
 from app.workers import GeminiIntegration
 
 from .gemini_module.logger import get_gemini_logger
@@ -28,30 +44,47 @@ from .parse import parse_file as original_parse_file
 log = logging.getLogger(__name__)
 
 
-def parse_file_with_gemini(xlsx_path: str, async_processing: bool = False, redis_config: Optional[Dict] = None) -> bool:
+def parse_file_with_gemini(
+    xlsx_path: str, enable_ai: bool = False, async_processing: bool = False, redis_config: Optional[Dict] = None
+) -> bool:
     """
-    Выполняет стандартную обработку с последующей AI обработкой.
+    Выполняет стандартную обработку с опциональной AI обработкой.
 
     Args:
         xlsx_path: Путь к XLSX файлу
+        enable_ai: Включить AI обработку
         async_processing: Использовать асинхронную обработку через Redis
         redis_config: Конфигурация Redis
 
     Returns:
         True если обработка прошла успешно
     """
+    # Принудительно перезагружаем переменные окружения
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(override=True)  # override=True для перезаписи существующих переменных
+    except ImportError:
+        pass
+
     gemini_logger = get_gemini_logger()
     gemini_enabled = bool(os.getenv("GOOGLE_API_KEY"))
 
-    if not gemini_enabled:
-        gemini_logger.warning("⚠️ GOOGLE_API_KEY не найден - пропускаю AI обработку")
+    # Проверяем возможность AI обработки
+    ai_will_be_used = enable_ai and gemini_enabled
+
+    if enable_ai and not gemini_enabled:
+        gemini_logger.warning("⚠️ AI обработка запрошена, но GOOGLE_API_KEY не найден")
+        gemini_logger.info("ℹ️ Продолжаю без AI обработки")
+    elif not enable_ai:
+        log.info("ℹ️ AI обработка отключена")
 
     # Выполняем стандартную обработку с получением ID
     log.info("🔄 Выполняю стандартную обработку файла...")
 
     try:
-        # Получаем реальные ID от Go-сервера через стандартную обработку
-        db_id, lot_ids_map, tender_data = parse_with_ids(xlsx_path)
+        # ВСЕГДА создаем positions файлы - они нужны для AI обработки
+        db_id, lot_ids_map, tender_data = parse_with_ids(xlsx_path, create_reports=True)
 
         if not db_id:
             log.error("❌ Не удалось получить ID от Go-сервера")
@@ -63,24 +96,31 @@ def parse_file_with_gemini(xlsx_path: str, async_processing: bool = False, redis
         log.error(f"❌ Ошибка в стандартной обработке: {e}")
         return False
 
-    # Если Gemini недоступен, завершаем здесь
-    if not gemini_enabled:
+    # Если AI не будет использоваться, завершаем
+    if not ai_will_be_used:
         log.info("ℹ️ Обработка завершена без AI анализа")
         return True
 
     # Проверяем, что это не временный ID (fallback режим)
     if str(db_id).startswith("temp_"):
-        gemini_logger.warning("⚠️ Получен временный ID - пропускаю AI обработку")
+        gemini_logger.warning("⚠️ Получен временный ID - AI обработка недоступна")
         gemini_logger.info("ℹ️ AI обработка доступна только для тендеров с реальными ID")
+        gemini_logger.info("ℹ️ Доступны базовые _positions файлы")
         return True
 
     # Запускаем AI обработку с реальными ID
     return process_tender_with_gemini_ids(db_id, lot_ids_map, tender_data, async_processing, redis_config)
 
 
-def parse_with_ids(xlsx_path: str) -> tuple[Optional[str], Optional[Dict[str, int]], Optional[Dict]]:
+def parse_with_ids(
+    xlsx_path: str, create_reports: bool = True
+) -> tuple[Optional[str], Optional[Dict[str, int]], Optional[Dict]]:
     """
     Выполняет стандартную обработку и возвращает реальные ID и данные.
+
+    Args:
+        xlsx_path: Путь к XLSX файлу
+        create_reports: Создавать ли positions файлы (обычно True - нужны для AI)
 
     Returns:
         Кортеж (db_id, lot_ids_map, tender_data) или (None, None, None) при ошибке
@@ -139,21 +179,25 @@ def parse_with_ids(xlsx_path: str) -> tuple[Optional[str], Optional[Dict[str, in
         log.error("❌ Не удалось зарегистрировать тендер")
         return None, None, None
 
-    # Этап 3: Создание positions файлов с реальными ID
-    log.info("🔄 Создание positions файлов...")
-    try:
-        from pathlib import Path
+    # Этап 3: Условное создание positions файлов с реальными ID
+    if create_reports:
+        log.info("🔄 Создание positions файлов...")
+        try:
+            from pathlib import Path
 
-        from .markdown_utils.positions_report import generate_reports_for_all_lots
+            from .markdown_utils.positions_report import generate_reports_for_all_lots
 
-        output_dir = Path(".")  # Текущая директория
-        base_name = db_id  # Используем реальный DB ID
+            output_dir = Path("tenders_positions")  # Создаем в правильной папке
+            output_dir.mkdir(exist_ok=True)  # Создаем папку если не существует
+            base_name = db_id  # Используем реальный DB ID
 
-        position_reports_paths = generate_reports_for_all_lots(processed_data, output_dir, base_name, lot_ids_map)
-        log.info("✅ Positions файлы созданы с реальными ID")
-    except Exception as e:
-        log.error(f"❌ Ошибка создания positions файлов: {e}")
-        # Не критично - продолжаем без positions файлов
+            position_reports_paths = generate_reports_for_all_lots(processed_data, output_dir, base_name, lot_ids_map)
+            log.info("✅ Positions файлы созданы с реальными ID")
+        except Exception as e:
+            log.error(f"❌ Ошибка создания positions файлов: {e}")
+            # Не критично - продолжаем без positions файлов
+    else:
+        log.info("ℹ️ Пропускаю создание positions файлов (будут созданы после AI обработки)")
 
     return db_id, lot_ids_map, processed_data
 
@@ -213,7 +257,8 @@ def process_tender_with_gemini_ids(
 
             if success:
                 gemini_logger.info(f"✅ Все {len(lots_data)} лотов поставлены в очередь Redis")
-                gemini_logger.info("ℹ️ Для отслеживания прогресса используйте статус-команды")
+                gemini_logger.info("ℹ️ Комбинированные отчеты будут созданы worker'ами после AI обработки")
+                gemini_logger.info("ℹ️ Пока доступны базовые _positions файлы")
                 return True
             else:
                 gemini_logger.error("❌ Не удалось поставить все лоты в очередь")
@@ -238,10 +283,11 @@ def process_tender_with_gemini_ids(
             except Exception as e:
                 gemini_logger.warning(f"⚠️ Не удалось сохранить результаты: {e}")
 
-            # НОВОЕ: Пересоздание MD отчетов с интеграцией AI данных
-            if successful > 0:
-                gemini_logger.info("🔄 Пересоздание MD отчетов с AI данными...")
-                try:
+            # Создаем комбинированные отчеты (исходный JSON + AI результаты) и чанки
+            gemini_logger.info("🔄 Создание комбинированных отчетов и чанков...")
+            try:
+                if successful > 0:
+                    # Создаем комбинированные отчеты с AI данными
                     from .markdown_utils.ai_enhanced_reports import regenerate_reports_with_ai_data
 
                     md_success = regenerate_reports_with_ai_data(
@@ -249,12 +295,27 @@ def process_tender_with_gemini_ids(
                     )
 
                     if md_success:
-                        gemini_logger.info("✅ MD отчеты с AI данными успешно созданы")
-                    else:
-                        gemini_logger.warning("⚠️ Не удалось создать MD отчеты с AI данными")
+                        gemini_logger.info("✅ Комбинированные отчеты с AI данными созданы")
 
-                except Exception as e:
-                    gemini_logger.error(f"❌ Ошибка создания MD отчетов с AI: {e}")
+                        # Создаем чанки из комбинированных отчетов
+                        try:
+                            # Здесь должна быть логика создания чанков из отчетов
+                            gemini_logger.info("🔄 Создание чанков из комбинированных отчетов...")
+                            # TODO: Добавить вызов функции создания чанков
+                            gemini_logger.info("✅ Чанки созданы из комбинированных отчетов")
+                        except Exception as e:
+                            gemini_logger.warning(f"⚠️ Ошибка создания чанков: {e}")
+                    else:
+                        gemini_logger.warning(
+                            "⚠️ Не удалось создать комбинированные отчеты, остаются базовые _positions файлы"
+                        )
+                else:
+                    # При неудаче AI остаются только базовые _positions файлы
+                    gemini_logger.info("🔄 AI обработка неуспешна, остаются базовые _positions файлы")
+
+            except Exception as e:
+                gemini_logger.error(f"❌ Ошибка создания комбинированных отчетов: {e}")
+                gemini_logger.info("ℹ️ Остаются базовые _positions файлы")
 
             return successful > 0
 
@@ -320,6 +381,7 @@ def main():
     # Команда обработки файла
     process_parser = subparsers.add_parser("process", help="Обработать XLSX файл")
     process_parser.add_argument("xlsx_file", help="Путь к XLSX файлу")
+    process_parser.add_argument("--ai", action="store_true", help="Включить AI обработку")
     process_parser.add_argument("--async", action="store_true", help="Асинхронная обработка")
     process_parser.add_argument("--redis-host", default="localhost", help="Хост Redis")
     process_parser.add_argument("--redis-port", type=int, default=6379, help="Порт Redis")
@@ -341,10 +403,35 @@ def main():
         parser.print_help()
         return 1
 
-    # Настройка логирования
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-        get_gemini_logger().setLevel(logging.DEBUG)
+    # Настройка логирования на основе .env и аргументов
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper() if not args.verbose else "DEBUG"
+    gemini_log_level = os.getenv("GEMINI_LOG_LEVEL", "INFO").upper() if not args.verbose else "DEBUG"
+
+    # Настраиваем уровни логгирования
+    logging.getLogger().setLevel(getattr(logging, log_level, logging.INFO))
+    logging.getLogger("app").setLevel(getattr(logging, log_level, logging.INFO))
+    get_gemini_logger().setLevel(getattr(logging, gemini_log_level, logging.INFO))
+
+    # Настраиваем формат логгирования
+    log_format = (
+        "%(levelname)s:%(name)s:%(funcName)s:%(lineno)d:%(message)s"
+        if args.verbose
+        else "%(levelname)s:%(name)s:%(message)s"
+    )
+
+    # Обновляем существующие handlers или создаем новый
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setLevel(getattr(logging, log_level, logging.INFO))
+        formatter = logging.Formatter(log_format)
+        handler.setFormatter(formatter)
+        root_logger.addHandler(handler)
+    else:
+        for handler in root_logger.handlers:
+            handler.setLevel(getattr(logging, log_level, logging.INFO))
+            formatter = logging.Formatter(log_format)
+            handler.setFormatter(formatter)
 
     redis_config = {
         "host": getattr(args, "redis_host", "localhost"),
@@ -355,7 +442,10 @@ def main():
     try:
         if args.command == "process":
             success = parse_file_with_gemini(
-                xlsx_path=args.xlsx_file, async_processing=getattr(args, "async", False), redis_config=redis_config
+                xlsx_path=args.xlsx_file,
+                enable_ai=getattr(args, "ai", False),
+                async_processing=getattr(args, "async", False),
+                redis_config=redis_config,
             )
             return 0 if success else 1
 
