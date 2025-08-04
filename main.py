@@ -1,11 +1,12 @@
 """Основной модуль веб-сервиса для обработки тендерных файлов.
 
 Этот модуль запускает FastAPI приложение и определяет следующие API эндпоинты:
-- POST /parse-tender/: Принимает XLSX файл, создает фоновую задачу для его
-  парсинга и немедленно возвращает ID задачи.
+- POST /parse-tender/: Принимает XLSX файл и параметр enable_ai для включения AI обработки,
+  создает фоновую задачу для парсинга и немедленно возвращает ID задачи.
 - GET /tasks/{task_id}/status: Позволяет отслеживать статус выполнения
   фоновой задачи (processing, completed, failed).
 - GET /health: Проверяет работоспособность сервиса.
+- POST /process-positions/: Запускает AI обработку для отдельного файла позиций через Celery.
 
 Для управления фоновыми задачами используется встроенный механизм FastAPI.
 Статусы задач хранятся в Redis для обеспечения надежности и масштабируемости.
@@ -84,46 +85,64 @@ UPLOAD_DIRECTORY = Path("temp_uploads")
 os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
 
 
-def run_parsing_in_background(task_id: str, file_path: str):
+def run_parsing_in_background(task_id: str, file_path: str, enable_ai: bool = False):
     """
-    Выполняет парсинг в фоновом режиме и обновляет статус задачи в Redis.
+    Выполняет парсинг в фоновом режиме с опциональным AI анализом.
 
     Args:
         task_id (str): Уникальный идентификатор задачи.
         file_path (str): Путь к временному файлу для обработки.
+        enable_ai (bool): Включить AI обработку.
     """
-    log.info(f"Task {task_id}: Обработка файла {file_path} началась в фоне.")
+    ai_mode = "с AI" if enable_ai else "без AI"
+    log.info(f"Task {task_id}: Обработка файла {file_path} {ai_mode} началась в фоне.")
 
     status_key = f"task_status:{task_id}"
 
-    # Устанавливаем статус "в обработке" и время жизни ключа (например, 1 час)
-    status_processing = json.dumps({"status": "processing"})
+    # Устанавливаем статус "в обработке"
+    status_processing = json.dumps({"status": "processing", "enable_ai": enable_ai, "stage": "parsing"})
     redis_client.set(status_key, status_processing, ex=3600)
 
     try:
-        # Используем новый парсер с Gemini интеграцией
-        success = parse_file_with_gemini(file_path, async_processing=False)
+        # Используем единый парсер с правильными параметрами
+        success = parse_file_with_gemini(file_path, enable_ai=enable_ai, async_processing=False)
 
         if success:
-            status_completed = json.dumps({"status": "completed", "with_ai": True})
+            status_completed = json.dumps(
+                {"status": "completed", "enable_ai": enable_ai, "with_ai": enable_ai, "stage": "completed"}
+            )
             redis_client.set(status_key, status_completed, ex=3600)
-            log.info(f"Task {task_id}: Обработка с AI успешно завершена.")
+            log.info(f"Task {task_id}: Обработка {ai_mode} успешно завершена.")
         else:
-            status_completed = json.dumps({"status": "completed_with_errors", "with_ai": True})
+            status_completed = json.dumps(
+                {
+                    "status": "completed_with_errors",
+                    "enable_ai": enable_ai,
+                    "with_ai": enable_ai,
+                    "stage": "completed_with_errors",
+                }
+            )
             redis_client.set(status_key, status_completed, ex=3600)
-            log.warning(f"Task {task_id}: Обработка завершена с ошибками AI.")
+            log.warning(f"Task {task_id}: Обработка {ai_mode} завершена с ошибками.")
 
     except Exception as e:
         log.error(f"Task {task_id}: Произошла ошибка - {e}", exc_info=True)
-        status_failed = json.dumps({"status": "failed", "error": str(e)})
+        status_failed = json.dumps({"status": "failed", "error": str(e), "enable_ai": enable_ai, "stage": "failed"})
         redis_client.set(status_key, status_failed, ex=3600)
 
 
 @app.post("/parse-tender/", status_code=202, tags=["Tender Processing"])
-async def create_parsing_task(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def create_parsing_task(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    enable_ai: bool = True,  # 👈 ИЗМЕНЕНО: по умолчанию включен AI
+):
     """
-    Принимает файл, создает для него уникальную задачу и запускает
-    обработку в фоновом режиме, немедленно возвращая ID задачи.
+    Принимает файл и выполняет обработку с опциональным AI анализом.
+
+    Args:
+        file: XLSX/XLS файл для обработки
+        enable_ai: Включить AI обработку (по умолчанию False)
     """
     if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(
@@ -133,7 +152,9 @@ async def create_parsing_task(background_tasks: BackgroundTasks, file: UploadFil
 
     task_id = str(uuid.uuid4())
     temp_file_path = UPLOAD_DIRECTORY / f"{task_id}_{file.filename}"
-    log.info(f"Task {task_id}: Получен файл {file.filename}. Сохранение в: {temp_file_path}")
+
+    ai_mode = "с AI" if enable_ai else "без AI"
+    log.info(f"Task {task_id}: Получен файл {file.filename} для обработки {ai_mode}")
 
     try:
         with open(temp_file_path, "wb") as buffer:
@@ -144,10 +165,15 @@ async def create_parsing_task(background_tasks: BackgroundTasks, file: UploadFil
     finally:
         file.file.close()
 
-    # Добавляем задачу в фоновое выполнение
-    background_tasks.add_task(run_parsing_in_background, task_id, str(temp_file_path))
+    # Добавляем задачу в фоновое выполнение с параметром AI
+    background_tasks.add_task(run_parsing_in_background, task_id, str(temp_file_path), enable_ai)
 
-    return {"task_id": task_id, "message": "Задача по обработке файла принята."}
+    return {
+        "task_id": task_id,
+        "message": f"Задача по обработке файла принята ({ai_mode})",
+        "enable_ai": enable_ai,
+        "filename": file.filename,
+    }
 
 
 @app.get("/tasks/{task_id}/status", tags=["Task Status"])
@@ -170,91 +196,6 @@ async def health_check():
     return {"status": "ok"}
 
 
-@app.post("/parse-tender-ai/", status_code=202, tags=["AI Processing"])
-async def create_ai_parsing_task(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    """
-    Принимает файл и выполняет полную обработку: парсинг + AI анализ.
-    Использует parse_with_gemini для интегрированной обработки.
-    """
-    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
-        raise HTTPException(
-            status_code=400,
-            detail="Неверный формат файла. Пожалуйста, загрузите XLSX или XLS файл.",
-        )
-
-    task_id = str(uuid.uuid4())
-    temp_file_path = UPLOAD_DIRECTORY / f"{task_id}_{file.filename}"
-    log.info(f"AI Task {task_id}: Получен файл {file.filename} для полной AI обработки")
-
-    try:
-        # Сохраняем файл
-        with open(temp_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        # Запускаем интегрированную обработку с AI в фоне
-        background_tasks.add_task(run_ai_parsing_in_background, task_id, str(temp_file_path))
-
-        return {
-            "task_id": task_id,
-            "message": "AI обработка запущена (интегрированный режим)",
-            "filename": file.filename,
-            "mode": "integrated_ai",
-        }
-
-    except Exception as e:
-        log.error(f"AI Task {task_id}: Не удалось сохранить файл: {e}")
-        raise HTTPException(status_code=500, detail="Не удалось сохранить файл на сервере.")
-    finally:
-        file.file.close()
-
-
-def run_ai_parsing_in_background(task_id: str, file_path: str):
-    """
-    Выполняет полную AI обработку в фоновом режиме используя parse_with_gemini.
-    """
-    log.info(f"AI Task {task_id}: Начинаю интегрированную AI обработку файла {file_path}")
-
-    status_key = f"task_status:{task_id}"
-    status_processing = json.dumps({"status": "processing", "stage": "integrated_ai", "progress": 0})
-    redis_client.set(status_key, status_processing, ex=3600)
-
-    try:
-        # Используем parse_with_gemini с синхронной AI обработкой
-        success = parse_file_with_gemini(file_path, async_processing=False)
-
-        if success:
-            status_completed = json.dumps(
-                {
-                    "status": "completed",
-                    "stage": "ai_integration_done",
-                    "progress": 100,
-                    "mode": "integrated",
-                    "with_ai": True,
-                }
-            )
-            redis_client.set(status_key, status_completed, ex=3600)
-            log.info(f"AI Task {task_id}: Интегрированная AI обработка успешно завершена")
-        else:
-            status_completed = json.dumps(
-                {
-                    "status": "completed_with_errors",
-                    "stage": "ai_integration_partial",
-                    "progress": 100,
-                    "mode": "integrated",
-                    "with_ai": True,
-                }
-            )
-            redis_client.set(status_key, status_completed, ex=3600)
-            log.warning(f"AI Task {task_id}: AI обработка завершена с частичными ошибками")
-
-    except Exception as e:
-        log.error(f"AI Task {task_id}: Ошибка интегрированной AI обработки: {e}", exc_info=True)
-        status_failed = json.dumps(
-            {"status": "failed", "error": str(e), "stage": "ai_integration_failed", "mode": "integrated"}
-        )
-        redis_client.set(status_key, status_failed, ex=3600)
-
-
 @app.post("/process-positions/", status_code=202, tags=["AI Processing"])
 async def process_single_positions_file(tender_id: str, lot_id: str, positions_file_path: str):
     """
@@ -264,8 +205,13 @@ async def process_single_positions_file(tender_id: str, lot_id: str, positions_f
     if not Path(positions_file_path).exists():
         raise HTTPException(status_code=404, detail="Файл позиций не найден")
 
+    # Получаем API ключ из окружения
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GOOGLE_API_KEY не настроен")
+
     # Запускаем задачу через Celery
-    celery_task = process_tender_positions.delay(tender_id, lot_id, positions_file_path)
+    celery_task = process_tender_positions.delay(tender_id, lot_id, positions_file_path, api_key)
 
     log.info(f"Запущена AI обработка для {tender_id}_{lot_id}, Celery task: {celery_task.id}")
 
