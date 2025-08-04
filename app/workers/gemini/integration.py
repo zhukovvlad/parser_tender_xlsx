@@ -174,3 +174,61 @@ class GeminiIntegration:
             return client
         except Exception:
             return None
+
+    def create_positions_file_data(
+        self, tender_db_id: str, tender_data: Dict, lot_ids_map: Dict[str, int]
+    ) -> List[Dict]:
+        """
+        Создает структуру данных для AI обработки лотов на основе реальных ID из БД.
+
+        Args:
+            tender_db_id: Реальный ID тендера из БД
+            tender_data: Данные тендера из JSON
+            lot_ids_map: Маппинг "lot_1" -> реальный_lot_db_id
+
+        Returns:
+            Список словарей с данными лотов для AI обработки
+        """
+        lots_data = []
+
+        # Извлекаем лоты из tender_data
+        lots = tender_data.get("lots", {})
+
+        for lot_key, lot_data in lots.items():
+            # Получаем реальный ID лота из маппинга
+            real_lot_id = lot_ids_map.get(lot_key)
+
+            if not real_lot_id:
+                self.logger.warning(f"⚠️ Не найден реальный ID для лота {lot_key}")
+                continue
+
+            # Формируем возможные пути к файлу positions
+            # Сначала ищем в финальной директории, потом в pending
+            positions_paths = [
+                Path("tenders_positions") / f"{tender_db_id}_{real_lot_id}_positions.md",
+                Path("pending_sync_positions") / f"{tender_db_id}_{real_lot_id}_positions.md",
+            ]
+
+            positions_file_path = None
+            for path in positions_paths:
+                if path.exists():
+                    positions_file_path = path
+                    break
+
+            if not positions_file_path:
+                self.logger.warning(
+                    f"⚠️ Файл positions не найден для лота {real_lot_id}. Проверены пути: {[str(p) for p in positions_paths]}"
+                )
+                continue
+
+            lots_data.append(
+                {
+                    "lot_id": str(real_lot_id),
+                    "positions_file_path": str(positions_file_path),
+                    "lot_key": lot_key,  # Для отладки
+                    "lot_title": lot_data.get("lot_title", ""),
+                }
+            )
+
+        self.logger.info(f"📋 Подготовлено {len(lots_data)} лотов для AI обработки")
+        return lots_data

@@ -30,31 +30,35 @@ log = logging.getLogger(__name__)
 
 def parse_file_with_gemini(xlsx_path: str, async_processing: bool = False, redis_config: Optional[Dict] = None) -> bool:
     """
-    Расширенная версия parse_file с интеграцией Gemini AI.
+    Выполняет стандартную обработку с последующей AI обработкой.
 
     Args:
         xlsx_path: Путь к XLSX файлу
         async_processing: Использовать асинхронную обработку через Redis
-        redis_config: Конфигурация Redis {host, port, db}
+        redis_config: Конфигурация Redis
 
     Returns:
         True если обработка прошла успешно
     """
     gemini_logger = get_gemini_logger()
-
-    # Проверяем доступность Gemini API
-    api_key = os.getenv("GOOGLE_API_KEY")
-    gemini_enabled = bool(api_key)
+    gemini_enabled = bool(os.getenv("GOOGLE_API_KEY"))
 
     if not gemini_enabled:
         gemini_logger.warning("⚠️ GOOGLE_API_KEY не найден - пропускаю AI обработку")
 
-    # Выполняем стандартную обработку parse.py
+    # Выполняем стандартную обработку с получением ID
     log.info("🔄 Выполняю стандартную обработку файла...")
 
     try:
-        original_parse_file(xlsx_path)
-        log.info("✅ Стандартная обработка завершена успешно")
+        # Получаем реальные ID от Go-сервера через стандартную обработку
+        db_id, lot_ids_map, tender_data = parse_with_ids(xlsx_path)
+        
+        if not db_id:
+            log.error("❌ Не удалось получить ID от Go-сервера")
+            return False
+
+        log.info(f"✅ Стандартная обработка завершена. Tender DB ID: {db_id}")
+        log.info(f"📋 Получены ID лотов: {lot_ids_map}")
     except Exception as e:
         log.error(f"❌ Ошибка в стандартной обработке: {e}")
         return False
@@ -64,33 +68,93 @@ def parse_file_with_gemini(xlsx_path: str, async_processing: bool = False, redis
         log.info("ℹ️ Обработка завершена без AI анализа")
         return True
 
-    # Определяем пути к сгенерированным файлам
-    source_path = Path(xlsx_path).resolve()
-    output_dir = source_path.parent
+    # Проверяем, что это не временный ID (fallback режим)
+    if str(db_id).startswith("temp_"):
+        gemini_logger.warning("⚠️ Получен временный ID - пропускаю AI обработку")
+        gemini_logger.info("ℹ️ AI обработка доступна только для тендеров с реальными ID")
+        return True
 
-    # Ищем сгенерированный JSON файл
-    json_files = list(output_dir.glob("*.json"))
-    if not json_files:
-        log.error("❌ Не найден JSON файл после стандартной обработки")
-        return False
+    # Запускаем AI обработку с реальными ID
+    return process_tender_with_gemini_ids(db_id, lot_ids_map, tender_data, async_processing, redis_config)
 
-    # Берем последний созданный JSON (предполагаем, что это наш тендер)
-    tender_json_path = max(json_files, key=lambda p: p.stat().st_mtime)
 
-    # Выполняем AI обработку
-    return process_tender_with_gemini(
-        tender_json_path=tender_json_path, async_processing=async_processing, redis_config=redis_config
+def parse_with_ids(xlsx_path: str) -> tuple[Optional[str], Optional[Dict[str, int]], Optional[Dict]]:
+    """
+    Выполняет стандартную обработку и возвращает реальные ID и данные.
+
+    Returns:
+        Кортеж (db_id, lot_ids_map, tender_data) или (None, None, None) при ошибке
+    """
+    from pathlib import Path
+    import json
+    import os
+    import openpyxl
+    from openpyxl.worksheet.worksheet import Worksheet
+    
+    from .excel_parser.read_headers import read_headers
+    from .excel_parser.read_executer_block import read_executer_block
+    from .excel_parser.read_lots_and_boundaries import read_lots_and_boundaries
+    from .excel_parser.postprocess import normalize_lots_json_structure, replace_div0_with_null
+    from .json_to_server.send_json_to_go_server import register_tender_in_go
+
+    source_path = Path(xlsx_path)
+    if not source_path.exists():
+        log.error(f"Файл не найден: {xlsx_path}")
+        return None, None, None
+
+    # Этап 1: Парсинг XLSX
+    log.info("🔄 Парсинг XLSX файла...")
+    try:
+        wb = openpyxl.load_workbook(source_path, data_only=True)
+        ws: Worksheet = wb.active
+
+        processed_data: Dict[str, Any] = {
+            **read_headers(ws),
+            "executor": read_executer_block(ws),
+            "lots": read_lots_and_boundaries(ws),
+        }
+        processed_data = normalize_lots_json_structure(processed_data)
+        processed_data = replace_div0_with_null(processed_data)
+        log.info("✅ XLSX файл успешно разобран")
+    except Exception as e:
+        log.error(f"❌ Ошибка парсинга XLSX: {e}")
+        return None, None, None
+
+    # Этап 2: Регистрация на Go-сервере
+    log.info("🔄 Регистрация тендера на Go-сервере...")
+    go_server_url = os.getenv("GO_SERVER_API_ENDPOINT")
+    fallback_mode = os.getenv("PARSER_FALLBACK_MODE", "false").lower() == "true"
+    go_server_api_key = os.getenv("GO_SERVER_API_KEY")
+
+    if not go_server_url:
+        log.error("❌ GO_SERVER_API_ENDPOINT не настроен")
+        return None, None, None
+
+    success, db_id, lot_ids_map = register_tender_in_go(
+        processed_data, go_server_url, go_server_api_key, fallback_mode=fallback_mode
     )
 
+    if not success:
+        log.error("❌ Не удалось зарегистрировать тендер")
+        return None, None, None
 
-def process_tender_with_gemini(
-    tender_json_path: Path, async_processing: bool = False, redis_config: Optional[Dict] = None
+    return db_id, lot_ids_map, processed_data
+
+
+def process_tender_with_gemini_ids(
+    tender_db_id: str, 
+    lot_ids_map: Dict[str, int], 
+    tender_data: Dict, 
+    async_processing: bool = False, 
+    redis_config: Optional[Dict] = None
 ) -> bool:
     """
-    Обрабатывает тендер с использованием Gemini AI.
+    Выполняет AI обработку с использованием реальных ID из БД.
 
     Args:
-        tender_json_path: Путь к JSON файлу тендера
+        tender_db_id: Реальный ID тендера из БД
+        lot_ids_map: Маппинг лотов к их реальным ID
+        tender_data: Данные тендера
         async_processing: Использовать асинхронную обработку
         redis_config: Конфигурация Redis
 
@@ -98,15 +162,9 @@ def process_tender_with_gemini(
         True если обработка прошла успешно
     """
     gemini_logger = get_gemini_logger()
+    gemini_logger.info(f"🧠 Начинаю AI обработку тендера {tender_db_id}")
 
     try:
-        # Загружаем данные тендера
-        with open(tender_json_path, "r", encoding="utf-8") as f:
-            tender_data = json.load(f)
-
-        tender_id = extract_tender_id(tender_json_path, tender_data)
-        gemini_logger.info(f"🧠 Начинаю AI обработку тендера {tender_id}")
-
         # Настраиваем интеграцию
         redis_client = None
         if async_processing:
@@ -123,18 +181,18 @@ def process_tender_with_gemini(
 
         integration = GeminiIntegration(redis_client=redis_client)
 
-        # Создаем данные для positions файлов
-        lots_data = integration.create_positions_file_data(tender_id, tender_data)
+        # Создаем данные для positions файлов с реальными ID
+        lots_data = integration.create_positions_file_data(tender_db_id, tender_data, lot_ids_map)
 
         if not lots_data:
             gemini_logger.warning("⚠️ Не найдены данные лотов для AI обработки")
             return True
 
-        gemini_logger.info(f"📊 Найдено {len(lots_data)} лотов для обработки")
+        gemini_logger.info(f"� Найдено {len(lots_data)} лотов для обработки")
 
         if async_processing:
             # Асинхронная обработка через Redis
-            success = integration.queue_tender_lots_async(tender_id, lots_data)
+            success = integration.queue_tender_lots_async(tender_db_id, lots_data)
 
             if success:
                 gemini_logger.info(f"✅ Все {len(lots_data)} лотов поставлены в очередь Redis")
@@ -146,22 +204,24 @@ def process_tender_with_gemini(
         else:
             # Синхронная обработка
             gemini_logger.info("🔄 Выполняю синхронную AI обработку...")
-            results = integration.process_tender_lots_sync(tender_id, lots_data)
+            results = integration.process_tender_lots_sync(tender_db_id, lots_data)
 
             # Анализируем результаты
-            successful = sum(1 for r in results if r.get("status") == "completed")
-            failed = len(results) - successful
+            successful = sum(1 for r in results if r.get("status") == "success")
+            failed = sum(1 for r in results if r.get("status") == "error")
 
             gemini_logger.info(f"📈 AI обработка завершена: {successful} успешно, {failed} ошибок")
 
             # Сохраняем результаты AI обработки
-            results_path = tender_json_path.parent / f"{tender_id}_gemini_results.json"
-            with open(results_path, "w", encoding="utf-8") as f:
-                json.dump(results, f, ensure_ascii=False, indent=2)
+            results_path = Path("tenders_json") / f"{tender_db_id}_gemini_results.json"
+            try:
+                with open(results_path, "w", encoding="utf-8") as f:
+                    json.dump(results, f, ensure_ascii=False, indent=2)
+                gemini_logger.info(f"💾 Результаты сохранены: {results_path}")
+            except Exception as e:
+                gemini_logger.warning(f"⚠️ Не удалось сохранить результаты: {e}")
 
-            gemini_logger.info(f"💾 Результаты AI обработки сохранены: {results_path.name}")
-
-            return failed == 0
+            return successful > 0
 
     except Exception as e:
         gemini_logger.error(f"❌ Ошибка в AI обработке: {e}")

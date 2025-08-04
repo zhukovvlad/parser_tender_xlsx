@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 
 from app.celery_app import celery_app
-from app.parse import parse_file
+from app.parse_with_gemini import parse_file_with_gemini
 from app.workers.gemini.tasks import process_tender_batch, process_tender_positions
 
 # --- ЦЕНТРАЛИЗОВАННАЯ НАСТРОЙКА ПРИЛОЖЕНИЯ ---
@@ -101,10 +101,18 @@ def run_parsing_in_background(task_id: str, file_path: str):
     redis_client.set(status_key, status_processing, ex=3600)
 
     try:
-        parse_file(file_path)
-        status_completed = json.dumps({"status": "completed"})
-        redis_client.set(status_key, status_completed, ex=3600)
-        log.info(f"Task {task_id}: Обработка успешно завершена.")
+        # Используем новый парсер с Gemini интеграцией
+        success = parse_file_with_gemini(file_path, async_processing=False)
+
+        if success:
+            status_completed = json.dumps({"status": "completed", "with_ai": True})
+            redis_client.set(status_key, status_completed, ex=3600)
+            log.info(f"Task {task_id}: Обработка с AI успешно завершена.")
+        else:
+            status_completed = json.dumps({"status": "completed_with_errors", "with_ai": True})
+            redis_client.set(status_key, status_completed, ex=3600)
+            log.warning(f"Task {task_id}: Обработка завершена с ошибками AI.")
+
     except Exception as e:
         log.error(f"Task {task_id}: Произошла ошибка - {e}", exc_info=True)
         status_failed = json.dumps({"status": "failed", "error": str(e)})
@@ -165,8 +173,8 @@ async def health_check():
 @app.post("/parse-tender-ai/", status_code=202, tags=["AI Processing"])
 async def create_ai_parsing_task(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """
-    Принимает файл, парсит его стандартным способом, а затем запускает
-    AI обработку через Celery для извлечения ключевых параметров.
+    Принимает файл и выполняет полную обработку: парсинг + AI анализ.
+    Использует parse_with_gemini для интегрированной обработки.
     """
     if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(
@@ -176,81 +184,82 @@ async def create_ai_parsing_task(background_tasks: BackgroundTasks, file: Upload
 
     task_id = str(uuid.uuid4())
     temp_file_path = UPLOAD_DIRECTORY / f"{task_id}_{file.filename}"
-    log.info(f"AI Task {task_id}: Получен файл {file.filename} для AI обработки")
+    log.info(f"AI Task {task_id}: Получен файл {file.filename} для полной AI обработки")
 
     try:
         # Сохраняем файл
         with open(temp_file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # Сначала выполняем стандартный парсинг
-        log.info(f"AI Task {task_id}: Запускаю стандартный парсинг")
-        parse_file(str(temp_file_path))
+        # Запускаем интегрированную обработку с AI в фоне
+        background_tasks.add_task(run_ai_parsing_in_background, task_id, str(temp_file_path))
 
-        # После парсинга ищем созданные файлы positions в директориях
-        lots_data = []
-
-        # Ищем в основных директориях
-        positions_dirs = [Path("tenders_positions"), Path("pending_sync_positions")]
-
-        positions_files = []
-        for pos_dir in positions_dirs:
-            if pos_dir.exists():
-                positions_files.extend(pos_dir.glob("*_positions.md"))
-
-        # Сортируем по времени создания (новые сначала)
-        positions_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-
-        # Берем недавно созданные файлы (в течение последних 30 секунд)
-        import time
-
-        current_time = time.time()
-        recent_files = [f for f in positions_files if current_time - f.stat().st_mtime < 30]
-
-        log.info(f"AI Task {task_id}: Найдено {len(recent_files)} недавно созданных файлов positions")
-
-        for positions_file in recent_files:
-            # Извлекаем lot_id из имени файла (например: temp_1754203333_5037_594277_positions.md)
-            stem = positions_file.stem  # без .md
-            if stem.endswith("_positions"):
-                lot_id = stem.replace("_positions", "").split("_")[-1]  # последняя часть
-                lots_data.append({"lot_id": lot_id, "positions_file_path": str(positions_file.absolute())})
-                log.info(f"AI Task {task_id}: Добавлен лот {lot_id} с файлом {positions_file.name}")
-
-            if lots_data:
-                # Получаем API ключ из окружения
-                api_key = os.getenv("GOOGLE_API_KEY")
-                if not api_key:
-                    raise Exception("GOOGLE_API_KEY не найден в переменных окружения")
-
-                # Запускаем AI обработку через Celery
-                log.info(f"AI Task {task_id}: Запускаю AI обработку для {len(lots_data)} лотов")
-                celery_task = process_tender_batch.delay(task_id, lots_data, api_key)
-
-                return {
-                    "task_id": task_id,
-                    "celery_task_id": celery_task.id,
-                    "message": f"Стандартный парсинг завершен. AI обработка запущена для {len(lots_data)} лотов.",
-                    "lots_count": len(lots_data),
-                }
-        else:
-            return {
-                "task_id": task_id,
-                "message": "Стандартный парсинг завершен, но не найдены файлы позиций для AI обработки.",
-                "lots_count": 0,
-            }
+        return {
+            "task_id": task_id,
+            "message": "AI обработка запущена (интегрированный режим)",
+            "filename": file.filename,
+            "mode": "integrated_ai",
+        }
 
     except Exception as e:
-        log.error(f"AI Task {task_id}: Ошибка: {e}")
-        raise HTTPException(status_code=500, detail=f"Ошибка при обработке файла: {str(e)}")
+        log.error(f"AI Task {task_id}: Не удалось сохранить файл: {e}")
+        raise HTTPException(status_code=500, detail="Не удалось сохранить файл на сервере.")
     finally:
         file.file.close()
+
+
+def run_ai_parsing_in_background(task_id: str, file_path: str):
+    """
+    Выполняет полную AI обработку в фоновом режиме используя parse_with_gemini.
+    """
+    log.info(f"AI Task {task_id}: Начинаю интегрированную AI обработку файла {file_path}")
+
+    status_key = f"task_status:{task_id}"
+    status_processing = json.dumps({"status": "processing", "stage": "integrated_ai", "progress": 0})
+    redis_client.set(status_key, status_processing, ex=3600)
+
+    try:
+        # Используем parse_with_gemini с синхронной AI обработкой
+        success = parse_file_with_gemini(file_path, async_processing=False)
+
+        if success:
+            status_completed = json.dumps(
+                {
+                    "status": "completed",
+                    "stage": "ai_integration_done",
+                    "progress": 100,
+                    "mode": "integrated",
+                    "with_ai": True,
+                }
+            )
+            redis_client.set(status_key, status_completed, ex=3600)
+            log.info(f"AI Task {task_id}: Интегрированная AI обработка успешно завершена")
+        else:
+            status_completed = json.dumps(
+                {
+                    "status": "completed_with_errors",
+                    "stage": "ai_integration_partial",
+                    "progress": 100,
+                    "mode": "integrated",
+                    "with_ai": True,
+                }
+            )
+            redis_client.set(status_key, status_completed, ex=3600)
+            log.warning(f"AI Task {task_id}: AI обработка завершена с частичными ошибками")
+
+    except Exception as e:
+        log.error(f"AI Task {task_id}: Ошибка интегрированной AI обработки: {e}", exc_info=True)
+        status_failed = json.dumps(
+            {"status": "failed", "error": str(e), "stage": "ai_integration_failed", "mode": "integrated"}
+        )
+        redis_client.set(status_key, status_failed, ex=3600)
 
 
 @app.post("/process-positions/", status_code=202, tags=["AI Processing"])
 async def process_single_positions_file(tender_id: str, lot_id: str, positions_file_path: str):
     """
     Запускает AI обработку для отдельного файла позиций через Celery.
+    (Этот эндпоинт сохранен для обратной совместимости)
     """
     if not Path(positions_file_path).exists():
         raise HTTPException(status_code=404, detail="Файл позиций не найден")
