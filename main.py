@@ -22,7 +22,7 @@ from pathlib import Path
 
 import redis
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 
 from app.celery_app import celery_app
 from app.parse_with_gemini import parse_file_with_gemini
@@ -135,14 +135,14 @@ def run_parsing_in_background(task_id: str, file_path: str, enable_ai: bool = Fa
 async def create_parsing_task(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    enable_ai: bool = True,  # 👈 ИЗМЕНЕНО: по умолчанию включен AI
+    enable_ai: bool = Form(default=False, description="Включить AI обработку документа"),
 ):
     """
     Принимает файл и выполняет обработку с опциональным AI анализом.
 
     Args:
         file: XLSX/XLS файл для обработки
-        enable_ai: Включить AI обработку (по умолчанию False)
+        enable_ai: Включить AI обработку (получается из formdata, по умолчанию False)
     """
     if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(
