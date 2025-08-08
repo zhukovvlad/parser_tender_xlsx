@@ -41,7 +41,7 @@ celery_app.conf.update(
     # Маршрутизация задач - все в основную очередь celery
     task_routes={
         "app.workers.gemini.tasks.*": {"queue": "celery"},
-        "app.tasks.*": {"queue": "celery"},
+        "app.workers.parser.tasks.*": {"queue": "celery"},
     },
     # Мониторинг
     worker_send_task_events=True,
@@ -49,7 +49,7 @@ celery_app.conf.update(
 )
 
 # Автоматическое обнаружение задач
-celery_app.autodiscover_tasks(["app.workers.gemini"])
+celery_app.autodiscover_tasks(["app.workers.gemini", "app.workers.parser"])
 
 if __name__ == "__main__":
     celery_app.start()

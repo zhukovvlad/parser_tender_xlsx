@@ -135,7 +135,7 @@ worker-start:
 
 celery-worker:
 	@echo "🚀 Запускаю Celery воркер для AI обработки..."
-	.venv/bin/celery -A app.celery_app worker --loglevel=INFO --queues=gemini_tasks,default
+	.venv/bin/celery -A app.celery_app worker --loglevel=DEBUG
 
 celery-beat:
 	@echo "⏰ Запускаю Celery Beat планировщик..."
