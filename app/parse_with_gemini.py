@@ -4,11 +4,20 @@
 Модифицированная версия parse.py с интеграцией Gemini AI обработки.
 
 Этот файл расширяет существующий функционал parse.py, добавляя:
-1. Интеграцию с GeminiWorker для AI-анализа лотов
-2. Поддержку асинхронной обработки через Redis
+1. Интеграцию с GeminiWorker / TenderProcessor для AI-анализа лотов
+2. Поддержку асинхронной обработки через Redis (через ваш workers.gemini)
 3. Возможность синхронной и асинхронной обработки
 4. Улучшенное логирование и обработку ошибок
+
+Примечания по стилю / безопасные изменения:
+- НЕ настраиваем logging.basicConfig на уровне модуля (чтобы не ломать конфиг сервиса/воркера).
+- НЕ вызываем повторный load_dotenv внутри функций.
+- Чиним mkdir для путей сохранения.
+- Подправлен импорт GeminiIntegration (точный путь в пакете app.workers.gemini).
+- В CLI оставлены оба флага: --async и --async-mode (оба мапятся в async_mode) для обратной совместимости.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -18,7 +27,9 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Загружаем переменные окружения из .env файла
+import requests
+
+# Загружаем переменные окружения из .env файла один раз — при импорте модуля
 try:
     from dotenv import load_dotenv
 
@@ -26,61 +37,52 @@ try:
 except ImportError:
     pass  # dotenv не установлен, пропускаем
 
-# Централизованная настройка логирования на основе .env
-log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(
-    level=getattr(logging, log_level, logging.INFO),
-    format="%(levelname)s:%(name)s:%(funcName)s:%(lineno)d:%(message)s",
-    force=True,  # Перезаписываем существующую конфигурацию
-)
-
-from app.workers import GeminiIntegration
-
-from .gemini_module.logger import get_gemini_logger
-
-# Импортируем существующую функциональность
-from .parse import parse_file as original_parse_file
-
+# Логгер модуля (использует глобальную конфигурацию приложения)
 log = logging.getLogger(__name__)
+
+from app.gemini_module.logger import get_gemini_logger
+
+# Импорт интеграции Gemini (воркерная обёртка) и логгера модуля
+from app.workers.gemini.integration import GeminiIntegration
+
+# Импорт существующей функциональности базового парсера
+# (если нужно вызывать существующий parse_file, импортируйте тут)
+# from .parse import parse_file as original_parse_file  # <- не используется
 
 
 def parse_file_with_gemini(
-    xlsx_path: str, enable_ai: bool = False, async_processing: bool = False, redis_config: Optional[Dict] = None
+    xlsx_path: str,
+    enable_ai: bool = False,
+    async_processing: bool = False,
+    redis_config: Optional[Dict] = None,
 ) -> bool:
     """
-    Выполняет стандартную обработку с опциональной AI обработкой.
+    Выполняет стандартную обработку XLSX, затем опционально запускает AI обработку (Gemini).
 
     Args:
         xlsx_path: Путь к XLSX файлу
-        enable_ai: Включить AI обработку
-        async_processing: Использовать асинхронную обработку через Redis
-        redis_config: Конфигурация Redis
+        enable_ai: Включить AI обработку (требует GOOGLE_API_KEY)
+        async_processing: Использовать асинхронную обработку через Redis (см. workers.gemini)
+        redis_config: Конфигурация Redis для async режима
 
     Returns:
-        True если обработка прошла успешно
+        True если обработка прошла успешно (даже без AI), False при фатальной ошибке базового парсинга
     """
-    # Принудительно перезагружаем переменные окружения
-    try:
-        from dotenv import load_dotenv
-
-        load_dotenv(override=True)  # override=True для перезаписи существующих переменных
-    except ImportError:
-        pass
-
     gemini_logger = get_gemini_logger()
-    gemini_enabled = bool(os.getenv("GOOGLE_API_KEY"))
 
     # Проверяем возможность AI обработки
-    ai_will_be_used = enable_ai and gemini_enabled
+    gemini_enabled = bool(os.getenv("GOOGLE_API_KEY"))
+    ai_will_be_used = bool(enable_ai and gemini_enabled)
 
     if enable_ai and not gemini_enabled:
-        gemini_logger.warning("⚠️ AI обработка запрошена, но GOOGLE_API_KEY не найден")
-        gemini_logger.info("ℹ️ Продолжаю без AI обработки")
+        gemini_logger.warning("⚠️ AI обработка запрошена, но GOOGLE_API_KEY не найден. Продолжаю без AI.")
     elif not enable_ai:
-        log.info("ℹ️ AI обработка отключена")
+        log.info("AI обработка отключена (enable_ai=False)")
+    else:
+        log.info("AI обработка включена: GOOGLE_API_KEY найден, enable_ai=True")
 
     # Выполняем стандартную обработку с получением ID
-    log.info("🔄 Выполняю стандартную обработку файла...")
+    log.info("🔄 Выполняю стандартную обработку файла…")
 
     try:
         # ВСЕГДА создаем positions файлы - они нужны для AI обработки
@@ -90,10 +92,10 @@ def parse_file_with_gemini(
             log.error("❌ Не удалось получить ID от Go-сервера")
             return False
 
-        log.info(f"✅ Стандартная обработка завершена. Tender DB ID: {db_id}")
-        log.info(f"📋 Получены ID лотов: {lot_ids_map}")
-    except Exception as e:
-        log.error(f"❌ Ошибка в стандартной обработке: {e}")
+        log.info("✅ Стандартная обработка завершена. Tender DB ID: %s", db_id)
+        log.debug("📋 Получены ID лотов: %s", lot_ids_map)
+    except Exception:
+        log.exception("❌ Ошибка в стандартной обработке")
         return False
 
     # Если AI не будет использоваться, завершаем
@@ -103,7 +105,7 @@ def parse_file_with_gemini(
 
     # Проверяем, что это не временный ID (fallback режим)
     if str(db_id).startswith("temp_"):
-        gemini_logger.warning("⚠️ Получен временный ID - AI обработка недоступна")
+        gemini_logger.warning("⚠️ Получен временный ID — AI обработка недоступна")
         gemini_logger.info("ℹ️ AI обработка доступна только для тендеров с реальными ID")
         gemini_logger.info("ℹ️ Доступны базовые _positions файлы")
         return True
@@ -120,15 +122,11 @@ def parse_with_ids(
 
     Args:
         xlsx_path: Путь к XLSX файлу
-        create_reports: Создавать ли positions файлы (обычно True - нужны для AI)
+        create_reports: Создавать ли positions файлы (обычно True — нужны для AI)
 
     Returns:
         Кортеж (db_id, lot_ids_map, tender_data) или (None, None, None) при ошибке
     """
-    import json
-    import os
-    from pathlib import Path
-
     import openpyxl
     from openpyxl.worksheet.worksheet import Worksheet
 
@@ -136,15 +134,15 @@ def parse_with_ids(
     from .excel_parser.read_executer_block import read_executer_block
     from .excel_parser.read_headers import read_headers
     from .excel_parser.read_lots_and_boundaries import read_lots_and_boundaries
-    from .json_to_server.send_json_to_go_server import register_tender_in_go
 
     source_path = Path(xlsx_path)
     if not source_path.exists():
-        log.error(f"Файл не найден: {xlsx_path}")
+        log.error("Файл не найден: %s", xlsx_path)
         return None, None, None
 
     # Этап 1: Парсинг XLSX
-    log.info("🔄 Парсинг XLSX файла...")
+    log.info("🔄 Парсинг XLSX файла…")
+    wb = None
     try:
         wb = openpyxl.load_workbook(source_path, data_only=True)
         ws: Worksheet = wb.active
@@ -157,45 +155,52 @@ def parse_with_ids(
         processed_data = normalize_lots_json_structure(processed_data)
         processed_data = replace_div0_with_null(processed_data)
         log.info("✅ XLSX файл успешно разобран")
-    except Exception as e:
-        log.error(f"❌ Ошибка парсинга XLSX: {e}")
+    except Exception:
+        log.exception("❌ Ошибка парсинга XLSX")
         return None, None, None
+    finally:
+        try:
+            if wb is not None:
+                wb.close()
+        except Exception:
+            pass
 
     # Этап 2: Регистрация на Go-сервере
-    log.info("🔄 Регистрация тендера на Go-сервере...")
-    go_server_url = os.getenv("GO_SERVER_API_ENDPOINT")
-    fallback_mode = os.getenv("PARSER_FALLBACK_MODE", "false").lower() == "true"
-    go_server_api_key = os.getenv("GO_SERVER_API_KEY")
+    log.info("🔄 Регистрация тендера на Go-сервере…")
 
-    if not go_server_url:
-        log.error("❌ GO_SERVER_API_ENDPOINT не настроен")
+    try:
+        db_id, lot_ids_map = _import_full_tender_via_go(processed_data)
+    except Exception as e:
+        log.error(f"❌ Ошибка регистрации тендера на Go-сервере: {e}")
         return None, None, None
 
-    success, db_id, lot_ids_map = register_tender_in_go(
-        processed_data, go_server_url, go_server_api_key, fallback_mode=fallback_mode
-    )
-
-    if not success:
-        log.error("❌ Не удалось зарегистрировать тендер")
-        return None, None, None
+    # (опционально) сохраняем базовый JSON локально, если включён SAVE_DEBUG_FILES
+    if os.getenv("SAVE_DEBUG_FILES", "false").lower() == "true":
+        try:
+            out_dir = Path("tenders_json")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            base_json_path = out_dir / f"{db_id}_base.json"
+            with open(base_json_path, "w", encoding="utf-8") as f:
+                json.dump(processed_data, f, ensure_ascii=False, indent=2)
+            log.info("💾 Базовый JSON сохранён: %s", base_json_path)
+        except Exception:
+            log.warning("⚠️ Не удалось сохранить базовый JSON", exc_info=True)
 
     # Этап 3: Условное создание positions файлов с реальными ID
     if create_reports:
-        log.info("🔄 Создание positions файлов...")
+        log.info("🔄 Создание positions файлов…")
         try:
-            from pathlib import Path
-
             from .markdown_utils.positions_report import generate_reports_for_all_lots
 
-            output_dir = Path("tenders_positions")  # Создаем в правильной папке
-            output_dir.mkdir(exist_ok=True)  # Создаем папку если не существует
+            output_dir = Path("tenders_positions")
+            output_dir.mkdir(parents=True, exist_ok=True)
             base_name = db_id  # Используем реальный DB ID
 
-            position_reports_paths = generate_reports_for_all_lots(processed_data, output_dir, base_name, lot_ids_map)
+            _ = generate_reports_for_all_lots(processed_data, output_dir, base_name, lot_ids_map)
             log.info("✅ Positions файлы созданы с реальными ID")
-        except Exception as e:
-            log.error(f"❌ Ошибка создания positions файлов: {e}")
-            # Не критично - продолжаем без positions файлов
+        except Exception:
+            log.exception("❌ Ошибка создания positions файлов (не критично)")
+            # Не критично — продолжаем без positions файлов
     else:
         log.info("ℹ️ Пропускаю создание positions файлов (будут созданы после AI обработки)")
 
@@ -212,115 +217,88 @@ def process_tender_with_gemini_ids(
     """
     Выполняет AI обработку с использованием реальных ID из БД.
 
-    Args:
-        tender_db_id: Реальный ID тендера из БД
-        lot_ids_map: Маппинг лотов к их реальным ID
-        tender_data: Данные тендера
-        async_processing: Использовать асинхронную обработку
-        redis_config: Конфигурация Redis
-
-    Returns:
-        True если обработка прошла успешно
+    При async_processing=True делегирует в очередь GeminiIntegration (если доступен Redis),
+    иначе выполняет синхронную обработку (по лотам).
     """
     gemini_logger = get_gemini_logger()
-    gemini_logger.info(f"🧠 Начинаю AI обработку тендера {tender_db_id}")
+    gemini_logger.info("🧠 Начинаю AI обработку тендера %s", tender_db_id)
 
-    try:
-        # Настраиваем интеграцию
-        redis_client = None
-        if async_processing:
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        gemini_logger.warning("⚠️ GOOGLE_API_KEY не задан — AI недоступен")
+        return True  # продолжаем как «без AI»
+
+    # async-ветка через Redis: оставляем как у тебя, но страховка если Redis не взлетит
+    if async_processing:
+        try:
             redis_config = redis_config or {}
-            redis_client = GeminiIntegration.setup_redis_client(
-                host=redis_config.get("host", "localhost"),
-                port=redis_config.get("port", 6379),
-                db=redis_config.get("db", 0),
-            )
+            integration = GeminiIntegration.from_redis_config(redis_config)
+            lots_data = integration.create_positions_file_data(tender_db_id, tender_data, lot_ids_map)
 
-            if not redis_client:
-                gemini_logger.warning("⚠️ Redis недоступен, переключаюсь на синхронную обработку")
-                async_processing = False
+            if not lots_data:
+                gemini_logger.warning("⚠️ Не найдены данные лотов для AI обработки")
+                return True
 
-        integration = GeminiIntegration(redis_client=redis_client)
+            ok = integration.queue_tender_lots_async(tender_db_id, lots_data)
+            if ok:
+                gemini_logger.info("✅ %d лотов поставлены в очередь Redis", len(lots_data))
+                gemini_logger.info("ℹ️ Комбинированные отчёты будут созданы worker'ами после AI обработки")
+                return True
+            else:
+                gemini_logger.error("❌ Не удалось поставить лоты в очередь — переключаюсь на синхронную обработку")
+        except Exception:
+            gemini_logger.exception("❌ Ошибка async интеграции — переключаюсь на синхронную обработку")
+        # если что-то пошло не так — продолжаем синхронно
 
-        # Создаем данные для positions файлов с реальными ID
+    # ===== СИНХРОННАЯ ОБРАБОТКА ЧЕРЕЗ TenderProcessor (через GeminiWorker внутри integration) =====
+    try:
+        # Используем те же данные, что готовит integration (во избежание расхождений)
+        integration = GeminiIntegration(api_key=api_key)
         lots_data = integration.create_positions_file_data(tender_db_id, tender_data, lot_ids_map)
 
         if not lots_data:
             gemini_logger.warning("⚠️ Не найдены данные лотов для AI обработки")
             return True
 
-        gemini_logger.info(f"� Найдено {len(lots_data)} лотов для обработки")
+        gemini_logger.info("Найдено %d лотов для обработки", len(lots_data))
+        results = integration.process_tender_lots_sync(tender_db_id, lots_data)
 
-        if async_processing:
-            # Асинхронная обработка через Redis
-            success = integration.queue_tender_lots_async(tender_db_id, lots_data)
+        successful = sum(1 for r in results if r.get("status") == "success")
+        failed = sum(1 for r in results if r.get("status") == "error")
+        gemini_logger.info("📈 AI обработка завершена: %d успешно, %d ошибок", successful, failed)
 
-            if success:
-                gemini_logger.info(f"✅ Все {len(lots_data)} лотов поставлены в очередь Redis")
-                gemini_logger.info("ℹ️ Комбинированные отчеты будут созданы worker'ами после AI обработки")
-                gemini_logger.info("ℹ️ Пока доступны базовые _positions файлы")
-                return True
-            else:
-                gemini_logger.error("❌ Не удалось поставить все лоты в очередь")
-                return False
-        else:
-            # Синхронная обработка
-            gemini_logger.info("🔄 Выполняю синхронную AI обработку...")
-            results = integration.process_tender_lots_sync(tender_db_id, lots_data)
+        # Сохраняем результаты AI обработки
+        results_path = Path("tenders_json") / f"{tender_db_id}_gemini_results.json"
+        try:
+            results_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(results_path, "w", encoding="utf-8") as f:
+                json.dump(results, f, ensure_ascii=False, indent=2)
+            gemini_logger.info("💾 Результаты сохранены: %s", results_path)
+        except Exception:
+            gemini_logger.warning("⚠️ Не удалось сохранить результаты", exc_info=True)
 
-            # Анализируем результаты
-            successful = sum(1 for r in results if r.get("status") == "success")
-            failed = sum(1 for r in results if r.get("status") == "error")
+        # Комбинированные отчёты (если были успехи)
+        try:
+            if successful > 0:
+                from .markdown_utils.ai_enhanced_reports import regenerate_reports_with_ai_data
 
-            gemini_logger.info(f"📈 AI обработка завершена: {successful} успешно, {failed} ошибок")
-
-            # Сохраняем результаты AI обработки
-            results_path = Path("tenders_json") / f"{tender_db_id}_gemini_results.json"
-            try:
-                with open(results_path, "w", encoding="utf-8") as f:
-                    json.dump(results, f, ensure_ascii=False, indent=2)
-                gemini_logger.info(f"💾 Результаты сохранены: {results_path}")
-            except Exception as e:
-                gemini_logger.warning(f"⚠️ Не удалось сохранить результаты: {e}")
-
-            # Создаем комбинированные отчеты (исходный JSON + AI результаты) и чанки
-            gemini_logger.info("🔄 Создание комбинированных отчетов и чанков...")
-            try:
-                if successful > 0:
-                    # Создаем комбинированные отчеты с AI данными
-                    from .markdown_utils.ai_enhanced_reports import regenerate_reports_with_ai_data
-
-                    md_success = regenerate_reports_with_ai_data(
-                        tender_data=tender_data, ai_results=results, db_id=tender_db_id, lot_ids_map=lot_ids_map
-                    )
-
-                    if md_success:
-                        gemini_logger.info("✅ Комбинированные отчеты с AI данными созданы")
-
-                        # Создаем чанки из комбинированных отчетов
-                        try:
-                            # Здесь должна быть логика создания чанков из отчетов
-                            gemini_logger.info("🔄 Создание чанков из комбинированных отчетов...")
-                            # TODO: Добавить вызов функции создания чанков
-                            gemini_logger.info("✅ Чанки созданы из комбинированных отчетов")
-                        except Exception as e:
-                            gemini_logger.warning(f"⚠️ Ошибка создания чанков: {e}")
-                    else:
-                        gemini_logger.warning(
-                            "⚠️ Не удалось создать комбинированные отчеты, остаются базовые _positions файлы"
-                        )
+                md_success = regenerate_reports_with_ai_data(
+                    tender_data=tender_data, ai_results=results, db_id=tender_db_id, lot_ids_map=lot_ids_map
+                )
+                if md_success:
+                    gemini_logger.info("✅ Комбинированные отчёты с AI данными созданы")
+                    # TODO: создать чанки, если необходимо
                 else:
-                    # При неудаче AI остаются только базовые _positions файлы
-                    gemini_logger.info("🔄 AI обработка неуспешна, остаются базовые _positions файлы")
+                    gemini_logger.warning("⚠️ Комбинированные отчёты не созданы — оставляем _positions файлы")
+            else:
+                gemini_logger.info("ℹ️ Нет успешных AI-результатов — остаются базовые _positions файлы")
+        except Exception:
+            gemini_logger.error("❌ Ошибка генерации комбинированных отчётов", exc_info=True)
 
-            except Exception as e:
-                gemini_logger.error(f"❌ Ошибка создания комбинированных отчетов: {e}")
-                gemini_logger.info("ℹ️ Остаются базовые _positions файлы")
+        return successful > 0
 
-            return successful > 0
-
-    except Exception as e:
-        gemini_logger.error(f"❌ Ошибка в AI обработке: {e}")
+    except Exception:
+        gemini_logger.error("❌ Ошибка в AI обработке", exc_info=True)
         return False
 
 
@@ -347,29 +325,67 @@ def extract_tender_id(json_path: Path, tender_data: Dict) -> str:
 
 def get_processing_status(tender_id: str, lot_ids: List[str], redis_config: Optional[Dict] = None) -> Dict:
     """
-    Получает статус AI обработки для тендера.
-
-    Args:
-        tender_id: ID тендера
-        lot_ids: Список ID лотов
-        redis_config: Конфигурация Redis
-
-    Returns:
-        Словарь со статусами лотов
+    Получает статус AI обработки для тендера (через Redis-интеграцию Gemini).
     """
-    redis_client = None
-    if redis_config:
-        redis_client = GeminiIntegration.setup_redis_client(
-            host=redis_config.get("host", "localhost"),
-            port=redis_config.get("port", 6379),
-            db=redis_config.get("db", 0),
-        )
+    try:
+        integration = GeminiIntegration.from_redis_config(redis_config or {})
+    except Exception:
+        return {"error": "Redis недоступен или неверная конфигурация"}
 
-    if not redis_client:
-        return {"error": "Redis недоступен"}
-
-    integration = GeminiIntegration(redis_client=redis_client)
     return integration.get_processing_status(tender_id, lot_ids)
+
+
+def _import_full_tender_via_go(processed_data: dict) -> tuple[str, dict[str, int]]:
+    """
+    Шлёт json_1 в Go `/api/v1/import-tender`, возвращает (db_id, lot_ids_map).
+    Без Idempotency-Key. Бросает исключение при ошибке.
+    """
+    go_url = os.getenv("GO_SERVER_API_ENDPOINT")
+    api_key = os.getenv("GO_SERVER_API_KEY")
+    if not go_url:
+        raise RuntimeError("GO_SERVER_API_ENDPOINT не настроен")
+
+    url = go_url.rstrip("/")
+
+    headers = {"Content-Type": "application/json; charset=utf-8"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    timeout = float(os.getenv("GO_HTTP_TIMEOUT", "60"))
+
+    try:
+        resp = requests.post(
+            url,
+            json=processed_data,
+            headers=headers,
+            timeout=(5, timeout),
+        )
+    except requests.RequestException as e:
+        raise RuntimeError(f"Go import network error: {e}") from e
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Go import failed: {resp.status_code} {resp.text}")
+
+    try:
+        data = resp.json()
+    except ValueError:
+        raise RuntimeError(f"Go import: не-JSON ответ: {resp.text[:500]}")
+
+    # Проверка и приведение db_id
+    db_id_val = data.get("db_id")
+    if not db_id_val:
+        raise RuntimeError("Go import: empty db_id")
+    db_id = str(db_id_val)
+
+    # Приведение lot_ids
+    raw_lots = data.get("lots_id") or {}
+    lots_map = {}
+    for k, v in raw_lots.items():
+        try:
+            lots_map[str(k)] = int(v)
+        except (TypeError, ValueError):
+            log.warning("Некорректный lot_id для %r: %r", k, v)
+
+    return db_id, lots_map
 
 
 def main():
@@ -382,7 +398,11 @@ def main():
     process_parser = subparsers.add_parser("process", help="Обработать XLSX файл")
     process_parser.add_argument("xlsx_file", help="Путь к XLSX файлу")
     process_parser.add_argument("--ai", action="store_true", help="Включить AI обработку")
-    process_parser.add_argument("--async", action="store_true", help="Асинхронная обработка")
+    # Back-compat + новый флаг
+    process_parser.add_argument(
+        "--async", dest="async_mode", action="store_true", help="Асинхронная обработка (DEPRECATED, use --async-mode)"
+    )
+    process_parser.add_argument("--async-mode", dest="async_mode", action="store_true", help="Асинхронная обработка")
     process_parser.add_argument("--redis-host", default="localhost", help="Хост Redis")
     process_parser.add_argument("--redis-port", type=int, default=6379, help="Порт Redis")
     process_parser.add_argument("--redis-db", type=int, default=0, help="База Redis")
@@ -403,16 +423,15 @@ def main():
         parser.print_help()
         return 1
 
-    # Настройка логирования на основе .env и аргументов
+    # Настройка логирования только в CLI-режиме (не ломаем конфиг сервиса/воркера)
     log_level = os.getenv("LOG_LEVEL", "INFO").upper() if not args.verbose else "DEBUG"
     gemini_log_level = os.getenv("GEMINI_LOG_LEVEL", "INFO").upper() if not args.verbose else "DEBUG"
 
-    # Настраиваем уровни логгирования
     logging.getLogger().setLevel(getattr(logging, log_level, logging.INFO))
     logging.getLogger("app").setLevel(getattr(logging, log_level, logging.INFO))
     get_gemini_logger().setLevel(getattr(logging, gemini_log_level, logging.INFO))
 
-    # Настраиваем формат логгирования
+    # Формат логов
     log_format = (
         "%(levelname)s:%(name)s:%(funcName)s:%(lineno)d:%(message)s"
         if args.verbose
@@ -444,7 +463,7 @@ def main():
             success = parse_file_with_gemini(
                 xlsx_path=args.xlsx_file,
                 enable_ai=getattr(args, "ai", False),
-                async_processing=getattr(args, "async", False),
+                async_processing=getattr(args, "async_mode", False),
                 redis_config=redis_config,
             )
             return 0 if success else 1

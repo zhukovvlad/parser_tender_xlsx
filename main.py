@@ -66,7 +66,6 @@ class Settings(BaseSettings):
     )
 
 
-
 S = Settings()
 S.upload_dir.mkdir(parents=True, exist_ok=True)
 S.positions_dir.mkdir(parents=True, exist_ok=True)
