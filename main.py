@@ -24,9 +24,10 @@ import redis.asyncio as aioredis
 from anyio import to_thread
 from celery.result import AsyncResult
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from app.celery_app import celery_app
@@ -132,6 +133,19 @@ app = FastAPI(
 )
 
 
+# Middleware для логирования всех запросов
+class LoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        logger.info("🌐 Incoming request: %s %s", request.method, request.url)
+        logger.info("🔍 Headers: %s", dict(request.headers))
+        response = await call_next(request)
+        logger.info("📤 Response status: %s", response.status_code)
+        return response
+
+
+app.add_middleware(LoggingMiddleware)
+
+
 class ParseAccepted(BaseModel):
     """Ответ при успешной постановке файла в очередь.
 
@@ -189,6 +203,12 @@ async def create_parsing_task_celery(
     - Создаёт единый task_id и передаёт его Celery (apply_async(task_id=...)).
     - Возвращает клиенту task_id и базовую информацию.
     """
+    # Добавляем детальное логирование для отладки
+    logger.info(
+        f"📥 Received file: {file.filename}, content_type: {file.content_type}, size: {file.size if hasattr(file, 'size') else 'unknown'}"
+    )
+    logger.info(f"📋 enable_ai: {enable_ai}")
+
     external_id = str(uuid.uuid4())
     temp_file_path = S.upload_dir / f"{external_id}.xlsx"
 

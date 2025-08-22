@@ -8,9 +8,8 @@
 
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from ..markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
 from .json_to_markdown import generate_markdown_for_lots
@@ -62,12 +61,6 @@ def regenerate_reports_with_ai_data(
     except Exception as e:
         log.error(f"❌ Ошибка при создании MD отчетов с AI данными: {e}")
         return False
-
-
-# Удалено: функция перенесена в json_to_markdown.py
-
-
-# Удалено: логика перенесена в json_to_markdown.py
 
 
 def _save_enriched_markdown(markdown_lines: List[str], tender_id: str, lot_id: int) -> bool:

@@ -29,6 +29,9 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from app.gemini_module.logger import get_gemini_logger
+from app.workers.gemini.integration import GeminiIntegration
+
 # Загружаем переменные окружения из .env файла один раз — при импорте модуля
 try:
     from dotenv import load_dotenv
@@ -40,10 +43,8 @@ except ImportError:
 # Логгер модуля (использует глобальную конфигурацию приложения)
 log = logging.getLogger(__name__)
 
-from app.gemini_module.logger import get_gemini_logger
 
 # Импорт интеграции Gemini (воркерная обёртка) и логгера модуля
-from app.workers.gemini.integration import GeminiIntegration
 
 # Импорт существующей функциональности базового парсера
 # (если нужно вызывать существующий parse_file, импортируйте тут)
@@ -347,7 +348,7 @@ def _import_full_tender_via_go(processed_data: dict) -> tuple[str, dict[str, int
 
     url = go_url.rstrip("/")
 
-    headers = {"Content-Type": "application/json; charset=utf-8"}
+    headers = {}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 

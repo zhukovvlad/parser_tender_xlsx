@@ -1,5 +1,6 @@
 # app/workers/gemini/integration.py
 
+import importlib.util
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -8,12 +9,7 @@ from ...gemini_module.constants import FALLBACK_CATEGORY, TENDER_CATEGORIES, TEN
 from ...gemini_module.logger import get_gemini_logger
 from .manager import GeminiManager
 
-try:
-    import redis
-
-    REDIS_AVAILABLE = True
-except ImportError:
-    REDIS_AVAILABLE = False
+REDIS_AVAILABLE = importlib.util.find_spec("redis") is not None
 
 
 class GeminiIntegration:
@@ -168,7 +164,10 @@ class GeminiIntegration:
 
         try:
             import redis
+        except ImportError:
+            return None
 
+        try:
             client = redis.Redis(host=host, port=port, db=db, decode_responses=False)
             client.ping()
             return client
@@ -232,3 +231,35 @@ class GeminiIntegration:
 
         self.logger.info(f"📋 Подготовлено {len(lots_data)} лотов для AI обработки")
         return lots_data
+
+    @classmethod
+    def from_redis_config(cls, redis_config: Optional[Dict] = None) -> "GeminiIntegration":
+        """
+        Factory: создаёт интеграцию, поднимая Redis по конфигу.
+        При отсутствии/ошибке подключения к Redis вернёт инстанс без redis_client,
+        чтобы вызывающий код мог решить, как фолбечиться.
+        """
+        cfg = redis_config or {}
+        host = cfg.get("host", "localhost")
+        port = int(cfg.get("port", 6379))
+        db = int(cfg.get("db", 0))
+
+        redis_client = cls.setup_redis_client(host=host, port=port, db=db)  # есть в файле
+        api_key = os.getenv("GOOGLE_API_KEY") or cfg.get("GOOGLE_API_KEY")
+
+        return cls(api_key=api_key, redis_client=redis_client)
+
+    def get_processing_status(self, tender_id: str, lot_ids: List[str]) -> Dict:
+        """
+        Возвращает сводный статус по списку lot_ids.
+        """
+        if not self.redis_client:
+            return {"error": "Redis client is not configured"}
+
+        summary: Dict[str, object] = {"tender_id": str(tender_id), "lots": {}, "ok": True}
+        for lot_id in lot_ids:
+            st: Optional[Dict] = self.get_lot_status(tender_id, lot_id)  # уже реализовано
+            summary["lots"][str(lot_id)] = st or {"status": "unknown"}
+            if not st or st.get("status") in {"error", "failed"}:
+                summary["ok"] = False
+        return summary

@@ -18,7 +18,7 @@ celery_app = Celery(
     "tender_parser",
     broker=f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', 6379)}/0",
     backend=f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', 6379)}/0",
-    include=["app.workers.gemini.tasks"],  # Автоимпорт задач
+    include=["app.workers.gemini.tasks", "app.workers.parser.tasks"],  # Добавляем задачи парсера
 )
 
 # Конфигурация Celery
@@ -38,10 +38,10 @@ celery_app.conf.update(
     # Retry настройки
     task_default_retry_delay=60,  # Задержка между попытками
     task_max_retries=3,  # Максимальное количество попыток
-    # Маршрутизация задач - все в основную очередь celery
+    # Маршрутизация задач - все в основную очередь default (которую слушает worker)
     task_routes={
-        "app.workers.gemini.tasks.*": {"queue": "celery"},
-        "app.workers.parser.tasks.*": {"queue": "celery"},
+        "app.workers.gemini.tasks.*": {"queue": "default"},
+        "app.workers.parser.tasks.*": {"queue": "default"},
     },
     # Мониторинг
     worker_send_task_events=True,

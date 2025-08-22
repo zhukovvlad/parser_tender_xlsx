@@ -120,20 +120,41 @@ async def validate_excel_upload_file(upload_file: UploadFile) -> bytes:
     Возвращает:
       bytes — содержимое файла.
     """
+    # Debug logging
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.info("🔍 VALIDATION DEBUG: filename=%s, content_type=%s", upload_file.filename, upload_file.content_type)
+
     if not _ext_ok(upload_file.filename):
         allowed = ", ".join(sorted(ALLOWED_EXTS))
+        logger.error("❌ Extension check failed: filename=%s, allowed=%s", upload_file.filename, allowed)
         raise HTTPException(status_code=400, detail=f"Файл должен быть в формате: {allowed}")
 
     try:
         file_bytes = await _read_limited(upload_file)
+        logger.info("✅ File read successfully: size=%d bytes", len(file_bytes))
     except HTTPException:
+        logger.error("❌ File read failed with HTTPException")
         raise
     except Exception:
+        logger.error("❌ File read failed with generic exception")
         raise HTTPException(status_code=500, detail="Не удалось прочитать файл.")
 
-    _zip_guard(file_bytes)
+    try:
+        _zip_guard(file_bytes)
+        logger.info("✅ ZIP structure validation passed")
+    except HTTPException:
+        logger.error("❌ ZIP structure validation failed")
+        raise
 
-    # openpyxl и структурные проверки — в threadpool, чтобы не блокировать event loop
-    await run_in_threadpool(_openpyxl_quick_checks, file_bytes)
+    try:
+        # openpyxl и структурные проверки — в threadpool, чтобы не блокировать event loop
+        await run_in_threadpool(_openpyxl_quick_checks, file_bytes)
+        logger.info("✅ OpenPyXL validation passed")
+    except HTTPException:
+        logger.error("❌ OpenPyXL validation failed")
+        raise
 
+    logger.info("🎉 All validations passed successfully")
     return file_bytes
