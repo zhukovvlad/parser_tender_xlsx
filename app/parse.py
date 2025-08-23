@@ -47,7 +47,10 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 # Используем относительные импорты
 from .constants import JSON_KEY_EXECUTOR, JSON_KEY_LOTS
-from .excel_parser.postprocess import normalize_lots_json_structure, replace_div0_with_null
+from .excel_parser.postprocess import (
+    normalize_lots_json_structure,
+    replace_div0_with_null,
+)
 from .excel_parser.read_executer_block import read_executer_block
 from .excel_parser.read_headers import read_headers
 from .excel_parser.read_lots_and_boundaries import read_lots_and_boundaries
@@ -98,8 +101,15 @@ def parse_file(xlsx_path: str) -> None:
 
     go_server_api_key = os.getenv("GO_SERVER_API_KEY")
 
+    # Поддерживаем как базовый /api/v1, так и полный путь /api/v1/import-tender
+    base = go_server_url.rstrip("/")
+    if not base.endswith("/import-tender"):
+        import_endpoint = f"{base}/import-tender"
+    else:
+        import_endpoint = base
+
     success, db_id, lot_ids_map = register_tender_in_go(
-        processed_data, go_server_url, go_server_api_key, fallback_mode=fallback_mode
+        processed_data, import_endpoint, go_server_api_key, fallback_mode=fallback_mode
     )
 
     if not success:
@@ -124,7 +134,7 @@ def parse_file(xlsx_path: str) -> None:
     position_reports_paths: List[Path] = []
 
     try:
-        log.info(f"Этап 3: Генерация артефактов...")
+        log.info("Этап 3: Генерация артефактов...")
 
         # 3.1 Сохраняем основной JSON
         output_json_path = output_dir / f"{base_name}.json"

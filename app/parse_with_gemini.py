@@ -131,7 +131,10 @@ def parse_with_ids(
     import openpyxl
     from openpyxl.worksheet.worksheet import Worksheet
 
-    from .excel_parser.postprocess import normalize_lots_json_structure, replace_div0_with_null
+    from .excel_parser.postprocess import (
+        normalize_lots_json_structure,
+        replace_div0_with_null,
+    )
     from .excel_parser.read_executer_block import read_executer_block
     from .excel_parser.read_headers import read_headers
     from .excel_parser.read_lots_and_boundaries import read_lots_and_boundaries
@@ -281,7 +284,9 @@ def process_tender_with_gemini_ids(
         # Комбинированные отчёты (если были успехи)
         try:
             if successful > 0:
-                from .markdown_utils.ai_enhanced_reports import regenerate_reports_with_ai_data
+                from .markdown_utils.ai_enhanced_reports import (
+                    regenerate_reports_with_ai_data,
+                )
 
                 md_success = regenerate_reports_with_ai_data(
                     tender_data=tender_data, ai_results=results, db_id=tender_db_id, lot_ids_map=lot_ids_map
@@ -346,7 +351,12 @@ def _import_full_tender_via_go(processed_data: dict) -> tuple[str, dict[str, int
     if not go_url:
         raise RuntimeError("GO_SERVER_API_ENDPOINT не настроен")
 
-    url = go_url.rstrip("/")
+    base = go_url.rstrip("/")
+    # Поддержка как полного пути, так и базового /api/v1
+    if base.endswith("/import-tender"):
+        url = base
+    else:
+        url = f"{base}/import-tender"
 
     headers = {}
     if api_key:

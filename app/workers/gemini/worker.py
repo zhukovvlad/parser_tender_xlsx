@@ -1,7 +1,5 @@
 # app/workers/gemini/worker.py
 
-import json
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -100,7 +98,7 @@ class GeminiWorker:
             # Очистка временных файлов в процессоре
             try:
                 self.processor.cleanup()
-            except:
+            except Exception:
                 pass
 
     def batch_process(self, tasks: list) -> list:

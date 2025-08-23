@@ -5,17 +5,23 @@ Celery задачи для обработки тендерных позиций 
 Интегрируется с существующим GeminiWorker.
 """
 
-import json
-import os
 import shutil
 from pathlib import Path
 from typing import Any, Dict
 
-from celery import current_task
+from celery.schedules import crontab
 from celery.utils.log import get_task_logger
 
 from ...celery_app import celery_app
-from ...gemini_module.constants import FALLBACK_CATEGORY, TENDER_CATEGORIES, TENDER_CONFIGS
+from ...gemini_module.constants import (
+    FALLBACK_CATEGORY,
+    TENDER_CATEGORIES,
+    TENDER_CONFIGS,
+)
+from ...json_to_server.ai_results_client import (
+    save_ai_results_offline,
+    send_lot_ai_results,
+)
 from .worker import GeminiWorker
 
 # Логгер для Celery задач
@@ -91,6 +97,29 @@ def process_tender_positions(
             logger.info(f"📊 Extracted {len(result.get('ai_data', {}))} fields")
         else:
             logger.warning(f"⚠️ Processing completed with issues: {result.get('error')}")
+
+        # Сохранение результата в БД через Go-сервис (и оффлайн-фолбэк)
+        if result.get("status") == "success":
+            ok, status_code, _ = send_lot_ai_results(
+                tender_id=tender_id,
+                lot_id=lot_id,
+                category=result.get("category", ""),
+                ai_data=result.get("ai_data", {}),
+                processed_at=result.get("processed_at", ""),
+                idempotency_key=task_id,
+            )
+            if ok:
+                logger.info(f"💾 AI результаты отправлены на Go для {tender_id}_{lot_id} (status={status_code})")
+            else:
+                offline_path = save_ai_results_offline(
+                    tender_id=tender_id,
+                    lot_id=lot_id,
+                    category=result.get("category", ""),
+                    ai_data=result.get("ai_data", {}),
+                    processed_at=result.get("processed_at", ""),
+                    reason="request_failed",
+                )
+                logger.warning(f"📦 Go недоступен. AI результаты сохранены оффлайн: {offline_path}")
 
         # Финальное обновление статуса
         self.update_state(
@@ -170,8 +199,6 @@ def process_tender_batch(self, tender_id: str, lots_data: list, api_key: str) ->
                 "progress": 0,
             },
         )
-
-        results = []
 
         # Запускаем все подзадачи параллельно (асинхронно)
         subtask_ids = []
@@ -279,7 +306,6 @@ def cleanup_old_results():
 
 
 # Настройка периодических задач
-from celery.schedules import crontab
 
 celery_app.conf.beat_schedule = {
     "cleanup-old-results": {
