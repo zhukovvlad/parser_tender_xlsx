@@ -222,7 +222,7 @@ def process_tender_with_gemini_ids(
     Выполняет AI обработку с использованием реальных ID из БД.
 
     При async_processing=True делегирует в очередь GeminiIntegration (если доступен Redis),
-    иначе выполняет синхронную обработку (по лотам).
+    иначе запускает отдельные Celery задачи для каждого лота.
     """
     gemini_logger = get_gemini_logger()
     gemini_logger.info("🧠 Начинаю AI обработку тендера %s", tender_db_id)
@@ -232,79 +232,36 @@ def process_tender_with_gemini_ids(
         gemini_logger.warning("⚠️ GOOGLE_API_KEY не задан — AI недоступен")
         return True  # продолжаем как «без AI»
 
-    # async-ветка через Redis: оставляем как у тебя, но страховка если Redis не взлетит
-    if async_processing:
-        try:
-            redis_config = redis_config or {}
-            integration = GeminiIntegration.from_redis_config(redis_config)
-            lots_data = integration.create_positions_file_data(tender_db_id, tender_data, lot_ids_map)
+    # Находим _positions.md файлы для каждого лота
+    positions_dir = Path("tenders_positions")
+    celery_tasks_queued = 0
+    
+    for lot_key, lot_db_id in lot_ids_map.items():
+        positions_file = positions_dir / f"{tender_db_id}_{lot_db_id}_positions.md"
+        
+        if positions_file.exists():
+            gemini_logger.info("🔄 Запускаю Celery задачу для лота %s (файл: %s)", lot_db_id, positions_file.name)
+            
+            # Импортируем и запускаем Celery задачу
+            from .workers.gemini.tasks import process_tender_positions
+            
+            task = process_tender_positions.delay(
+                tender_id=str(tender_db_id),
+                lot_id=str(lot_db_id), 
+                positions_file_path=str(positions_file),
+                api_key=api_key
+            )
+            gemini_logger.info("✅ Celery задача запущена: %s для лота %s", task.id, lot_db_id)
+            celery_tasks_queued += 1
+        else:
+            gemini_logger.warning("⚠️ Файл позиций не найден для лота %s: %s", lot_db_id, positions_file)
 
-            if not lots_data:
-                gemini_logger.warning("⚠️ Не найдены данные лотов для AI обработки")
-                return True
-
-            ok = integration.queue_tender_lots_async(tender_db_id, lots_data)
-            if ok:
-                gemini_logger.info("✅ %d лотов поставлены в очередь Redis", len(lots_data))
-                gemini_logger.info("ℹ️ Комбинированные отчёты будут созданы worker'ами после AI обработки")
-                return True
-            else:
-                gemini_logger.error("❌ Не удалось поставить лоты в очередь — переключаюсь на синхронную обработку")
-        except Exception:
-            gemini_logger.exception("❌ Ошибка async интеграции — переключаюсь на синхронную обработку")
-        # если что-то пошло не так — продолжаем синхронно
-
-    # ===== СИНХРОННАЯ ОБРАБОТКА ЧЕРЕЗ TenderProcessor (через GeminiWorker внутри integration) =====
-    try:
-        # Используем те же данные, что готовит integration (во избежание расхождений)
-        integration = GeminiIntegration(api_key=api_key)
-        lots_data = integration.create_positions_file_data(tender_db_id, tender_data, lot_ids_map)
-
-        if not lots_data:
-            gemini_logger.warning("⚠️ Не найдены данные лотов для AI обработки")
-            return True
-
-        gemini_logger.info("Найдено %d лотов для обработки", len(lots_data))
-        results = integration.process_tender_lots_sync(tender_db_id, lots_data)
-
-        successful = sum(1 for r in results if r.get("status") == "success")
-        failed = sum(1 for r in results if r.get("status") == "error")
-        gemini_logger.info("📈 AI обработка завершена: %d успешно, %d ошибок", successful, failed)
-
-        # Сохраняем результаты AI обработки
-        results_path = Path("tenders_json") / f"{tender_db_id}_gemini_results.json"
-        try:
-            results_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(results_path, "w", encoding="utf-8") as f:
-                json.dump(results, f, ensure_ascii=False, indent=2)
-            gemini_logger.info("💾 Результаты сохранены: %s", results_path)
-        except Exception:
-            gemini_logger.warning("⚠️ Не удалось сохранить результаты", exc_info=True)
-
-        # Комбинированные отчёты (если были успехи)
-        try:
-            if successful > 0:
-                from .markdown_utils.ai_enhanced_reports import (
-                    regenerate_reports_with_ai_data,
-                )
-
-                md_success = regenerate_reports_with_ai_data(
-                    tender_data=tender_data, ai_results=results, db_id=tender_db_id, lot_ids_map=lot_ids_map
-                )
-                if md_success:
-                    gemini_logger.info("✅ Комбинированные отчёты с AI данными созданы")
-                    # TODO: создать чанки, если необходимо
-                else:
-                    gemini_logger.warning("⚠️ Комбинированные отчёты не созданы — оставляем _positions файлы")
-            else:
-                gemini_logger.info("ℹ️ Нет успешных AI-результатов — остаются базовые _positions файлы")
-        except Exception:
-            gemini_logger.error("❌ Ошибка генерации комбинированных отчётов", exc_info=True)
-
-        return successful > 0
-
-    except Exception:
-        gemini_logger.error("❌ Ошибка в AI обработке", exc_info=True)
+    if celery_tasks_queued > 0:
+        gemini_logger.info("🚀 Запущено %d Celery задач для AI обработки лотов", celery_tasks_queued)
+        gemini_logger.info("ℹ️ Результаты будут отправлены на Go сервер автоматически при завершении задач")
+        return True
+    else:
+        gemini_logger.warning("⚠️ Не найдено файлов позиций для AI обработки")
         return False
 
 

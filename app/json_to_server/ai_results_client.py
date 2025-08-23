@@ -37,11 +37,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import requests
+
+# Local logger for visibility of outbound requests
+log = logging.getLogger("ai_results_client")
 
 
 def _derive_base_from_import_endpoint(import_endpoint: str) -> str:
@@ -75,7 +79,12 @@ def build_ai_results_endpoint(tender_id: str | int, lot_id: str | int) -> str:
             base = "http://localhost:8080/api/v1"
 
     base = base.rstrip("/")
-    return f"{base}/tenders/{tender_id}/lots/{lot_id}/ai-results"
+    url = f"{base}/tenders/{tender_id}/lots/{lot_id}/ai-results"
+    try:
+        log.debug("AI results endpoint built: %s", url)
+    except Exception:
+        pass
+    return url
 
 
 def make_default_payload(
@@ -124,14 +133,25 @@ def send_lot_ai_results(
         headers["Idempotency-Key"] = idempotency_key
 
     try:
+        log.info(
+            "POST AI results -> %s (idempotency=%s, auth=%s)",
+            url,
+            bool(idempotency_key),
+            bool(api_key),
+        )
         resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
-        resp.raise_for_status()
+        status = resp.status_code
         try:
             data = resp.json()
         except Exception:
             data = None
-        return True, resp.status_code, data
-    except requests.RequestException:
+        if status >= 400:
+            log.warning("AI results POST failed: status=%s body=%s", status, data)
+            return False, status, data
+        log.info("AI results POST ok: status=%s", status)
+        return True, status, data
+    except requests.RequestException as e:
+        log.error("AI results POST exception: %s", e)
         return False, None, None
 
 
@@ -152,4 +172,8 @@ def save_ai_results_offline(
     file_path = out_dir / f"{tender_id}_{lot_id}.json"
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+    try:
+        log.warning("Saved AI results offline: %s", file_path)
+    except Exception:
+        pass
     return file_path
