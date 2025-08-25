@@ -79,7 +79,14 @@ def build_ai_results_endpoint(tender_id: str | int, lot_id: str | int) -> str:
             base = "http://localhost:8080/api/v1"
 
     base = base.rstrip("/")
-    url = f"{base}/tenders/{tender_id}/lots/{lot_id}/ai-results"
+
+    # Используем упрощенный эндпойнт только с lot_id
+    use_simple_endpoint = os.getenv("GO_SERVER_USE_SIMPLE_AI_ENDPOINT", "true").lower() == "true"
+    if use_simple_endpoint:
+        url = f"{base}/lots/{lot_id}/ai-results"
+    else:
+        url = f"{base}/tenders/{tender_id}/lots/{lot_id}/ai-results"
+
     try:
         log.debug("AI results endpoint built: %s", url)
     except Exception:

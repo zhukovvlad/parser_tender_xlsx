@@ -38,11 +38,16 @@ celery_app.conf.update(
     # Retry настройки
     task_default_retry_delay=60,  # Задержка между попытками
     task_max_retries=3,  # Максимальное количество попыток
-    # Маршрутизация задач - все в основную очередь default (которую слушает worker)
+    # Маршрутизация задач - все в основную очередь celery
     task_routes={
-        "app.workers.gemini.tasks.*": {"queue": "default"},
-        "app.workers.parser.tasks.*": {"queue": "default"},
+        "app.workers.gemini.tasks.*": {"queue": "celery"},
+        "app.workers.parser.tasks.*": {"queue": "celery"},
     },
+    # Очередь по умолчанию
+    task_default_queue="celery",
+    task_default_exchange="celery",
+    task_default_exchange_type="direct",
+    task_default_routing_key="celery",
     # Мониторинг
     worker_send_task_events=True,
     task_send_sent_event=True,
@@ -50,6 +55,13 @@ celery_app.conf.update(
 
 # Автоматическое обнаружение задач
 celery_app.autodiscover_tasks(["app.workers.gemini", "app.workers.parser"])
+
+# Принудительно импортируем задачи для правильной регистрации
+try:
+    import app.workers.gemini.tasks  # noqa: F401
+    import app.workers.parser.tasks  # noqa: F401
+except ImportError as e:
+    print(f"Warning: Could not import tasks: {e}")
 
 if __name__ == "__main__":
     celery_app.start()

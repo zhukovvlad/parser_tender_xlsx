@@ -24,8 +24,12 @@ from typing import Dict, Optional
 
 from dotenv import load_dotenv
 
-from app.gemini_module import TenderProcessor, get_message, validate_input_file
-from app.gemini_module.constants import FALLBACK_CATEGORY, TENDER_CATEGORIES, TENDER_CONFIGS
+from app.gemini_module import TenderProcessor
+from app.gemini_module.constants import (
+    FALLBACK_CATEGORY,
+    TENDER_CATEGORIES,
+    TENDER_CONFIGS,
+)
 
 # Загружаем переменные окружения в начале
 load_dotenv()
@@ -53,7 +57,7 @@ def setup_logging(verbose: bool = False) -> None:
     # Если передан verbose флаг, принудительно устанавливаем DEBUG
     if verbose:
         log_level = logging.DEBUG
-        logger_msg = f"Уровень логирования: DEBUG (принудительно установлен через --verbose)"
+        logger_msg = "Уровень логирования: DEBUG (принудительно установлен через --verbose)"
     else:
         log_level = log_levels.get(log_level_str, logging.INFO)
         logger_msg = f"Уровень логирования: {log_level_str} (из переменной окружения LOG_LEVEL)"

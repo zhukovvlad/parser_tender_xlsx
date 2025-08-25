@@ -232,37 +232,103 @@ def process_tender_with_gemini_ids(
         gemini_logger.warning("⚠️ GOOGLE_API_KEY не задан — AI недоступен")
         return True  # продолжаем как «без AI»
 
-    # Находим _positions.md файлы для каждого лота
-    positions_dir = Path("tenders_positions")
-    celery_tasks_queued = 0
-    
-    for lot_key, lot_db_id in lot_ids_map.items():
-        positions_file = positions_dir / f"{tender_db_id}_{lot_db_id}_positions.md"
-        
-        if positions_file.exists():
-            gemini_logger.info("🔄 Запускаю Celery задачу для лота %s (файл: %s)", lot_db_id, positions_file.name)
-            
-            # Импортируем и запускаем Celery задачу
-            from .workers.gemini.tasks import process_tender_positions
-            
-            task = process_tender_positions.delay(
-                tender_id=str(tender_db_id),
-                lot_id=str(lot_db_id), 
-                positions_file_path=str(positions_file),
-                api_key=api_key
-            )
-            gemini_logger.info("✅ Celery задача запущена: %s для лота %s", task.id, lot_db_id)
-            celery_tasks_queued += 1
-        else:
-            gemini_logger.warning("⚠️ Файл позиций не найден для лота %s: %s", lot_db_id, positions_file)
+    try:
+        # Находим _positions.md файлы для каждого лота
+        positions_dir = Path("tenders_positions")
+        celery_tasks_queued = 0
 
-    if celery_tasks_queued > 0:
-        gemini_logger.info("🚀 Запущено %d Celery задач для AI обработки лотов", celery_tasks_queued)
-        gemini_logger.info("ℹ️ Результаты будут отправлены на Go сервер автоматически при завершении задач")
-        return True
-    else:
-        gemini_logger.warning("⚠️ Не найдено файлов позиций для AI обработки")
-        return False
+        gemini_logger.info("🔍 Ищу файлы позиций в %s для лотов: %s", positions_dir, lot_ids_map)
+
+        for lot_key, lot_db_id in lot_ids_map.items():
+            positions_file = positions_dir / f"{tender_db_id}_{lot_db_id}_positions.md"
+
+            if positions_file.exists():
+                gemini_logger.info("🔄 Запускаю Celery задачу для лота %s (файл: %s)", lot_db_id, positions_file.name)
+
+                # Импортируем и запускаем Celery задачу
+                from app.workers.gemini.tasks import process_tender_positions
+
+                task = process_tender_positions.delay(
+                    tender_id=str(tender_db_id),
+                    lot_id=str(lot_db_id),
+                    positions_file_path=str(positions_file),
+                    api_key=api_key,
+                )
+                gemini_logger.info("✅ Celery задача запущена: %s для лота %s", task.id, lot_db_id)
+                celery_tasks_queued += 1
+            else:
+                gemini_logger.warning("⚠️ Файл позиций не найден для лота %s: %s", lot_db_id, positions_file)
+
+        if celery_tasks_queued > 0:
+            gemini_logger.info("🚀 Запущено %d Celery задач для AI обработки лотов", celery_tasks_queued)
+            gemini_logger.info("ℹ️ Результаты будут отправлены на Go сервер автоматически при завершении задач")
+            return True
+        else:
+            gemini_logger.warning("⚠️ Не найдено файлов позиций для AI обработки")
+            return False
+
+    except Exception as e:
+        gemini_logger.error("❌ Ошибка при запуске Celery задач: %s", e)
+        gemini_logger.info("🔄 Переходим к резервному режиму обработки")
+
+        # Fallback на синхронную обработку GeminiIntegration
+        try:
+            integration = GeminiIntegration(api_key=api_key)
+            lots_data = integration.create_positions_file_data(tender_db_id, tender_data, lot_ids_map)
+
+            if lots_data:
+                gemini_logger.info("📋 Запускаю синхронную AI обработку для %d лотов", len(lots_data))
+                results = integration.process_tender_lots_sync(tender_db_id, lots_data)
+
+                # Отправляем результаты в БД
+                successful_sends = 0
+                for result in results:
+                    if result.get("status") == "success":
+                        from app.json_to_server.ai_results_client import (
+                            save_ai_results_offline,
+                            send_lot_ai_results,
+                        )
+
+                        ok, status_code, _ = send_lot_ai_results(
+                            tender_id=result.get("tender_id"),
+                            lot_id=result.get("lot_id"),
+                            category=result.get("category", ""),
+                            ai_data=result.get("ai_data", {}),
+                            processed_at=result.get("processed_at", ""),
+                        )
+
+                        if ok:
+                            gemini_logger.info(
+                                "💾 AI результаты отправлены на Go для %s_%s (status=%s)",
+                                result.get("tender_id"),
+                                result.get("lot_id"),
+                                status_code,
+                            )
+                            successful_sends += 1
+                        else:
+                            offline_path = save_ai_results_offline(
+                                tender_id=result.get("tender_id"),
+                                lot_id=result.get("lot_id"),
+                                category=result.get("category", ""),
+                                ai_data=result.get("ai_data", {}),
+                                processed_at=result.get("processed_at", ""),
+                                reason="request_failed",
+                            )
+                            gemini_logger.warning("📦 Go недоступен. AI результаты сохранены оффлайн: %s", offline_path)
+
+                gemini_logger.info(
+                    "✅ Синхронная обработка завершена. Отправлено в БД: %d/%d",
+                    successful_sends,
+                    len([r for r in results if r.get("status") == "success"]),
+                )
+                return True
+            else:
+                gemini_logger.warning("⚠️ Не найдено файлов позиций для резервной обработки")
+                return False
+
+        except Exception as fallback_error:
+            gemini_logger.error("❌ Ошибка резервной обработки: %s", fallback_error)
+            return False
 
 
 def extract_tender_id(json_path: Path, tender_data: Dict) -> str:

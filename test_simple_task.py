@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Простой тест Celery задач без фронтенда
+Простой тест Celery задач в синхронном режиме.
+Полезен для быстрой отладки без запуска воркера.
 """
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
+from app.workers.gemini.tasks import process_tender_positions
+
 # Загружаем переменные окружения
 load_dotenv()
-
-from app.workers.gemini.tasks import process_tender_positions
 
 
 def simple_test():
@@ -20,29 +22,40 @@ def simple_test():
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
         print("❌ GOOGLE_API_KEY не найден в .env")
+        print("💡 Установите GOOGLE_API_KEY в файле .env для полного тестирования")
         return
 
     print(f"✅ GOOGLE_API_KEY найден: {api_key[:10]}...")
 
-    # Проверяем существование файла позиций
-    positions_file = (
-        "/root/Projects/Python_projects/parser/pending_sync_positions/temp_1754203333_5037_594277_positions.md"
-    )
+    # Ищем любой доступный файл позиций
+    positions_dir = Path("tenders_positions")
+    positions_files = list(positions_dir.glob("*_positions.md"))
 
-    if not os.path.exists(positions_file):
-        print(f"❌ Файл позиций не найден: {positions_file}")
+    if not positions_files:
+        print(f"❌ Файлы позиций не найдены в {positions_dir}")
+        print("💡 Запустите парсинг тендера для создания файлов позиций")
         return
 
-    print(f"✅ Файл позиций найден: {positions_file}")
+    positions_file = positions_files[0]  # Берем первый доступный
+    print(f"✅ Используем файл позиций: {positions_file}")
+
+    # Извлекаем tender_id и lot_id из имени файла (например, 134_134_positions.md)
+    file_parts = positions_file.stem.split("_")
+    if len(file_parts) >= 2:
+        tender_id = file_parts[0]
+        lot_id = file_parts[1]
+    else:
+        tender_id = "test_tender"
+        lot_id = "test_lot"
 
     # Запускаем задачу напрямую (без Celery worker, синхронно)
     try:
         print("🚀 Запускаем задачу синхронно...")
 
         # Используем apply() вместо delay() для синхронного выполнения
-        result = process_tender_positions.apply(args=["test_tender", "test_lot", positions_file, api_key])
+        result = process_tender_positions.apply(args=[tender_id, lot_id, str(positions_file), api_key])
 
-        print(f"✅ Задача выполнена! Результат:")
+        print("✅ Задача выполнена! Результат:")
         print(f"   Статус: {result.result.get('status')}")
         print(f"   Категория: {result.result.get('category')}")
 
