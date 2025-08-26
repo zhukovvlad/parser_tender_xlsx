@@ -85,7 +85,7 @@ start_service() {
 
 # Запускаем Celery Worker
 start_service "celery-worker" \
-    "celery -A app.celery_app worker --loglevel=INFO --queues=gemini_tasks,default" \
+    "celery -A app.celery_app worker --loglevel=INFO --queues=default" \
     "logs/celery_worker.log"
 
 # Запускаем Celery Beat (планировщик)

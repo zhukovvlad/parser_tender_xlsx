@@ -38,16 +38,16 @@ celery_app.conf.update(
     # Retry настройки
     task_default_retry_delay=60,  # Задержка между попытками
     task_max_retries=3,  # Максимальное количество попыток
-    # Маршрутизация задач - все в основную очередь celery
+    # Маршрутизация задач - все в основную очередь default
     task_routes={
-        "app.workers.gemini.tasks.*": {"queue": "celery"},
-        "app.workers.parser.tasks.*": {"queue": "celery"},
+        "app.workers.gemini.tasks.*": {"queue": "default"},
+        "app.workers.parser.tasks.*": {"queue": "default"},
     },
     # Очередь по умолчанию
-    task_default_queue="celery",
-    task_default_exchange="celery",
+    task_default_queue="default",
+    task_default_exchange="default",
     task_default_exchange_type="direct",
-    task_default_routing_key="celery",
+    task_default_routing_key="default",
     # Мониторинг
     worker_send_task_events=True,
     task_send_sent_event=True,
