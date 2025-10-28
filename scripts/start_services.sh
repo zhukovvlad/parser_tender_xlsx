@@ -99,13 +99,11 @@ start_service "celery-beat" \
     "celery -A app.celery_app beat --loglevel=INFO" \
     "logs/celery_beat.log"
 
-# Запускаем Flower (мониторинг Celery) - опционально
-if command -v flower &> /dev/null; then
-    start_service "flower" \
-        "celery -A app.celery_app flower --port=5555" \
-        "logs/flower.log"
-    echo -e "${GREEN}🌸 Flower доступен на http://localhost:5555${NC}"
-fi
+# Запускаем Flower (мониторинг Celery)
+start_service "flower" \
+    "celery -A app.celery_app flower --port=5555" \
+    "logs/flower.log"
+echo -e "${GREEN}🌸 Flower доступен на http://localhost:5555${NC}"
 
 # Ждем немного, чтобы сервисы запустились
 sleep 3
