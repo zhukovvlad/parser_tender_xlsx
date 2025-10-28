@@ -1,4 +1,5 @@
 # app/utils/file_validation.py
+import logging
 import zipfile
 from io import BytesIO
 from typing import Optional
@@ -71,7 +72,6 @@ def _openpyxl_quick_checks(xlsx_bytes: bytes) -> None:
     - Проверка валидности XLSX (openpyxl).
     - Быстрая проверка формы: ровно 1 лист и не более 5000 строк.
     """
-    import logging
     logger = logging.getLogger(__name__)
     
     wb = None
@@ -107,17 +107,17 @@ def _openpyxl_quick_checks(xlsx_bytes: bytes) -> None:
                 detail=f"Слишком много строк: {actual_rows}. Допустимо не более {MAX_ROWS_PER_SHEET}.",
             )
     except InvalidFileException as e:
-        logger.error("❌ InvalidFileException: %s", str(e))
-        raise HTTPException(status_code=400, detail="Файл не является валидным Excel-файлом.")
+        logger.exception("❌ InvalidFileException: %s", str(e))
+        raise HTTPException(status_code=400, detail="Файл не является валидным Excel-файлом.") from e
     except HTTPException:
         # прокидываем наши осмысленные ошибки как есть
         raise
     except Exception as e:
-        logger.error("❌ Unexpected error in _openpyxl_quick_checks: %s", str(e), exc_info=True)
+        logger.exception("❌ Unexpected error in _openpyxl_quick_checks: %s", str(e))
         raise HTTPException(
             status_code=400,
             detail="Ошибка при проверке Excel-файла. Убедитесь, что файл не поврежден.",
-        )
+        ) from e
     finally:
         try:
             if wb is not None:
@@ -173,11 +173,11 @@ async def validate_excel_upload_file(upload_file: UploadFile) -> bytes:
         await run_in_threadpool(_openpyxl_quick_checks, file_bytes)
         logger.info("✅ OpenPyXL validation passed")
     except HTTPException as e:
-        logger.error("❌ OpenPyXL validation failed: %s", e.detail)
+        logger.exception("❌ OpenPyXL validation failed: %s", e.detail)
         raise
     except Exception as e:
-        logger.error("❌ OpenPyXL validation failed with unexpected error: %s", str(e), exc_info=True)
-        raise HTTPException(status_code=400, detail=f"Ошибка валидации Excel: {str(e)}")
+        logger.exception("❌ OpenPyXL validation failed with unexpected error: %s", str(e))
+        raise HTTPException(status_code=400, detail=f"Ошибка валидации Excel: {e!s}") from e
 
     logger.info("🎉 All validations passed successfully")
     return file_bytes

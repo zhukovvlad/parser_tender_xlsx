@@ -65,7 +65,7 @@ mkdir -p logs temp_uploads
 # Устанавливаем зависимости, если нужно
 if [ ! -f ".dependencies_installed" ]; then
     echo -e "${BLUE}📦 Устанавливаю зависимости...${NC}"
-    pip install celery[redis] flower aiofiles
+    pip install -r requirements.txt
     touch .dependencies_installed
     echo -e "${GREEN}✅ Зависимости установлены${NC}"
 fi
