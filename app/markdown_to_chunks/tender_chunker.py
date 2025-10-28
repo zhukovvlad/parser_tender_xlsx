@@ -2,7 +2,7 @@
 markdown_to_chunks/tender_chunker.py
 
 Модуль для разделения Markdown-документа на смысловые чанки с использованием
-библиотеки Langchain и их последующей ручной очистки текста и метаданных.
+библиотеки langchain-text-splitters и их последующей ручной очистки текста и метаданных.
 """
 
 import re
@@ -133,8 +133,8 @@ def create_chunks_from_markdown_text(
             "tender_object": base_tender_object.lower() if base_tender_object else None,
             "tender_address": (base_tender_address.lower() if base_tender_address else None),
             "executor_name": base_executor_name.lower() if base_executor_name else None,
-            "executor_phone": (base_executor_phone.lower() if base_executor_phone else None),
-            "executor_date": base_executor_date.lower() if base_executor_date else None,
+            "executor_phone": base_executor_phone,  # Не преобразуем телефоны - структурированные данные
+            "executor_date": base_executor_date,  # Не преобразуем даты - структурированные данные
         }
 
         # Добавляем и очищаем метаданные, извлеченные из заголовков Markdown текущего чанка
