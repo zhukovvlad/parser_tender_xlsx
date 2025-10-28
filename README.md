@@ -185,7 +185,7 @@ graph TB
 
 ### 📁 Структура проекта
 
-```
+```text
 parser_tender_xlsx/
 ├── 🎯 main.py                     # FastAPI приложение
 ├── 📄 requirements.txt            # Python зависимости
