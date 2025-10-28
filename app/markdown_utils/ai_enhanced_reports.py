@@ -92,7 +92,7 @@ def _create_chunks_file(
 ):
     """
     Создает chunks файл из обогащенного markdown.
-    Требует установленный langchain для работы.
+    Требует установленный langchain-text-splitters для работы.
     """
     try:
         # Ленивый импорт - только когда реально нужно создавать chunks
@@ -115,7 +115,7 @@ def _create_chunks_file(
 
         # Сохраняем chunks файл
         output_dir = Path("tenders_chunks")
-        output_dir.mkdir(exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         filename = f"{tender_id}_{lot_id}_chunks.json"
         filepath = output_dir / filename
@@ -126,6 +126,6 @@ def _create_chunks_file(
         log.info(f"📦 Создан chunks файл: {filepath}")
 
     except ImportError as e:
-        log.warning(f"⚠️ Пропуск создания chunks для лота {lot_id}: langchain не установлен ({e})")
+        log.warning(f"⚠️ Пропуск создания chunks для лота {lot_id}: langchain-text-splitters не установлен ({e})")
     except Exception as e:
         log.error(f"❌ Ошибка создания chunks файла для лота {lot_id}: {e}")

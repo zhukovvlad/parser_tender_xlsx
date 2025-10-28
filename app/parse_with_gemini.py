@@ -199,13 +199,13 @@ def parse_with_ids(
             log.warning("⚠️ Не удалось сохранить базовый JSON", exc_info=True)
 
     # Этап 3: Создание файлов с реальными ID
-    # Согласно диаграмме пайплайна:
+    # Согласно диаграмме пайплайна:  # noqa: RUF001
     # 1. Positions файлы (для AI)
     # 2. Полный MD с описанием тендера (json_to_markdown)
     # 3. Обогащенный MD с ключевыми параметрами + AI данными
     # 4. Chunks для векторной БД
     if create_reports:
-        log.info("🔄 Создание локальных артефактов…")
+        log.info("🔄 Создание локальных артефактов…")  # noqa: RUF001
         try:
             from .markdown_utils.positions_report import generate_reports_for_all_lots
             from .markdown_utils.json_to_markdown import generate_markdown_for_lots
@@ -216,12 +216,12 @@ def parse_with_ids(
             base_name = db_id  # Используем реальный DB ID
 
             _ = generate_reports_for_all_lots(processed_data, output_dir, base_name, lot_ids_map)
-            log.info("✅ Positions файлы созданы с реальными ID")
+            log.info("✅ Positions файлы созданы с реальными ID")  # noqa: RUF001
 
             # 3.2 ВСЕГДА создаем полный MD с описанием тендера (БЕЗ AI данных)
             # Это базовый MD из JSON - шаг 2 в диаграмме
-            log.info("🔄 Создание полного MD с описанием тендера (из JSON)...")
-            lot_markdowns, initial_metadata = generate_markdown_for_lots(processed_data)
+            log.info("🔄 Создание полного MD с описанием тендера (из JSON)...")  # noqa: RUF001
+            lot_markdowns, _initial_metadata = generate_markdown_for_lots(processed_data)
             
             # Сохраняем базовый полный MD для каждого лота
             base_md_dir = Path("tenders_md_base")
@@ -233,15 +233,15 @@ def parse_with_ids(
                     base_md_path = base_md_dir / f"{db_id}_{real_lot_id}_base.md"
                     with open(base_md_path, "w", encoding="utf-8") as f:
                         f.write("\n".join(markdown_lines))
-                    log.info(f"📄 Сохранен базовый MD: {base_md_path.name}")
+                    log.info(f"📄 Сохранен базовый MD: {base_md_path.name}")  # noqa: RUF001
             
-            log.info("✅ Полный MD с описанием тендера создан")
+            log.info("✅ Полный MD с описанием тендера создан")  # noqa: RUF001
 
             # 3.3 Создаем обогащенный MD и chunks
             # Если AI НЕ будет использоваться - создаем сразу с заглушкой
             # Если AI будет - создание отложится до получения реальных AI данных
             if not will_use_ai:
-                log.info("🔄 AI не будет использоваться - создаем обогащенный MD с заглушкой")
+                log.info("🔄 AI не будет использоваться - создаем обогащенный MD с заглушкой")  # noqa: RUF001
                 from .markdown_utils.ai_enhanced_reports import regenerate_reports_with_ai_data
                 
                 # Создаем заглушку для AI результатов
@@ -288,114 +288,118 @@ def process_tender_with_gemini_ids(
     """
     Выполняет AI обработку с использованием реальных ID из БД.
 
-    При async_processing=True делегирует в очередь GeminiIntegration (если доступен Redis),
-    иначе запускает отдельные Celery задачи для каждого лота.
+    При async_processing=True запускает Celery задачи (асинхронная обработка).
+    При async_processing=False выполняет синхронную обработку напрямую.
     """
     gemini_logger = get_gemini_logger()
-    gemini_logger.info("🧠 Начинаю AI обработку тендера %s", tender_db_id)
+    gemini_logger.info("🧠 Начинаю AI обработку тендера %s (async=%s)", tender_db_id, async_processing)
 
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
         gemini_logger.warning("⚠️ GOOGLE_API_KEY не задан — AI недоступен")
         return True  # продолжаем как «без AI»
 
-    try:
-        # Находим _positions.md файлы для каждого лота
-        positions_dir = Path("tenders_positions")
-        celery_tasks_queued = 0
+    positions_dir = Path("tenders_positions")
 
-        gemini_logger.info("🔍 Ищу файлы позиций в %s для лотов: %s", positions_dir, lot_ids_map)
-
-        for lot_key, lot_db_id in lot_ids_map.items():
-            positions_file = positions_dir / f"{tender_db_id}_{lot_db_id}_positions.md"
-
-            if positions_file.exists():
-                gemini_logger.info("🔄 Запускаю Celery задачу для лота %s (файл: %s)", lot_db_id, positions_file.name)
-
-                # Импортируем и запускаем Celery задачу
-                from app.workers.gemini.tasks import process_tender_positions
-
-                task = process_tender_positions.delay(
-                    tender_id=str(tender_db_id),
-                    lot_id=str(lot_db_id),
-                    positions_file_path=str(positions_file),
-                    api_key=api_key,
-                )
-                gemini_logger.info("✅ Celery задача запущена: %s для лота %s", task.id, lot_db_id)
-                celery_tasks_queued += 1
-            else:
-                gemini_logger.warning("⚠️ Файл позиций не найден для лота %s: %s", lot_db_id, positions_file)
-
-        if celery_tasks_queued > 0:
-            gemini_logger.info("🚀 Запущено %d Celery задач для AI обработки лотов", celery_tasks_queued)
-            gemini_logger.info("ℹ️ Результаты будут отправлены на Go сервер автоматически при завершении задач")
-            return True
-        else:
-            gemini_logger.warning("⚠️ Не найдено файлов позиций для AI обработки")
-            return False
-
-    except Exception as e:
-        gemini_logger.error("❌ Ошибка при запуске Celery задач: %s", e)
-        gemini_logger.info("🔄 Переходим к резервному режиму обработки")
-
-        # Fallback на синхронную обработку GeminiIntegration
+    # Асинхронная обработка через Celery
+    if async_processing:
+        gemini_logger.info("🔄 Режим: асинхронная обработка через Celery")
         try:
-            integration = GeminiIntegration(api_key=api_key)
-            lots_data = integration.create_positions_file_data(tender_db_id, tender_data, lot_ids_map)
+            celery_tasks_queued = 0
+            gemini_logger.info("🔍 Ищу файлы позиций в %s для лотов: %s", positions_dir, lot_ids_map)
 
-            if lots_data:
-                gemini_logger.info("📋 Запускаю синхронную AI обработку для %d лотов", len(lots_data))
-                results = integration.process_tender_lots_sync(tender_db_id, lots_data)
+            for lot_key, lot_db_id in lot_ids_map.items():
+                positions_file = positions_dir / f"{tender_db_id}_{lot_db_id}_positions.md"
 
-                # Отправляем результаты в БД
-                successful_sends = 0
-                for result in results:
-                    if result.get("status") == "success":
-                        from app.json_to_server.ai_results_client import (
-                            save_ai_results_offline,
-                            send_lot_ai_results,
-                        )
+                if positions_file.exists():
+                    gemini_logger.info("🔄 Запускаю Celery задачу для лота %s (файл: %s)", lot_db_id, positions_file.name)
 
-                        ok, status_code, _ = send_lot_ai_results(
-                            tender_id=result.get("tender_id"),
-                            lot_id=result.get("lot_id"),
-                            category=result.get("category", ""),
-                            ai_data=result.get("ai_data", {}),
-                            processed_at=result.get("processed_at", ""),
-                        )
+                    # Импортируем и запускаем Celery задачу
+                    from app.workers.gemini.tasks import process_tender_positions
 
-                        if ok:
-                            gemini_logger.info(
-                                "💾 AI результаты отправлены на Go для %s_%s (status=%s)",
-                                result.get("tender_id"),
-                                result.get("lot_id"),
-                                status_code,
-                            )
-                            successful_sends += 1
-                        else:
-                            offline_path = save_ai_results_offline(
-                                tender_id=result.get("tender_id"),
-                                lot_id=result.get("lot_id"),
-                                category=result.get("category", ""),
-                                ai_data=result.get("ai_data", {}),
-                                processed_at=result.get("processed_at", ""),
-                                reason="request_failed",
-                            )
-                            gemini_logger.warning("📦 Go недоступен. AI результаты сохранены оффлайн: %s", offline_path)
+                    task = process_tender_positions.delay(
+                        tender_id=str(tender_db_id),
+                        lot_id=str(lot_db_id),
+                        positions_file_path=str(positions_file),
+                        api_key=api_key,
+                    )
+                    gemini_logger.info("✅ Celery задача запущена: %s для лота %s", task.id, lot_db_id)
+                    celery_tasks_queued += 1
+                else:
+                    gemini_logger.warning("⚠️ Файл позиций не найден для лота %s: %s", lot_db_id, positions_file)
 
-                gemini_logger.info(
-                    "✅ Синхронная обработка завершена. Отправлено в БД: %d/%d",
-                    successful_sends,
-                    len([r for r in results if r.get("status") == "success"]),
-                )
+            if celery_tasks_queued > 0:
+                gemini_logger.info("🚀 Запущено %d Celery задач для AI обработки лотов", celery_tasks_queued)
+                gemini_logger.info("ℹ️ Результаты будут отправлены на Go сервер автоматически при завершении задач")
                 return True
             else:
-                gemini_logger.warning("⚠️ Не найдено файлов позиций для резервной обработки")
+                gemini_logger.warning("⚠️ Не найдено файлов позиций для AI обработки")
                 return False
 
-        except Exception as fallback_error:
-            gemini_logger.error("❌ Ошибка резервной обработки: %s", fallback_error)
+        except Exception as e:
+            gemini_logger.error("❌ Ошибка при запуске Celery задач: %s", e)
+            gemini_logger.info("🔄 Переходим к резервному синхронному режиму")
+            # Fallthrough к синхронной обработке
+
+    # Синхронная обработка
+    gemini_logger.info("🔄 Режим: синхронная обработка")
+    try:
+        integration = GeminiIntegration(api_key=api_key)
+        lots_data = integration.create_positions_file_data(tender_db_id, tender_data, lot_ids_map)
+
+        if not lots_data:
+            gemini_logger.warning("⚠️ Не найдено файлов позиций для синхронной обработки")
             return False
+
+        gemini_logger.info("📋 Запускаю синхронную AI обработку для %d лотов", len(lots_data))
+        results = integration.process_tender_lots_sync(tender_db_id, lots_data)
+
+        # Отправляем результаты в БД
+        successful_sends = 0
+        for result in results:
+            if result.get("status") == "success":
+                from app.json_to_server.ai_results_client import (
+                    save_ai_results_offline,
+                    send_lot_ai_results,
+                )
+
+                ok, status_code, _ = send_lot_ai_results(
+                    tender_id=result.get("tender_id"),
+                    lot_id=result.get("lot_id"),
+                    category=result.get("category", ""),
+                    ai_data=result.get("ai_data", {}),
+                    processed_at=result.get("processed_at", ""),
+                )
+
+                if ok:
+                    gemini_logger.info(
+                        "💾 AI результаты отправлены на Go для %s_%s (status=%s)",
+                        result.get("tender_id"),
+                        result.get("lot_id"),
+                        status_code,
+                    )
+                    successful_sends += 1
+                else:
+                    offline_path = save_ai_results_offline(
+                        tender_id=result.get("tender_id"),
+                        lot_id=result.get("lot_id"),
+                        category=result.get("category", ""),
+                        ai_data=result.get("ai_data", {}),
+                        processed_at=result.get("processed_at", ""),
+                        reason="request_failed",
+                    )
+                    gemini_logger.warning("📦 Go недоступен. AI результаты сохранены оффлайн: %s", offline_path)
+
+        gemini_logger.info(
+            "✅ Синхронная обработка завершена. Отправлено в БД: %d/%d",
+            successful_sends,
+            len([r for r in results if r.get("status") == "success"]),
+        )
+        return True
+
+    except Exception as fallback_error:
+        gemini_logger.error("❌ Ошибка синхронной обработки: %s", fallback_error)
+        return False
 
 
 def extract_tender_id(json_path: Path, tender_data: Dict) -> str:
@@ -434,7 +438,8 @@ def get_processing_status(tender_id: str, lot_ids: List[str], redis_config: Opti
 def _import_full_tender_via_go(processed_data: dict) -> tuple[str, dict[str, int]]:
     """
     Шлёт json_1 в Go `/api/v1/import-tender`, возвращает (db_id, lot_ids_map).
-    Без Idempotency-Key. Бросает исключение при ошибке.
+    Использует Idempotency-Key для предотвращения дублирования при повторных запросах.
+    Бросает исключение при ошибке.
     """
     go_url = os.getenv("GO_SERVER_API_ENDPOINT")
     api_key = os.getenv("GO_SERVER_API_KEY")
@@ -451,6 +456,20 @@ def _import_full_tender_via_go(processed_data: dict) -> tuple[str, dict[str, int
     headers = {}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+
+    # Добавляем Idempotency-Key для предотвращения дублирования при retry
+    try:
+        import hashlib
+        import json as _json
+        
+        # Создаем стабильный хеш на основе содержимого данных
+        idem_key = hashlib.sha256(
+            _json.dumps(processed_data, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        headers["Idempotency-Key"] = idem_key
+        log.debug(f"Idempotency-Key: {idem_key[:16]}...")
+    except Exception:
+        log.warning("⚠️ Не удалось вычислить Idempotency-Key; продолжаю без него", exc_info=True)
 
     timeout = float(os.getenv("GO_HTTP_TIMEOUT", "60"))
 
