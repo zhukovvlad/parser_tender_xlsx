@@ -87,7 +87,12 @@ def parse_file_with_gemini(
 
     try:
         # ВСЕГДА создаем positions файлы - они нужны для AI обработки
-        db_id, lot_ids_map, tender_data = parse_with_ids(xlsx_path, create_reports=True)
+        # Передаем информацию о том, будет ли AI использоваться
+        db_id, lot_ids_map, tender_data = parse_with_ids(
+            xlsx_path, 
+            create_reports=True,
+            will_use_ai=ai_will_be_used
+        )
 
         if not db_id:
             log.error("❌ Не удалось получить ID от Go-сервера")
@@ -116,7 +121,9 @@ def parse_file_with_gemini(
 
 
 def parse_with_ids(
-    xlsx_path: str, create_reports: bool = True
+    xlsx_path: str, 
+    create_reports: bool = True,
+    will_use_ai: bool = False
 ) -> tuple[Optional[str], Optional[Dict[str, int]], Optional[Dict]]:
     """
     Выполняет стандартную обработку и возвращает реальные ID и данные.
@@ -124,6 +131,7 @@ def parse_with_ids(
     Args:
         xlsx_path: Путь к XLSX файлу
         create_reports: Создавать ли positions файлы (обычно True — нужны для AI)
+        will_use_ai: Будет ли использоваться AI обработка (влияет на создание MD/chunks)
 
     Returns:
         Кортеж (db_id, lot_ids_map, tender_data) или (None, None, None) при ошибке
@@ -190,23 +198,58 @@ def parse_with_ids(
         except Exception:
             log.warning("⚠️ Не удалось сохранить базовый JSON", exc_info=True)
 
-    # Этап 3: Условное создание positions файлов с реальными ID
+    # Этап 3: Создание файлов с реальными ID
+    # Согласно новой схеме: ВСЕГДА создаем обогащенный MD (с AI данными или заглушкой)
     if create_reports:
-        log.info("🔄 Создание positions файлов…")
+        log.info("🔄 Создание локальных артефактов…")
         try:
             from .markdown_utils.positions_report import generate_reports_for_all_lots
 
+            # 3.1 ВСЕГДА создаем positions файлы (нужны для AI обработки)
             output_dir = Path("tenders_positions")
             output_dir.mkdir(parents=True, exist_ok=True)
             base_name = db_id  # Используем реальный DB ID
 
             _ = generate_reports_for_all_lots(processed_data, output_dir, base_name, lot_ids_map)
             log.info("✅ Positions файлы созданы с реальными ID")
+
+            # 3.2 Создаем обогащенный MD и chunks
+            # Если AI НЕ будет использоваться - создаем сразу с заглушкой
+            # Если AI будет - создание отложится до получения реальных AI данных
+            if not will_use_ai:
+                log.info("🔄 AI не будет использоваться - создаем обогащенный MD с заглушкой")
+                from .markdown_utils.ai_enhanced_reports import regenerate_reports_with_ai_data
+                
+                # Создаем заглушку для AI результатов
+                ai_stub_results = []
+                for lot_key, lot_db_id in lot_ids_map.items():
+                    ai_stub_results.append({
+                        "lot_id": lot_db_id,
+                        "category": "Test mode",
+                        "ai_data": {"message": "No data. Test mode"},
+                        "processed_at": "",
+                        "status": "stub"
+                    })
+                
+                # Создаем обогащенный MD с заглушкой
+                success = regenerate_reports_with_ai_data(
+                    tender_data=processed_data,
+                    ai_results=ai_stub_results,
+                    db_id=str(db_id),
+                    lot_ids_map=lot_ids_map
+                )
+                
+                if success:
+                    log.info("✅ Обогащенный MD и chunks созданы с заглушкой AI данных")
+                else:
+                    log.warning("⚠️ Ошибка создания обогащенного MD с заглушкой")
+            else:
+                log.info("ℹ️ AI будет использоваться - обогащенный MD будет создан после получения AI результатов")
+                
         except Exception:
-            log.exception("❌ Ошибка создания positions файлов (не критично)")
-            # Не критично — продолжаем без positions файлов
+            log.exception("❌ Ошибка создания файлов (не критично)")
     else:
-        log.info("ℹ️ Пропускаю создание positions файлов (будут созданы после AI обработки)")
+        log.info("ℹ️ Пропускаю создание файлов")
 
     return db_id, lot_ids_map, processed_data
 
