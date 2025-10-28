@@ -199,11 +199,16 @@ def parse_with_ids(
             log.warning("⚠️ Не удалось сохранить базовый JSON", exc_info=True)
 
     # Этап 3: Создание файлов с реальными ID
-    # Согласно новой схеме: ВСЕГДА создаем обогащенный MD (с AI данными или заглушкой)
+    # Согласно диаграмме пайплайна:
+    # 1. Positions файлы (для AI)
+    # 2. Полный MD с описанием тендера (json_to_markdown)
+    # 3. Обогащенный MD с ключевыми параметрами + AI данными
+    # 4. Chunks для векторной БД
     if create_reports:
         log.info("🔄 Создание локальных артефактов…")
         try:
             from .markdown_utils.positions_report import generate_reports_for_all_lots
+            from .markdown_utils.json_to_markdown import generate_markdown_for_lots
 
             # 3.1 ВСЕГДА создаем positions файлы (нужны для AI обработки)
             output_dir = Path("tenders_positions")
@@ -213,7 +218,26 @@ def parse_with_ids(
             _ = generate_reports_for_all_lots(processed_data, output_dir, base_name, lot_ids_map)
             log.info("✅ Positions файлы созданы с реальными ID")
 
-            # 3.2 Создаем обогащенный MD и chunks
+            # 3.2 ВСЕГДА создаем полный MD с описанием тендера (БЕЗ AI данных)
+            # Это базовый MD из JSON - шаг 2 в диаграмме
+            log.info("🔄 Создание полного MD с описанием тендера (из JSON)...")
+            lot_markdowns, initial_metadata = generate_markdown_for_lots(processed_data)
+            
+            # Сохраняем базовый полный MD для каждого лота
+            base_md_dir = Path("tenders_md_base")
+            base_md_dir.mkdir(parents=True, exist_ok=True)
+            
+            for lot_key, markdown_lines in lot_markdowns.items():
+                real_lot_id = lot_ids_map.get(lot_key)
+                if real_lot_id:
+                    base_md_path = base_md_dir / f"{db_id}_{real_lot_id}_base.md"
+                    with open(base_md_path, "w", encoding="utf-8") as f:
+                        f.write("\n".join(markdown_lines))
+                    log.info(f"📄 Сохранен базовый MD: {base_md_path.name}")
+            
+            log.info("✅ Полный MD с описанием тендера создан")
+
+            # 3.3 Создаем обогащенный MD и chunks
             # Если AI НЕ будет использоваться - создаем сразу с заглушкой
             # Если AI будет - создание отложится до получения реальных AI данных
             if not will_use_ai:
@@ -222,7 +246,7 @@ def parse_with_ids(
                 
                 # Создаем заглушку для AI результатов
                 ai_stub_results = []
-                for lot_key, lot_db_id in lot_ids_map.items():
+                for _lot_key, lot_db_id in lot_ids_map.items():
                     ai_stub_results.append({
                         "lot_id": lot_db_id,
                         "category": "Test mode",
