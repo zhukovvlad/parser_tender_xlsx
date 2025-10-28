@@ -62,11 +62,17 @@ fi
 # Создаем необходимые директории
 mkdir -p logs temp_uploads
 
-# Устанавливаем зависимости, если нужно
-if [ ! -f ".dependencies_installed" ]; then
+# Устанавливаем зависимости, если requirements.txt изменился
+REQUIREMENTS_HASH=$(md5sum requirements.txt | cut -d' ' -f1)
+STORED_HASH=""
+if [ -f ".dependencies_installed" ]; then
+    STORED_HASH=$(cat .dependencies_installed)
+fi
+
+if [ "$REQUIREMENTS_HASH" != "$STORED_HASH" ]; then
     echo -e "${BLUE}📦 Устанавливаю зависимости...${NC}"
     pip install -r requirements.txt
-    touch .dependencies_installed
+    echo "$REQUIREMENTS_HASH" > .dependencies_installed
     echo -e "${GREEN}✅ Зависимости установлены${NC}"
 fi
 

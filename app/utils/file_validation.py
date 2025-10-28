@@ -9,6 +9,9 @@ from fastapi.concurrency import run_in_threadpool
 from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
+# --- Logger ---
+logger = logging.getLogger(__name__)
+
 # --- лимиты (можно вынести в .env при желании) ---
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_UNZIPPED_SIZE = 200 * 1024 * 1024  # 200 MB (anti zip-bomb)
@@ -107,13 +110,13 @@ def _openpyxl_quick_checks(xlsx_bytes: bytes) -> None:
                 detail=f"Слишком много строк: {actual_rows}. Допустимо не более {MAX_ROWS_PER_SHEET}.",
             )
     except InvalidFileException as e:
-        logger.exception("❌ InvalidFileException: %s", str(e))
+        logger.exception("❌ InvalidFileException")
         raise HTTPException(status_code=400, detail="Файл не является валидным Excel-файлом.") from e
     except HTTPException:
         # прокидываем наши осмысленные ошибки как есть
         raise
     except Exception as e:
-        logger.exception("❌ Unexpected error in _openpyxl_quick_checks: %s", str(e))
+        logger.exception("❌ Unexpected error in _openpyxl_quick_checks")
         raise HTTPException(
             status_code=400,
             detail="Ошибка при проверке Excel-файла. Убедитесь, что файл не поврежден.",
@@ -140,10 +143,6 @@ async def validate_excel_upload_file(upload_file: UploadFile) -> bytes:
     Возвращает:
       bytes — содержимое файла.
     """
-    # Debug logging
-    import logging
-
-    logger = logging.getLogger(__name__)
     logger.info("🔍 VALIDATION DEBUG: filename=%s, content_type=%s", upload_file.filename, upload_file.content_type)
 
     if not _ext_ok(upload_file.filename):
@@ -158,7 +157,7 @@ async def validate_excel_upload_file(upload_file: UploadFile) -> bytes:
         logger.error("❌ File read failed with HTTPException")
         raise
     except Exception:
-        logger.error("❌ File read failed with generic exception")
+        logger.exception("❌ File read failed with generic exception")
         raise HTTPException(status_code=500, detail="Не удалось прочитать файл.")
 
     try:
@@ -176,7 +175,7 @@ async def validate_excel_upload_file(upload_file: UploadFile) -> bytes:
         logger.exception("❌ OpenPyXL validation failed: %s", e.detail)
         raise
     except Exception as e:
-        logger.exception("❌ OpenPyXL validation failed with unexpected error: %s", str(e))
+        logger.exception("❌ OpenPyXL validation failed with unexpected error")
         raise HTTPException(status_code=400, detail=f"Ошибка валидации Excel: {e!s}") from e
 
     logger.info("🎉 All validations passed successfully")
