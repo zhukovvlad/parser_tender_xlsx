@@ -11,7 +11,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
-from ..markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
 from .json_to_markdown import generate_markdown_for_lots
 
 log = logging.getLogger(__name__)
@@ -93,8 +92,12 @@ def _create_chunks_file(
 ):
     """
     Создает chunks файл из обогащенного markdown.
+    Требует установленный langchain для работы.
     """
     try:
+        # Ленивый импорт - только когда реально нужно создавать chunks
+        from ..markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
+        
         # Объединяем markdown в один текст
         markdown_text = "\n".join(markdown_lines)
 
@@ -122,5 +125,7 @@ def _create_chunks_file(
 
         log.info(f"📦 Создан chunks файл: {filepath}")
 
+    except ImportError as e:
+        log.warning(f"⚠️ Пропуск создания chunks для лота {lot_id}: langchain не установлен ({e})")
     except Exception as e:
         log.error(f"❌ Ошибка создания chunks файла для лота {lot_id}: {e}")

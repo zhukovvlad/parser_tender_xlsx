@@ -8,7 +8,7 @@ markdown_to_chunks/tender_chunker.py
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from langchain.text_splitter import MarkdownHeaderTextSplitter
+from langchain_text_splitters import MarkdownHeaderTextSplitter
 
 # Определяем заголовки, по которым будет происходить разделение текста,
 # и соответствующие им ключи для метаданных, извлекаемых сплиттером.
