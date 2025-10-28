@@ -71,29 +71,49 @@ def _openpyxl_quick_checks(xlsx_bytes: bytes) -> None:
     - Проверка валидности XLSX (openpyxl).
     - Быстрая проверка формы: ровно 1 лист и не более 5000 строк.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     wb = None
     try:
+        logger.info("📊 Loading workbook with openpyxl...")
         wb = load_workbook(BytesIO(xlsx_bytes), read_only=True, data_only=True)
         sheetnames = wb.sheetnames
+        logger.info("📋 Found sheets: %s", sheetnames)
+        
         if not sheetnames:
             raise HTTPException(status_code=400, detail="В книге нет листов.")
         if len(sheetnames) != MAX_SHEETS:
             raise HTTPException(status_code=400, detail=f"В книге должен быть ровно {MAX_SHEETS} лист.")
 
         ws = wb[sheetnames[0]]
-        # Быстрый чек через ws.max_row (openpyxl берёт из dimension; для грубой валидации ок)
-        max_rows = ws.max_row or 0
-        if max_rows > MAX_ROWS_PER_SHEET:
+        
+        # В read_only режиме max_row может возвращать максимальное значение Excel (1048576)
+        # Вместо этого подсчитаем реальные строки с данными
+        actual_rows = 0
+        for row in ws.iter_rows(max_row=MAX_ROWS_PER_SHEET + 1):
+            # Проверяем, есть ли хотя бы одна непустая ячейка в строке
+            if any(cell.value is not None for cell in row):
+                actual_rows += 1
+                # Прерываем, если превысили лимит
+                if actual_rows > MAX_ROWS_PER_SHEET:
+                    break
+        
+        logger.info("📏 Sheet has %d rows with data (max allowed: %d)", actual_rows, MAX_ROWS_PER_SHEET)
+        
+        if actual_rows > MAX_ROWS_PER_SHEET:
             raise HTTPException(
                 status_code=400,
-                detail=f"Слишком много строк: {max_rows}. Допустимо не более {MAX_ROWS_PER_SHEET}.",
+                detail=f"Слишком много строк: {actual_rows}. Допустимо не более {MAX_ROWS_PER_SHEET}.",
             )
-    except InvalidFileException:
+    except InvalidFileException as e:
+        logger.error("❌ InvalidFileException: %s", str(e))
         raise HTTPException(status_code=400, detail="Файл не является валидным Excel-файлом.")
     except HTTPException:
         # прокидываем наши осмысленные ошибки как есть
         raise
-    except Exception:
+    except Exception as e:
+        logger.error("❌ Unexpected error in _openpyxl_quick_checks: %s", str(e), exc_info=True)
         raise HTTPException(
             status_code=400,
             detail="Ошибка при проверке Excel-файла. Убедитесь, что файл не поврежден.",
@@ -152,9 +172,12 @@ async def validate_excel_upload_file(upload_file: UploadFile) -> bytes:
         # openpyxl и структурные проверки — в threadpool, чтобы не блокировать event loop
         await run_in_threadpool(_openpyxl_quick_checks, file_bytes)
         logger.info("✅ OpenPyXL validation passed")
-    except HTTPException:
-        logger.error("❌ OpenPyXL validation failed")
+    except HTTPException as e:
+        logger.error("❌ OpenPyXL validation failed: %s", e.detail)
         raise
+    except Exception as e:
+        logger.error("❌ OpenPyXL validation failed with unexpected error: %s", str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Ошибка валидации Excel: {str(e)}")
 
     logger.info("🎉 All validations passed successfully")
     return file_bytes
