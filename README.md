@@ -308,7 +308,7 @@ PARSER_FALLBACK_MODE=false
 # Web Framework
 fastapi>=0.115.0             # Async REST API
 uvicorn[standard]>=0.30.0    # ASGI сервер
-python-multipart>=0.0.6      # Загрузка файлов
+python-multipart>=0.0.18     # Загрузка файлов
 
 # Background Tasks
 celery[redis]>=5.5.0         # Очередь задач
