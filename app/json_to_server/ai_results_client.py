@@ -123,9 +123,11 @@ def send_lot_ai_results(
     processed_at: str,
     *,
     timeout: int = 30,
-    idempotency_key: str | None = None,
 ) -> Tuple[bool, Optional[int], Optional[Dict[str, Any]]]:
     """POST AI-результаты на Go.
+    
+    Go сервер использует UPDATE с COALESCE, поэтому операция идемпотентна
+    на уровне БД - повторные отправки безопасны.
 
     Возвращает (ok, status_code, response_json|None).
     """
@@ -136,16 +138,9 @@ def send_lot_ai_results(
     api_key = os.getenv("GO_SERVER_API_KEY")
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    if idempotency_key:
-        headers["Idempotency-Key"] = idempotency_key
 
     try:
-        log.info(
-            "POST AI results -> %s (idempotency=%s, auth=%s)",
-            url,
-            bool(idempotency_key),
-            bool(api_key),
-        )
+        log.info("POST AI results -> %s (auth=%s)", url, bool(api_key))
         resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
         status = resp.status_code
         try:

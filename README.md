@@ -306,14 +306,14 @@ PARSER_FALLBACK_MODE=false
 
 ```txt
 # Web Framework
-fastapi                       # Async REST API
-uvicorn[standard]            # ASGI сервер
-python-multipart             # Загрузка файлов
+fastapi>=0.104.0             # Async REST API
+uvicorn[standard]>=0.24.0    # ASGI сервер
+python-multipart>=0.0.6      # Загрузка файлов
 
 # Background Tasks
 celery[redis]>=5.3.0         # Очередь задач
 flower>=2.0.0                # Мониторинг Celery
-redis                        # Redis клиент
+redis>=5.0.0                 # Redis клиент
 
 # AI & NLP
 google-genai>=1.28.0         # Gemini AI
@@ -395,7 +395,7 @@ pytest app/tests/gemini_module/
 
 ## 📚 Дополнительная информация
 
-### � Полезные ссылки
+### 🔗 Полезные ссылки
 
 - **FastAPI**: [https://fastapi.tiangolo.com/](https://fastapi.tiangolo.com/)
 - **Celery**: [https://docs.celeryq.dev/](https://docs.celeryq.dev/)
