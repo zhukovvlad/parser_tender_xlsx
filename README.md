@@ -306,12 +306,12 @@ PARSER_FALLBACK_MODE=false
 
 ```txt
 # Web Framework
-fastapi>=0.104.0             # Async REST API
-uvicorn[standard]>=0.24.0    # ASGI сервер
+fastapi>=0.115.0             # Async REST API
+uvicorn[standard]>=0.30.0    # ASGI сервер
 python-multipart>=0.0.6      # Загрузка файлов
 
 # Background Tasks
-celery[redis]>=5.3.0         # Очередь задач
+celery[redis]>=5.5.0         # Очередь задач
 flower>=2.0.0                # Мониторинг Celery
 redis>=5.0.0                 # Redis клиент
 

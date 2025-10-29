@@ -8,6 +8,7 @@
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -121,12 +122,20 @@ def _create_chunks_file(
         filepath = output_dir / filename
         tmp_path = output_dir / (filename + ".tmp")
         
-        # Пишем во временный файл
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(chunks, f, ensure_ascii=False, indent=2)
-        
-        # Атомарная замена (предотвращает частичные файлы при сбоях)
-        tmp_path.replace(filepath)
+        try:
+            # Пишем во временный файл с flush и fsync для долговечности
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(chunks, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            
+            # Атомарная замена (предотвращает частичные файлы при сбоях)
+            tmp_path.replace(filepath)
+        except Exception:
+            # Удаляем временный файл при ошибке
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
 
         log.info(f"📦 Создан chunks файл: {filepath}")
 
