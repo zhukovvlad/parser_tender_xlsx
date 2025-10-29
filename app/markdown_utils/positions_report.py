@@ -67,50 +67,69 @@ def create_hierarchical_report(positions_data: dict, output_filename: Path, lot_
     Side Effects:
         - Создает или перезаписывает файл по пути `output_filename`.
     """
-    with open(output_filename, "w", encoding="utf-8") as f:
-        f.write(f"# Детализированный отчет по позициям для лота - {lot_name}\n")
-        f.write("---" + "\n\n")
+    import os
+    
+    # Атомарная запись через временный файл для надежной перезаписи при повторных загрузках
+    tmp_filename = output_filename.with_suffix(output_filename.suffix + ".tmp")
+    
+    try:
+        with open(tmp_filename, "w", encoding="utf-8") as f:
+            f.write(f"# Детализированный отчет по позициям для лота - {lot_name}\n")
+            f.write("---" + "\n\n")
 
-        # ... (остальная логика функции без изменений) ...
-        chapter_headers = {
-            str(item.get("chapter_number")): item for item in positions_data.values() if item.get("is_chapter")
-        }
+            # ... (остальная логика функции без изменений) ...
+            chapter_headers = {
+                str(item.get("chapter_number")): item for item in positions_data.values() if item.get("is_chapter")
+            }
 
-        for key in sorted(positions_data.keys(), key=int):
-            item = positions_data[key]
+            for key in sorted(positions_data.keys(), key=int):
+                item = positions_data[key]
 
-            if item.get("is_chapter"):
-                continue
+                if item.get("is_chapter"):
+                    continue
 
-            path_parts = []
+                path_parts = []
 
-            item_title = item.get("job_title", "")
-            item_number = str(item.get("number", ""))
-            path_parts.insert(0, f"{item_number}. {item_title}")
+                item_title = item.get("job_title", "")
+                item_number = str(item.get("number", ""))
+                path_parts.insert(0, f"{item_number}. {item_title}")
 
-            current_ref = str(item.get("chapter_ref"))
+                current_ref = str(item.get("chapter_ref"))
 
-            while current_ref and current_ref in chapter_headers:
-                parent_chapter = chapter_headers[current_ref]
-                parent_title = parent_chapter.get("job_title", "")
-                parent_number = str(parent_chapter.get("chapter_number", ""))
-                path_parts.insert(0, f"{parent_number}. {parent_title}")
-                current_ref = str(parent_chapter.get("chapter_ref"))
+                while current_ref and current_ref in chapter_headers:
+                    parent_chapter = chapter_headers[current_ref]
+                    parent_title = parent_chapter.get("job_title", "")
+                    parent_number = str(parent_chapter.get("chapter_number", ""))
+                    path_parts.insert(0, f"{parent_number}. {parent_title}")
+                    current_ref = str(parent_chapter.get("chapter_ref"))
 
-            full_hierarchical_title = " / ".join(path_parts)
-            output_parts = [f"**Наименование:** {full_hierarchical_title}"]
-            unit = item.get("unit", "нет данных")
-            quantity = item.get("quantity", "нет данных")
-            comment = item.get("comment_organizer")
+                full_hierarchical_title = " / ".join(path_parts)
+                output_parts = [f"**Наименование:** {full_hierarchical_title}"]
+                unit = item.get("unit", "нет данных")
+                quantity = item.get("quantity", "нет данных")
+                comment = item.get("comment_organizer")
 
-            output_parts.append(f"**Единица измерения:** {unit}")
-            output_parts.append(f"**Количество:** {quantity}")
+                output_parts.append(f"**Единица измерения:** {unit}")
+                output_parts.append(f"**Количество:** {quantity}")
 
-            if comment:
-                output_parts.append(f"**Комментарий организатора:** {comment}")
+                if comment:
+                    output_parts.append(f"**Комментарий организатора:** {comment}")
 
-            final_line = ". ".join(output_parts)
-            f.write(final_line + "\n\n---\n\n")
+                final_line = ". ".join(output_parts)
+                f.write(final_line + "\n\n---\n\n")
+            
+            # Обеспечиваем запись на диск
+            f.flush()
+            os.fsync(f.fileno())
+        
+        # Атомарная замена файла (предотвращает частичную перезапись)
+        tmp_filename.replace(output_filename)
+        
+    except Exception:
+        # Удаляем временный файл при ошибке
+        if tmp_filename.exists():
+            tmp_filename.unlink()
+        raise
 
 
 def generate_reports_for_all_lots(
