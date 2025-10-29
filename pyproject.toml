@@ -29,6 +29,10 @@ use_parentheses = true
 ensure_newline_before_comments = true
 line_length = 120
 
+[tool.ruff]
+# Игнорируем предупреждения о Cyrillic characters в комментариях и строках
+ignore = ["RUF001", "RUF003"]
+
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = "-ra -q --strict-markers --cov=app --cov-report=html --cov-report=term"

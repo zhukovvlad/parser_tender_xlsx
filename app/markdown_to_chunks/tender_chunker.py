@@ -33,8 +33,8 @@ def _manual_clean_text_content(text: Optional[str]) -> str:
     # 1. Markdown-разметка
     cleaned_text = re.sub(r"(\*\*|__)(.+?)(\1)", r"\2", cleaned_text)
     cleaned_text = re.sub(r"(?<![\wА-Яа-я])(\*|_)(.+?)(\1)(?![\wА-Яа-я])", r"\2", cleaned_text)
-    # 2. Горизонтальные разделители
-    cleaned_text = cleaned_text.replace("---", " ")
+    # 2. Горизонтальные разделители (только Markdown HR - линии из 3+ дефисов)
+    cleaned_text = re.sub(r"(?m)^\s*-{3,}\s*$", " ", cleaned_text)
     cleaned_text = cleaned_text.strip()
     # 3. Обрамляющие кавычки и пунктуация
     previous_text_state = None
@@ -123,7 +123,7 @@ def create_chunks_from_markdown_text(
     base_executor_date = tender_metadata.get("executor_date")
 
     for doc in docs_from_splitter:
-        source_metadata = doc.metadata  # Метаданные из заголовков от сплиттера Langchain
+        source_metadata = doc.metadata  # Метаданные из заголовков от сплиттера langchain-text-splitters
 
         # Формируем словарь метаданных для текущего чанка, начиная с глобальных
         chunk_meta: Dict[str, Any] = {

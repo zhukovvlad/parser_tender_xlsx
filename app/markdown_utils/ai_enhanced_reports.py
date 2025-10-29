@@ -71,7 +71,7 @@ def _save_enriched_markdown(markdown_lines: List[str], tender_id: str, lot_id: i
     """
     try:
         output_dir = Path("tenders_md")
-        output_dir.mkdir(exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         filename = f"{tender_id}_{lot_id}.md"
         filepath = output_dir / filename
@@ -113,19 +113,27 @@ def _create_chunks_file(
         # Создаем chunks
         chunks = create_chunks_from_markdown_text(markdown_text, tender_metadata, lot_id)
 
-        # Сохраняем chunks файл
+        # Сохраняем chunks файл атомарно (через временный файл)
         output_dir = Path("tenders_chunks")
         output_dir.mkdir(parents=True, exist_ok=True)
 
         filename = f"{tender_id}_{lot_id}_chunks.json"
         filepath = output_dir / filename
-
-        with open(filepath, "w", encoding="utf-8") as f:
+        tmp_path = output_dir / (filename + ".tmp")
+        
+        # Пишем во временный файл
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(chunks, f, ensure_ascii=False, indent=2)
+        
+        # Атомарная замена (предотвращает частичные файлы при сбоях)
+        tmp_path.replace(filepath)
 
         log.info(f"📦 Создан chunks файл: {filepath}")
 
     except ImportError as e:
-        log.warning(f"⚠️ Пропуск создания chunks для лота {lot_id}: langchain-text-splitters не установлен ({e})")
+        log.warning(
+            f"⚠️ Пропуск создания chunks для лота {lot_id}: langchain-text-splitters не установлен ({e}). "
+            "Установите: pip install langchain-text-splitters>=0.3.9"
+        )
     except Exception as e:
         log.error(f"❌ Ошибка создания chunks файла для лота {lot_id}: {e}")
