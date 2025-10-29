@@ -106,7 +106,6 @@ def process_tender_positions(
                 category=result.get("category", ""),
                 ai_data=result.get("ai_data", {}),
                 processed_at=result.get("processed_at", ""),
-                idempotency_key=task_id,
             )
             if ok:
                 logger.info(f"💾 AI результаты отправлены на Go для {tender_id}_{lot_id} (status={status_code})")
