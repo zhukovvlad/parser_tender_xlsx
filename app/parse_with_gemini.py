@@ -197,6 +197,28 @@ def parse_with_ids(
             log.info("💾 Базовый JSON сохранён: %s", base_json_path)
         except Exception:
             log.warning("⚠️ Не удалось сохранить базовый JSON", exc_info=True)
+    
+    # Если будет использоваться AI - сохраняем данные тендера для последующей регенерации отчетов
+    if will_use_ai:
+        try:
+            temp_dir = Path("temp_tender_data")
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            tender_data_path = temp_dir / f"{db_id}.json"
+            
+            # Сохраняем данные атомарно через временный файл
+            tmp_path = tender_data_path.with_suffix(".json.tmp")
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "tender_data": processed_data,
+                    "lot_ids_map": lot_ids_map
+                }, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            tmp_path.replace(tender_data_path)
+            
+            log.info(f"💾 Данные тендера сохранены для AI обработки: {tender_data_path}")
+        except Exception:
+            log.warning("⚠️ Не удалось сохранить данные тендера для AI", exc_info=True)
 
     # Этап 3: Создание файлов с реальными ID
     # Согласно диаграмме пайплайна:
@@ -246,46 +268,112 @@ def parse_with_ids(
                         raise
             
             log.info("✅ Полный MD с описанием тендера создан")
-
-            # 3.3 Создаем обогащенный MD и chunks
-            # Если AI НЕ будет использоваться - создаем сразу с заглушкой
-            # Если AI будет - создание отложится до получения реальных AI данных
-            if not will_use_ai:
-                log.info("🔄 AI не будет использоваться - создаем обогащенный MD с заглушкой")
-                from .markdown_utils.ai_enhanced_reports import regenerate_reports_with_ai_data
-                
-                # Создаем заглушку для AI результатов
-                ai_stub_results = []
-                for _lot_key, lot_db_id in lot_ids_map.items():
-                    ai_stub_results.append({
-                        "lot_id": lot_db_id,
-                        "category": "Test mode",
-                        "ai_data": {"message": "No data. Test mode"},
-                        "processed_at": "",
-                        "status": "stub"
-                    })
-                
-                # Создаем обогащенный MD с заглушкой
-                success = regenerate_reports_with_ai_data(
-                    tender_data=processed_data,
-                    ai_results=ai_stub_results,
-                    db_id=str(db_id),
-                    lot_ids_map=lot_ids_map
-                )
-                
-                if success:
-                    log.info("✅ Обогащенный MD и chunks созданы с заглушкой AI данных")
-                else:
-                    log.warning("⚠️ Ошибка создания обогащенного MD с заглушкой")
-            else:
-                log.info("ℹ️ AI будет использоваться - обогащенный MD будет создан после получения AI результатов")
                 
         except Exception:
             log.exception("❌ Ошибка создания файлов (не критично)")
     else:
-        log.info("ℹ️ Пропускаю создание файлов")
+        log.info("ℹ️ Пропускаю создание позиций и базовых MD")
+
+    # 3.3 Создаем обогащенный MD и chunks ВСЕГДА (даже при повторной загрузке)
+    # Это нужно, т.к. данные в Excel могли измениться
+    if not will_use_ai:
+        log.info("🔄 AI не будет использоваться - создаем обогащенный MD с заглушкой")
+        try:
+            from .markdown_utils.ai_enhanced_reports import regenerate_reports_with_ai_data
+            
+            # Создаем заглушку для AI результатов
+            ai_stub_results = []
+            for _lot_key, lot_db_id in lot_ids_map.items():
+                ai_stub_results.append({
+                    "lot_id": lot_db_id,
+                    "category": "Test mode",
+                    "ai_data": {"message": "No data. Test mode"},
+                    "processed_at": "",
+                    "status": "stub"
+                })
+            
+            # Создаем обогащенный MD с заглушкой
+            success = regenerate_reports_with_ai_data(
+                tender_data=processed_data,
+                ai_results=ai_stub_results,
+                db_id=str(db_id),
+                lot_ids_map=lot_ids_map
+            )
+            
+            if success:
+                log.info("✅ Обогащенный MD и chunks созданы с заглушкой AI данных")
+            else:
+                log.warning("⚠️ Ошибка создания обогащенного MD с заглушкой")
+        except Exception:
+            log.exception("❌ Ошибка создания обогащенного MD с заглушкой")
+    else:
+        log.info("ℹ️ AI будет использоваться - обогащенный MD будет создан после получения AI результатов")
 
     return db_id, lot_ids_map, processed_data
+
+
+def _regenerate_reports_for_lot(tender_id: str, lot_id: str, ai_results: Dict[str, Any]):
+    """
+    Регенерирует MD и chunks файлы для лота с реальными AI данными.
+    
+    Args:
+        tender_id: ID тендера
+        lot_id: ID лота  
+        ai_results: Результаты AI обработки
+    """
+    import json
+    from pathlib import Path
+    
+    logger = get_gemini_logger()
+    
+    # Ищем сохраненные данные тендера
+    tender_data_path = Path("temp_tender_data") / f"{tender_id}.json"
+    
+    if not tender_data_path.exists():
+        logger.warning(f"⚠️ Не найдены сохраненные данные тендера: {tender_data_path}")
+        logger.info("ℹ️ Отчеты tenders_md/ и tenders_chunks/ не будут обновлены автоматически")
+        return
+    
+    try:
+        # Читаем сохраненные данные тендера
+        with open(tender_data_path, "r", encoding="utf-8") as f:
+            saved_data = json.load(f)
+        
+        tender_data = saved_data.get("tender_data")
+        lot_ids_map = saved_data.get("lot_ids_map")
+        
+        if not tender_data or not lot_ids_map:
+            logger.error(f"❌ Некорректный формат данных в {tender_data_path}")
+            return
+        
+        # Импортируем функцию регенерации
+        from app.markdown_utils.ai_enhanced_reports import regenerate_reports_with_ai_data
+        
+        # Формируем список AI результатов для всех лотов
+        ai_results_list = [{
+            "lot_id": int(lot_id),
+            "category": ai_results.get("category", ""),
+            "ai_data": ai_results.get("ai_data", {}),
+            "processed_at": ai_results.get("processed_at", ""),
+            "status": "success"
+        }]
+        
+        # Регенерируем отчеты
+        success = regenerate_reports_with_ai_data(
+            tender_data=tender_data,
+            ai_results=ai_results_list,
+            db_id=str(tender_id),
+            lot_ids_map=lot_ids_map
+        )
+        
+        if success:
+            logger.info(f"✅ Отчеты tenders_md/ и tenders_chunks/ регенерированы для {tender_id}_{lot_id}")
+        else:
+            logger.warning(f"⚠️ Ошибка при регенерации отчетов для {tender_id}_{lot_id}")
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка регенерации отчетов для {tender_id}_{lot_id}: {e}", exc_info=True)
+
 
 
 def process_tender_with_gemini_ids(
@@ -389,6 +477,20 @@ def process_tender_with_gemini_ids(
                         status_code,
                     )
                     successful_sends += 1
+                    
+                    # Регенерируем отчёты с AI данными
+                    try:
+                        _regenerate_reports_for_lot(
+                            tender_id=result.get("tender_id"),
+                            lot_id=result.get("lot_id"),
+                            ai_results=result,
+                        )
+                    except Exception:
+                        gemini_logger.exception(
+                            "⚠️ Ошибка регенерации отчётов для лота %s_%s",
+                            result.get("tender_id"),
+                            result.get("lot_id"),
+                        )
                 else:
                     offline_path = save_ai_results_offline(
                         tender_id=result.get("tender_id"),
