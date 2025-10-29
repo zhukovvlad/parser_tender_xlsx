@@ -1,11 +1,11 @@
 # --- Зависимости для веб-сервиса ---
-fastapi
-uvicorn[standard]
-python-multipart
-redis
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.6
+redis>=5.0.0
 
 # --- Celery для асинхронной обработки ---
-celery[redis]>=5.3.0
+celery[redis]>=5.5.0
 flower>=2.0.0  # Мониторинг Celery (опционально)
 
 # --- HTTP клиенты для API запросов ---

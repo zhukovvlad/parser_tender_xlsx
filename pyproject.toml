@@ -30,8 +30,8 @@ ensure_newline_before_comments = true
 line_length = 120
 
 [tool.ruff]
-# Игнорируем предупреждения о Cyrillic characters в комментариях и строках
-ignore = ["RUF001", "RUF003"]
+# Игнорируем предупреждения о Cyrillic characters (комментарии, строки, докстринги)
+ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

@@ -141,7 +141,9 @@ def send_lot_ai_results(
 
     try:
         log.info("POST AI results -> %s (auth=%s)", url, bool(api_key))
-        resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+        # Используем раздельные таймауты: (connect_timeout, read_timeout)
+        # connect=5сек для TCP handshake, read=timeout для полного ответа
+        resp = requests.post(url, json=payload, headers=headers, timeout=(5, timeout))
         status = resp.status_code
         try:
             data = resp.json()
