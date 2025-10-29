@@ -32,11 +32,13 @@ __pycache__/
 tenders_chunks/
 tenders_json/
 tenders_md/
+tenders_md_base/
 tenders_xlsx/
 tenders_positions/
 prompts/
 logs/
 temp_uploads/
+temp_tender_data/
 
 # Celery
 celerybeat-schedule

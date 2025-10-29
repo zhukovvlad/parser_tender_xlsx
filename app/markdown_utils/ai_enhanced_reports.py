@@ -76,9 +76,23 @@ def _save_enriched_markdown(markdown_lines: List[str], tender_id: str, lot_id: i
 
         filename = f"{tender_id}_{lot_id}.md"
         filepath = output_dir / filename
+        tmp_path = filepath.with_suffix(filepath.suffix + ".tmp")
 
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write("\n".join(markdown_lines))
+        try:
+            # Атомарная запись через временный файл для надежной перезаписи при повторных загрузках
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(markdown_lines))
+                f.flush()
+                os.fsync(f.fileno())
+            
+            # Атомарная замена файла
+            tmp_path.replace(filepath)
+            
+        except Exception:
+            # Удаляем временный файл при ошибке
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
 
         log.info(f"📄 Сохранен обогащенный MD файл: {filepath}")
         return True
