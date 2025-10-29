@@ -33,8 +33,8 @@ def _manual_clean_text_content(text: Optional[str]) -> str:
     # 1. Markdown-разметка
     cleaned_text = re.sub(r"(\*\*|__)(.+?)(\1)", r"\2", cleaned_text)
     cleaned_text = re.sub(r"(?<![\wА-Яа-я])(\*|_)(.+?)(\1)(?![\wА-Яа-я])", r"\2", cleaned_text)
-    # 2. Горизонтальные разделители (только Markdown HR - линии из 3+ дефисов)
-    cleaned_text = re.sub(r"(?m)^\s*-{3,}\s*$", " ", cleaned_text)
+    # 2. Горизонтальные разделители (все Markdown HR варианты: ---, ***, ___)
+    cleaned_text = re.sub(r"(?m)^\s*(?:-{3,}|\*{3,}|_{3,})\s*$", " ", cleaned_text)
     cleaned_text = cleaned_text.strip()
     # 3. Обрамляющие кавычки и пунктуация
     previous_text_state = None

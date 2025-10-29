@@ -216,14 +216,14 @@ def parse_with_ids(
             base_name = db_id  # Используем реальный DB ID
 
             _ = generate_reports_for_all_lots(processed_data, output_dir, base_name, lot_ids_map)
-            log.info("✅ Positions файлы созданы с реальными ID")  # noqa: RUF001
+            log.info("✅ Positions файлы созданы с реальными ID")
 
             # 3.2 ВСЕГДА создаем полный MD с описанием тендера (БЕЗ AI данных)
             # Это базовый MD из JSON - шаг 2 в диаграмме
-            log.info("🔄 Создание полного MD с описанием тендера (из JSON)...")  # noqa: RUF001
+            log.info("🔄 Создание полного MD с описанием тендера (из JSON)...")
             lot_markdowns, _initial_metadata = generate_markdown_for_lots(processed_data)
             
-            # Сохраняем базовый полный MD для каждого лота
+            # Сохраняем базовый полный MD для каждого лота атомарно
             base_md_dir = Path("tenders_md_base")
             base_md_dir.mkdir(parents=True, exist_ok=True)
             
@@ -231,9 +231,19 @@ def parse_with_ids(
                 real_lot_id = lot_ids_map.get(lot_key)
                 if real_lot_id:
                     base_md_path = base_md_dir / f"{db_id}_{real_lot_id}_base.md"
-                    with open(base_md_path, "w", encoding="utf-8") as f:
-                        f.write("\n".join(markdown_lines))
-                    log.info(f"📄 Сохранен базовый MD: {base_md_path.name}")
+                    tmp_path = base_md_path.with_suffix(base_md_path.suffix + ".tmp")
+                    try:
+                        # Атомарная запись через временный файл
+                        with open(tmp_path, "w", encoding="utf-8") as f:
+                            f.write("\n".join(markdown_lines))
+                            f.flush()
+                            os.fsync(f.fileno())
+                        tmp_path.replace(base_md_path)
+                        log.info(f"📄 Сохранен базовый MD: {base_md_path.name}")
+                    except Exception:
+                        if tmp_path.exists():
+                            tmp_path.unlink()
+                        raise
             
             log.info("✅ Полный MD с описанием тендера создан")
 
@@ -241,7 +251,7 @@ def parse_with_ids(
             # Если AI НЕ будет использоваться - создаем сразу с заглушкой
             # Если AI будет - создание отложится до получения реальных AI данных
             if not will_use_ai:
-                log.info("🔄 AI не будет использоваться - создаем обогащенный MD с заглушкой")  # noqa: RUF001
+                log.info("🔄 AI не будет использоваться - создаем обогащенный MD с заглушкой")
                 from .markdown_utils.ai_enhanced_reports import regenerate_reports_with_ai_data
                 
                 # Создаем заглушку для AI результатов
