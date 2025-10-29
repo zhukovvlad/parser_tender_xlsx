@@ -119,6 +119,12 @@ def process_tender_positions(
                     reason="request_failed",
                 )
                 logger.warning(f"📦 Go недоступен. AI результаты сохранены оффлайн: {offline_path}")
+            
+            # Регенерируем MD и chunks файлы с реальными AI данными
+            try:
+                _regenerate_reports_for_lot(tender_id, lot_id, result)
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось регенерировать отчеты для {tender_id}_{lot_id}: {e}")
 
         # Финальное обновление статуса
         self.update_state(
@@ -168,6 +174,71 @@ def _archive_processed_file(file_path: str):
         shutil.move(str(source_path), str(target_path))
 
         logger.info(f"📂 File archived: {source_path.name} -> tenders_positions/")
+
+
+def _regenerate_reports_for_lot(tender_id: str, lot_id: str, ai_result: Dict[str, Any]):
+    """
+    Регенерирует MD и chunks файлы для лота с реальными AI данными.
+    
+    Args:
+        tender_id: ID тендера
+        lot_id: ID лота  
+        ai_result: Результаты AI обработки
+    """
+    import json
+    from pathlib import Path
+    
+    # Ищем сохраненные данные тендера
+    tender_data_path = Path("temp_tender_data") / f"{tender_id}.json"
+    
+    if not tender_data_path.exists():
+        logger.warning(f"⚠️ Не найдены сохраненные данные тендера: {tender_data_path}")
+        logger.info("ℹ️ Отчеты tenders_md/ и tenders_chunks/ не будут обновлены автоматически")
+        return
+    
+    try:
+        # Читаем сохраненные данные тендера
+        with open(tender_data_path, "r", encoding="utf-8") as f:
+            saved_data = json.load(f)
+        
+        tender_data = saved_data.get("tender_data")
+        lot_ids_map = saved_data.get("lot_ids_map")
+        
+        if not tender_data or not lot_ids_map:
+            logger.error(f"❌ Некорректный формат данных в {tender_data_path}")
+            return
+        
+        # Импортируем функцию регенерации
+        from ...markdown_utils.ai_enhanced_reports import regenerate_reports_with_ai_data
+        
+        # Формируем список AI результатов для всех лотов
+        # Нужно проверить, есть ли уже другие результаты
+        ai_results = []
+        
+        # Добавляем текущий результат
+        ai_results.append({
+            "lot_id": int(lot_id),
+            "category": ai_result.get("category", ""),
+            "ai_data": ai_result.get("ai_data", {}),
+            "processed_at": ai_result.get("processed_at", ""),
+            "status": "success"
+        })
+        
+        # Регенерируем отчеты
+        success = regenerate_reports_with_ai_data(
+            tender_data=tender_data,
+            ai_results=ai_results,
+            db_id=str(tender_id),
+            lot_ids_map=lot_ids_map
+        )
+        
+        if success:
+            logger.info(f"✅ Отчеты tenders_md/ и tenders_chunks/ регенерированы для {tender_id}_{lot_id}")
+        else:
+            logger.warning(f"⚠️ Ошибка при регенерации отчетов для {tender_id}_{lot_id}")
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка регенерации отчетов для {tender_id}_{lot_id}: {e}", exc_info=True)
 
 
 @celery_app.task(bind=True)
