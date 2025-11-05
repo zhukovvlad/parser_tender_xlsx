@@ -2,7 +2,7 @@
 
 # .PHONY гарантирует, что make выполнит команду, даже если в директории
 # уже есть файл или папка с таким же именем (например, "run").
-.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-new clean dev prod parse parse-offline parse-gemini parse-gemini-async worker-start worker-status sync-pending format lint check
+.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-new clean dev prod parse parse-offline parse-gemini parse-gemini-async worker-start worker-status sync-pending format lint check test-gemini-positions
 
 # Определяем переменные по умолчанию для удобства.
 # Эти значения можно переопределить в Makefile.local
@@ -254,4 +254,20 @@ help:
 	@echo "  GO_SERVER_API_ENDPOINT     - URL API сервера"
 	@echo "  GO_SERVER_API_KEY          - API ключ для сервера"
 	@echo "  GOOGLE_API_KEY             - API ключ для Gemini AI"
+
+# === ТЕСТИРОВАНИЕ GEMINI ===
+
+# Тестирование Gemini на файле позиций
+# Использование: make test-gemini-positions FILE=tenders_positions/2_2_positions.md
+test-gemini-positions:
+	@if [ -z "$(FILE)" ]; then \
+		echo "❌ Ошибка: не указан файл"; \
+		echo "Использование: make test-gemini-positions FILE=tenders_positions/2_2_positions.md"; \
+		echo ""; \
+		echo "Доступные файлы:"; \
+		ls -1 tenders_positions/*.md 2>/dev/null || echo "  (нет файлов)"; \
+		exit 1; \
+	fi
+	@echo "🧪 Тестирование Gemini на файле: $(FILE)"
+	.venv/bin/python test_gemini_positions.py $(FILE) $(ARGS)
 

@@ -107,11 +107,13 @@ def get_lot_positions(
 
         # Если мы наткнулись на объединенную ячейку, значит, блок позиций закончился.
         if is_merged:
+            log.debug(f"get_lot_positions: Строка {current_row_num} содержит объединенную ячейку - конец блока позиций")
             break
 
         # Пропускаем полностью пустые строки
         current_row_tuple = ws[current_row_num]
         if all(cell.value is None for cell in current_row_tuple):
+            log.debug(f"get_lot_positions: Строка {current_row_num} пустая - пропускаем")
             continue
 
         item = get_items_dict(contractor["merged_shape"]["colspan"])
@@ -124,6 +126,11 @@ def get_lot_positions(
         item[JSON_KEY_COMMENT_ORGANIZER] = ws.cell(row=current_row_num, column=6).value
         item[JSON_KEY_UNIT] = ws.cell(row=current_row_num, column=7).value
         item[JSON_KEY_QUANTITY] = ws.cell(row=current_row_num, column=8).value
+        
+        log.debug(
+            f"get_lot_positions: Строка {current_row_num} - "
+            f"№{item[JSON_KEY_NUMBER]}, работа: '{original_job_title}'"
+        )
 
         contractor_specific_data = parse_contractor_row(ws, current_row_num, contractor)
         item.update(contractor_specific_data)
