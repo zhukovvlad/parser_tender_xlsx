@@ -69,6 +69,13 @@ def parse_file_with_gemini(
     Returns:
         True если обработка прошла успешно (даже без AI), False при фатальной ошибке базового парсинга
     """
+    # Настраиваем логирование, если оно еще не настроено (для Celery воркера)
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    
+    # Устанавливаем уровень для app логгеров
+    logging.getLogger("app").setLevel(getattr(logging, log_level, logging.INFO))
+    logging.getLogger("app.excel_parser").setLevel(getattr(logging, log_level, logging.INFO))
+    
     gemini_logger = get_gemini_logger()
 
     # Проверяем возможность AI обработки
@@ -557,8 +564,13 @@ def main():
     log_level = os.getenv("LOG_LEVEL", "INFO").upper() if not args.verbose else "DEBUG"
     gemini_log_level = os.getenv("GEMINI_LOG_LEVEL", "INFO").upper() if not args.verbose else "DEBUG"
 
+    # Устанавливаем уровень для root и всех app логгеров
     logging.getLogger().setLevel(getattr(logging, log_level, logging.INFO))
     logging.getLogger("app").setLevel(getattr(logging, log_level, logging.INFO))
+    
+    # Явно устанавливаем уровень для логгеров парсера Excel
+    logging.getLogger("app.excel_parser").setLevel(getattr(logging, log_level, logging.INFO))
+    
     get_gemini_logger().setLevel(getattr(logging, gemini_log_level, logging.INFO))
 
     # Формат логов
