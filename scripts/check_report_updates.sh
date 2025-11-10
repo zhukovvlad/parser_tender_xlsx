@@ -34,8 +34,10 @@ check_file() {
     echo -e "${YELLOW}📂 $label${NC}"
     
     if [ -f "$file" ]; then
-        local mtime=$(stat -c '%y' "$file" 2>/dev/null || stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$file" 2>/dev/null)
-        local size=$(stat -c '%s' "$file" 2>/dev/null || stat -f '%z' "$file" 2>/dev/null)
+        local mtime
+        local size
+        mtime=$(stat -c '%y' "$file" 2>/dev/null || stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$file" 2>/dev/null)
+        size=$(stat -c '%s' "$file" 2>/dev/null || stat -f '%z' "$file" 2>/dev/null)
         local size_kb=$((size / 1024))
         
         echo -e "  ${GREEN}✓${NC} Файл существует: ${file}"
