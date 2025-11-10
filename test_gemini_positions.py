@@ -86,6 +86,7 @@ def main():
     print(f"{'='*70}\n")
     
     overall_start = time.time()
+    cleanup_required = False
     
     try:
         # Создаем процессор
@@ -95,6 +96,7 @@ def main():
         # Загружаем файл
         print(f"📤 Загрузка файла на сервер Gemini...")
         processor.upload(str(positions_path))
+        cleanup_required = True
         
         # Шаг 1: Классификация
         print("\n" + "="*70)
@@ -148,9 +150,10 @@ def main():
                 }, f, ensure_ascii=False, indent=2)
             print(f"\n💾 Результат сохранен в: {output_file}")
         
-        # Очистка
+        # Удаление файла в нормальном потоке
         print("\n🧹 Удаление временного файла с сервера Gemini...")
         processor.delete_uploaded_file()
+        cleanup_required = False
         
         overall_time = time.time() - overall_start
         
@@ -170,6 +173,17 @@ def main():
             import traceback
             traceback.print_exc()
         return 1
+    finally:
+        # Всегда пытаемся удалить файл, если он был загружен
+        if cleanup_required:
+            try:
+                print("\n🧹 Удаление временного файла с сервера Gemini...")
+                processor.delete_uploaded_file()
+            except Exception as cleanup_error:
+                print(f"⚠️  Не удалось удалить файл: {cleanup_error}")
+                if args.verbose:
+                    import traceback
+                    traceback.print_exc()
 
 
 if __name__ == "__main__":

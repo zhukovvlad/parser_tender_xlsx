@@ -67,6 +67,10 @@ def create_hierarchical_report(positions_data: dict, output_filename: Path, lot_
     Side Effects:
         - Создает или перезаписывает файл по пути `output_filename`.
     """
+    # Проверяем, существует ли файл (для логирования)
+    file_exists = output_filename.exists()
+    action = "Обновление" if file_exists else "Создание"
+    
     with open(output_filename, "w", encoding="utf-8") as f:
         f.write(f"# Детализированный отчет по позициям для лота - {lot_name}\n")
         f.write("---" + "\n\n")
@@ -169,7 +173,7 @@ def generate_reports_for_all_lots(
 
         try:
             create_hierarchical_report(positions, output_filename, lot_name)
-            logging.info(f"    -> Детализированный MD-отчет создан: {output_filename.name}")
+            logging.info(f"    -> Детализированный MD-отчет создан/обновлен: {output_filename.name}")
             created_files.append(output_filename)
         except Exception as e:
             logging.error(f"    -> Ошибка при создании отчета для лота '{lot_name}': {e}")

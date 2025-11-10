@@ -119,6 +119,7 @@ def register_tender_in_go(
 
         logging.info(f"Тендер успешно зарегистрирован. Получен ID из БД: {db_id}")
         logging.info(f"Получены ID лотов: {lot_ids}")
+        logging.debug(f"Ответ сервера: {response_data}")
         return True, str(db_id), lot_ids
 
     except requests.exceptions.HTTPError as http_err:
