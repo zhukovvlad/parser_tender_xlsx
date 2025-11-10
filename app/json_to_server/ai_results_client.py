@@ -81,6 +81,11 @@ def build_ai_results_endpoint(tender_id: str | int, lot_id: str | int) -> str:
     base = base.rstrip("/")
 
     # Используем упрощенный эндпойнт только с lot_id
+    # ВАЖНО: Этот endpoint используется как для live-запросов, так и для offline replay.
+    # При сохранении через save_ai_results_offline() этот же путь записывается в _sync.endpoint,
+    # поэтому отложенная синхронизация будет использовать актуальный API путь.
+    # По умолчанию: /lots/{lot_id}/ai-results (новый формат, соответствует GoApiClient)
+    # Альтернатива: /tenders/{tender_id}/lots/{lot_id}/ai-results (если нужен tender_id в пути)
     use_simple_endpoint = os.getenv("GO_SERVER_USE_SIMPLE_AI_ENDPOINT", "true").lower() == "true"
     if use_simple_endpoint:
         url = f"{base}/lots/{lot_id}/ai-results"
@@ -167,7 +172,24 @@ def save_ai_results_offline(
     processed_at: str,
     reason: str = "network_error",
 ) -> Path:
-    """Сохраняет payload для последующей синхронизации."""
+    """Сохраняет payload для последующей синхронизации.
+    
+    ВАЖНО: Использует build_ai_results_endpoint() для получения актуального пути API.
+    Это гарантирует, что offline replay будет отправлять данные на правильный endpoint:
+    - Текущий формат: /lots/{lot_id}/ai-results (соответствует GoApiClient)
+    - Endpoint сохраняется в поле _sync.endpoint для последующего replay
+    
+    Args:
+        tender_id: ID тендера
+        lot_id: ID лота
+        category: Категория тендера (из AI классификации)
+        ai_data: Словарь с AI результатами
+        processed_at: ISO timestamp обработки
+        reason: Причина offline сохранения (для логов)
+        
+    Returns:
+        Path: Путь к сохраненному файлу в pending_sync_json/ai_results/
+    """
     payload = make_default_payload(tender_id, lot_id, category, ai_data, processed_at)
     payload["_sync"] = {"reason": reason, "endpoint": build_ai_results_endpoint(tender_id, lot_id)}
 

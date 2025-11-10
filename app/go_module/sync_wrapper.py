@@ -15,7 +15,16 @@
 
 ВАЖНО: Эти обертки создают новый event loop для каждого вызова,
 что безопасно для синхронного кода, но неэффективно для множественных
-вызовов. Для оптимизации рассмотрите переход на async/await в воркерах.
+вызовов. 
+
+Возможные оптимизации для будущего:
+- Миграция Celery tasks на async-native библиотеки (celery[async] с asyncio)
+- Поддержка shared event loop и connection pool между задачами
+- Использование asyncio.create_task() для конкурентных операций
+- Переход на async/await в воркерах для устранения overhead
+
+Текущая реализация приемлема для синхронного контекста и обеспечивает
+корректную работу с async GoApiClient без блокировки event loop.
 """
 
 import asyncio
@@ -73,7 +82,7 @@ def import_tender_sync(tender_data: Dict[str, Any]) -> Tuple[str, Dict[str, int]
     try:
         return asyncio.run(_async_import())
     except Exception as e:
-        log.error(f"❌ Ошибка импорта тендера: {e}")
+        log.exception(f"❌ Ошибка импорта тендера: {e}")
         raise RuntimeError(f"Не удалось импортировать тендер: {e}") from e
 
 
@@ -135,40 +144,5 @@ def update_lot_ai_results_sync(
     try:
         return asyncio.run(_async_update())
     except Exception as e:
-        log.error(f"❌ Ошибка обновления AI результатов для лота {lot_db_id}: {e}")
+        log.exception(f"❌ Ошибка обновления AI результатов для лота {lot_db_id}: {e}")
         raise RuntimeError(f"Не удалось обновить AI результаты: {e}") from e
-
-
-def import_tender_with_fallback(
-    tender_data: Dict[str, Any],
-    source_filename: str = "",
-) -> Tuple[bool, Optional[str], Optional[Dict[str, int]]]:
-    """
-    Синхронная обертка с поддержкой fallback режима (временные ID).
-    
-    Расширенная версия import_tender_sync() с логикой временных ID
-    для совместимости со старым register_tender_in_go().
-    
-    Args:
-        tender_data: Словарь с данными тендера
-        source_filename: Имя исходного файла (для генерации temp ID)
-        
-    Returns:
-        Tuple[bool, Optional[str], Optional[Dict]]:
-        - success: True если успешно (даже с temp ID)
-        - tender_db_id: ID тендера или temp ID
-        - lot_ids_map: Словарь ID лотов или temp ID
-        
-    Note:
-        Эта функция НЕ генерирует временные ID при сбое, а просто
-        пробрасывает исключение. Fallback логика должна быть реализована
-        на уровне вызывающего кода.
-    """
-    try:
-        tender_db_id, lot_ids_map = import_tender_sync(tender_data)
-        return True, tender_db_id, lot_ids_map
-    except Exception as e:
-        log.error(f"❌ Импорт тендера не удался: {e}")
-        # Вместо генерации temp ID, пробрасываем ошибку
-        # Вызывающий код решит, нужен ли fallback
-        raise
