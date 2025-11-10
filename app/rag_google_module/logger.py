@@ -66,6 +66,12 @@ def setup_rag_logger(
         log_dir = Path("logs")
         log_dir.mkdir(exist_ok=True)
         log_file = log_dir / "rag_google.log"
+    
+    # Убеждаемся, что родительская директория для пользовательского log_file существует
+    log_file_path = Path(log_file)
+    parent_dir = log_file_path.parent
+    if parent_dir not in (Path("."), Path("")):
+        parent_dir.mkdir(parents=True, exist_ok=True)
 
     file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
     file_handler.setLevel(level)

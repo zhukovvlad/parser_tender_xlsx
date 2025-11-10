@@ -30,9 +30,9 @@ class FileSearchClient:
         # Наш "индекс" - это просто объект загруженного файла
         self._catalog_file = None 
         # Модель, которую мы будем использовать для RAG
-        self._model = self.client.models.get("gemini-1.5-pro-latest")
+        self._model_name = "gemini-1.5-pro-latest"
         
-        self.logger.info(f"FileSearchClient (RAG v3, model-based) инициализирован.")
+        self.logger.info(f"FileSearchClient (RAG v3, model-based) инициализирован с моделью {self._model_name}.")
 
     async def _upload_catalog(self, jsonl_data: List[Dict]) -> genai.types.File:
         """
@@ -112,11 +112,12 @@ class FileSearchClient:
         
         try:
             # (ИЗМЕНЕНИЕ) Главный вызов!
-            # Мы передаем и файл, и промпт в contents.
-            response = await self._model.generate_content_async(
+            # Мы передаем и файл, и промпт в contents через Responses API.
+            response = await self.client.models.generate_content_async(
+                model=self._model_name,
                 contents=[self._catalog_file, system_prompt],
                 # Просим модель вернуть чистый JSON
-                generation_config={"response_mime_type": "application/json"}
+                config={"response_mime_type": "application/json"}
             )
             
             # Парсим JSON-ответ от модели
