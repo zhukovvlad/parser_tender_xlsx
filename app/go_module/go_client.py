@@ -73,7 +73,7 @@ class GoApiClient:
         """
         self.logger.info(f"Отправка полного тендера в Go (ETP ID: {tender_data.get('tender_id')})...")
         response = await self.client.post(
-            "/tender/import", # (Предполагаемый эндпоинт)
+            "/import-tender",  # Эндпоинт совместимый со старым API
             json=tender_data,
             headers=self._get_headers()
         )
@@ -82,13 +82,13 @@ class GoApiClient:
     async def update_lot_key_parameters(self, lot_db_id: str, ai_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         (ЗАМЕНА) Обновляет поле lot_key_parameters для лота (Процесс 1).
-        Использует PATCH, так как это частичное обновление.
+        Использует POST для совместимости со старым API.
         """
         self.logger.info(f"Обновление key_parameters для лота {lot_db_id}...")
-        payload = {"parameters": ai_data}
-        response = await self.client.patch(
-            f"/lot/{lot_db_id}/key-parameters", # (Предполагаемый эндпоинт)
-            json=payload,
+        # Формат payload совместимый со старым API
+        response = await self.client.post(
+            f"/lots/{lot_db_id}/ai-results",  # Эндпоинт совместимый со старым API
+            json=ai_data,  # ai_data уже содержит полный payload
             headers=self._get_headers()
         )
         return await self._handle_response(response)

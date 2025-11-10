@@ -18,10 +18,8 @@ from ...gemini_module.constants import (
     TENDER_CATEGORIES,
     TENDER_CONFIGS,
 )
-from ...json_to_server.ai_results_client import (
-    save_ai_results_offline,
-    send_lot_ai_results,
-)
+from ...go_module import update_lot_ai_results_sync
+from ...json_to_server.ai_results_client import save_ai_results_offline
 from .worker import GeminiWorker
 
 # Логгер для Celery задач
@@ -100,15 +98,15 @@ def process_tender_positions(
 
         # Сохранение результата в БД через Go-сервис (и оффлайн-фолбэк)
         if result.get("status") == "success":
-            ok, status_code, _ = send_lot_ai_results(
-                tender_id=tender_id,
-                lot_id=lot_id,
-                category=result.get("category", ""),
-                ai_data=result.get("ai_data", {}),
-                processed_at=result.get("processed_at", ""),
-            )
-            if ok:
-                logger.info(f"💾 AI результаты отправлены на Go для {tender_id}_{lot_id} (status={status_code})")
+            try:
+                update_lot_ai_results_sync(
+                    lot_db_id=str(lot_id),
+                    tender_id=str(tender_id),  # Передаем tender_id
+                    category=result.get("category", ""),
+                    ai_data=result.get("ai_data", {}),
+                    processed_at=result.get("processed_at", ""),
+                )
+                logger.info(f"💾 AI результаты успешно отправлены на Go для {tender_id}_{lot_id}")
 
                 # Регенерируем отчеты с AI данными
                 try:
@@ -126,7 +124,11 @@ def process_tender_positions(
                         tender_id,
                         lot_id,
                     )
-            else:
+            except Exception as e:
+                logger.warning(
+                    f"⚠️ Не удалось отправить AI результаты на Go для {tender_id}_{lot_id}: {e}"
+                )
+                # Сохраняем оффлайн при ошибке
                 offline_path = save_ai_results_offline(
                     tender_id=tender_id,
                     lot_id=lot_id,
@@ -135,7 +137,7 @@ def process_tender_positions(
                     processed_at=result.get("processed_at", ""),
                     reason="request_failed",
                 )
-                logger.warning(f"📦 Go недоступен. AI результаты сохранены оффлайн: {offline_path}")
+                logger.warning(f"📦 AI результаты сохранены оффлайн: {offline_path}")
 
         # Финальное обновление статуса
         self.update_state(

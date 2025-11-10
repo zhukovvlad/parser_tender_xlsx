@@ -12,9 +12,12 @@ Go Module
 
 from .go_client import GoApiClient
 from .logger import get_go_logger, setup_go_logger
+from .sync_wrapper import import_tender_sync, update_lot_ai_results_sync
 
 __all__ = [
     "GoApiClient",
     "get_go_logger",
     "setup_go_logger",
+    "import_tender_sync",
+    "update_lot_ai_results_sync",
 ]
