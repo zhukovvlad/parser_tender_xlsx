@@ -49,7 +49,7 @@ def sanitize_filename(name: str) -> str:
     return name.replace(" ", "_").strip()[:50]
 
 
-def create_hierarchical_report(positions_data: dict, output_filename: Path, lot_name: str):
+def create_hierarchical_report(positions_data: dict, output_filename: Path, lot_name: str) -> str:
     """
     Создает и записывает в файл иерархический MD-отчет по позициям одного лота.
 
@@ -63,6 +63,9 @@ def create_hierarchical_report(positions_data: dict, output_filename: Path, lot_
                                одного конкретного лота.
         output_filename (Path): Полный путь к файлу, в который будет записан отчет.
         lot_name (str): Человекочитаемое название лота для использования в заголовке отчета.
+
+    Returns:
+        str: "Создание" или "Обновление" в зависимости от того, существовал ли файл.
 
     Side Effects:
         - Создает или перезаписывает файл по пути `output_filename`.
@@ -115,6 +118,8 @@ def create_hierarchical_report(positions_data: dict, output_filename: Path, lot_
 
             final_line = ". ".join(output_parts)
             f.write(final_line + "\n\n---\n\n")
+    
+    return action
 
 
 def generate_reports_for_all_lots(
@@ -172,8 +177,8 @@ def generate_reports_for_all_lots(
         output_filename = output_dir / f"{tender_db_id}_{lot_db_id}_positions.md"
 
         try:
-            create_hierarchical_report(positions, output_filename, lot_name)
-            logging.info(f"    -> Детализированный MD-отчет создан/обновлен: {output_filename.name}")
+            action = create_hierarchical_report(positions, output_filename, lot_name)
+            logging.info(f"    -> {action} детализированного MD-отчета: {output_filename.name}")
             created_files.append(output_filename)
         except Exception as e:
             logging.error(f"    -> Ошибка при создании отчета для лота '{lot_name}': {e}")

@@ -1,11 +1,10 @@
-# app/rag_module/go_client.py
+# app/go_module/go_client.py
 
 import os
 import httpx
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
-# Используем тот же логгер, что и другие модули, для единообразия
-from ..gemini_module.logger import get_gemini_logger
+from .logger import get_go_logger
 
 class GoApiClient:
     """
@@ -16,12 +15,16 @@ class GoApiClient:
     def __init__(self):
         self.base_url = os.getenv("GO_SERVER_API_ENDPOINT")
         if not self.base_url:
-            raise ValueError("GO_SERVER_API_ENDPOINT не установлен в .env") #
-
-        self.api_key = os.getenv("GO_SERVER_API_KEY") #
-        self.timeout = int(os.getenv("GO_HTTP_TIMEOUT", 60)) #
+            raise ValueError("GO_SERVER_API_ENDPOINT не установлен в .env")
         
-        self.logger = get_gemini_logger("go_api_client")
+        # Базовая валидация URL
+        if not (self.base_url.startswith("http://") or self.base_url.startswith("https://")):
+            raise ValueError(f"GO_SERVER_API_ENDPOINT должен начинаться с http:// или https://, получено: {self.base_url}")
+
+        self.api_key = os.getenv("GO_SERVER_API_KEY")
+        self.timeout = int(os.getenv("GO_HTTP_TIMEOUT", 60))
+        
+        self.logger = get_go_logger()
         
         # Создаем httpx.AsyncClient для connection pooling
         self.client = httpx.AsyncClient(
@@ -49,11 +52,11 @@ class GoApiClient:
             # Возвращаем JSON, если ответ успешен
             return response.json()
         except httpx.HTTPStatusError as e:
-            self.logger.error(f"Ошибка API Go ({e.response.status_code}): {e.response.text}")
+            self.logger.exception(f"Ошибка API Go ({e.response.status_code}): {e.response.text}")
             # Пробрасываем ошибку дальше, чтобы Celery мог ее поймать
             raise
         except Exception as e:
-            self.logger.error(f"Критическая ошибка клиента Go API: {e}")
+            self.logger.exception(f"Критическая ошибка клиента Go API: {e}")
             raise
 
     # --- МЕТОДЫ ДЛЯ СТАРОГО ВОРКЕРА (GeminiWorker) ---
