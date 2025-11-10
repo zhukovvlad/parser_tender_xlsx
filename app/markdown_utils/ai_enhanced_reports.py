@@ -77,10 +77,14 @@ def _save_enriched_markdown(markdown_lines: List[str], tender_id: str, lot_id: i
         filename = f"{tender_id}_{lot_id}.md"
         filepath = output_dir / filename
 
+        # Проверяем, существует ли файл (для логирования)
+        file_exists = filepath.exists()
+        action = "обновлен" if file_exists else "создан"
+
         with open(filepath, "w", encoding="utf-8") as f:
             f.write("\n".join(markdown_lines))
 
-        log.info(f"📄 Сохранен обогащенный MD файл: {filepath}")
+        log.info(f"📄 Обогащенный MD файл {action}: {filepath}")
         return True
 
     except Exception as e:

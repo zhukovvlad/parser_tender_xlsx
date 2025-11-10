@@ -250,6 +250,8 @@ def parse_with_ids(
                 real_lot_id = lot_ids_map.get(lot_key)
                 if real_lot_id:
                     base_md_path = base_md_dir / f"{db_id}_{real_lot_id}_base.md"
+                    file_exists = base_md_path.exists()
+                    action = "обновлен" if file_exists else "создан"
                     tmp_path = base_md_path.with_suffix(base_md_path.suffix + ".tmp")
                     try:
                         # Атомарная запись через временный файл
@@ -258,7 +260,7 @@ def parse_with_ids(
                             f.flush()
                             os.fsync(f.fileno())
                         tmp_path.replace(base_md_path)
-                        log.info(f"📄 Сохранен базовый MD: {base_md_path.name}")
+                        log.info(f"📄 Базовый MD {action}: {base_md_path.name}")
                     except Exception:
                         if tmp_path.exists():
                             tmp_path.unlink()
