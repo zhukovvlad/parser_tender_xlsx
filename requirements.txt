@@ -10,6 +10,7 @@ flower>=2.0.0  # Мониторинг Celery (опционально)
 
 # --- HTTP клиенты для API запросов ---
 requests>=2.31.0
+httpx>=0.27.0  # Асинхронный HTTP клиент для GoApiClient
 aiohttp>=3.8.0
 aiofiles>=25.1.0
 
