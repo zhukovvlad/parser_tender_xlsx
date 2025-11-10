@@ -338,10 +338,8 @@ def process_tender_lots(
     # Синхронная обработка (для AI и для режима без AI)
     gemini_logger.info("🔄 Режим: синхронная обработка")
     try:
-        from app.json_to_server.ai_results_client import (
-            save_ai_results_offline,
-            send_lot_ai_results,
-        )
+        from app.go_module import update_lot_ai_results_sync
+        from app.json_to_server.ai_results_client import save_ai_results_offline
         from app.markdown_utils.regeneration_utils import regenerate_reports_for_lot
 
         api_key = os.getenv("GOOGLE_API_KEY")
@@ -378,23 +376,28 @@ def process_tender_lots(
             
             # Отправка в БД (только для реальных AI результатов)
             if result.get("status") == "success":
-                ok, status_code, _ = send_lot_ai_results(
-                    tender_id=result.get("tender_id"),
-                    lot_id=lot_id,
-                    category=result.get("category", ""),
-                    ai_data=result.get("ai_data", {}),
-                    processed_at=result.get("processed_at", ""),
-                )
-                if ok:
+                try:
+                    update_lot_ai_results_sync(
+                        lot_db_id=str(lot_id),
+                        tender_id=str(tender_db_id),  # Передаем tender_id
+                        category=result.get("category", ""),
+                        ai_data=result.get("ai_data", {}),
+                        processed_at=result.get("processed_at", ""),
+                    )
                     gemini_logger.info(
-                        "💾 AI результаты отправлены на Go для %s_%s (status=%s)",
+                        "💾 AI результаты успешно отправлены на Go для %s_%s",
                         tender_db_id,
                         lot_id,
-                        status_code,
                     )
                     successful_sends += 1
-                else:
-                    # ... (логика оффлайн сохранения)
+                except Exception as e:
+                    gemini_logger.warning(
+                        "⚠️ Не удалось отправить AI результаты на Go для %s_%s: %s",
+                        tender_db_id,
+                        lot_id,
+                        e,
+                    )
+                    # Сохраняем оффлайн при ошибке
                     offline_path = save_ai_results_offline(
                         tender_id=result.get("tender_id"),
                         lot_id=lot_id,
@@ -403,7 +406,7 @@ def process_tender_lots(
                         processed_at=result.get("processed_at", ""),
                         reason="request_failed",
                     )
-                    gemini_logger.warning("📦 Go недоступен. AI результаты сохранены оффлайн: %s", offline_path)
+                    gemini_logger.warning("📦 AI результаты сохранены оффлайн: %s", offline_path)
 
             # Регенерация отчетов (ВСЕГДА, для AI и для заглушек)
             try:
@@ -473,58 +476,23 @@ def _import_full_tender_via_go(processed_data: dict) -> tuple[str, dict[str, int
     на уровне БД - повторные отправки безопасны.
     
     Бросает исключение при ошибке.
+    
+    ОБНОВЛЕНО: Использует новый GoApiClient через sync_wrapper.
     """
-    go_url = os.getenv("GO_SERVER_API_ENDPOINT")
-    api_key = os.getenv("GO_SERVER_API_KEY")
-    if not go_url:
-        raise RuntimeError("GO_SERVER_API_ENDPOINT не настроен")
-
-    base = go_url.rstrip("/")
-    # Поддержка как полного пути, так и базового /api/v1
-    if base.endswith("/import-tender"):
-        url = base
-    else:
-        url = f"{base}/import-tender"
-
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    timeout = float(os.getenv("GO_HTTP_TIMEOUT", "60"))
-
+    from app.go_module import import_tender_sync
+    
     try:
-        resp = requests.post(
-            url,
-            json=processed_data,
-            headers=headers,
-            timeout=(5, timeout),
-        )
-    except requests.RequestException as e:
-        raise RuntimeError(f"Go import network error: {e}") from e
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Go import failed: {resp.status_code} {resp.text}")
-
-    try:
-        data = resp.json()
-    except ValueError:
-        raise RuntimeError(f"Go import: не-JSON ответ: {resp.text[:500]}")
-
-    # Проверка и приведение db_id
-    db_id_val = data.get("db_id")
-    if not db_id_val:
-        raise RuntimeError("Go import: empty db_id")
-    db_id = str(db_id_val)
-
-    # Приведение lot_ids
-    raw_lots = data.get("lots_id") or {}
-    lots_map = {}
-    for k, v in raw_lots.items():
-        try:
-            lots_map[str(k)] = int(v)
-        except (TypeError, ValueError):
-            log.warning("Некорректный lot_id для %r: %r", k, v)
-
-    return db_id, lots_map
+        log.info("🔄 Импорт тендера через GoApiClient...")
+        tender_db_id, lot_ids_map = import_tender_sync(processed_data)
+        
+        log.info(f"✅ Тендер успешно импортирован: db_id={tender_db_id}")
+        log.debug(f"📋 Карта ID лотов: {lot_ids_map}")
+        
+        return tender_db_id, lot_ids_map
+        
+    except Exception as e:
+        log.error(f"❌ Ошибка импорта тендера: {e}")
+        raise RuntimeError(f"Не удалось импортировать тендер на Go-сервер: {e}") from e
 
 
 def main():
