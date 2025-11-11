@@ -67,7 +67,7 @@ def setup_rag_catalog_logger(
         log_dir = Path("logs")
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "rag_catalog.log"
-    
+
     # Убеждаемся, что родительская директория для пользовательского log_file существует
     log_file_path = Path(log_file)
     parent_dir = log_file_path.parent
@@ -85,9 +85,9 @@ def setup_rag_catalog_logger(
         console_handler.setLevel(level)
         console_handler.setFormatter(formatter)
         # Явно устанавливаем UTF-8 для консоли
-        if hasattr(console_handler.stream, 'reconfigure'):
+        if hasattr(console_handler.stream, "reconfigure"):
             try:
-                console_handler.stream.reconfigure(encoding='utf-8')
+                console_handler.stream.reconfigure(encoding="utf-8")
             except Exception:
                 pass  # Игнорируем ошибки для совместимости
         logger.addHandler(console_handler)

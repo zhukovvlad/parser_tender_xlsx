@@ -71,11 +71,11 @@ def parse_file_with_gemini(
     """
     # Настраиваем логирование, если оно еще не настроено (для Celery воркера)
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    
+
     # Устанавливаем уровень для app логгеров
     logging.getLogger("app").setLevel(getattr(logging, log_level, logging.INFO))
     logging.getLogger("app.excel_parser").setLevel(getattr(logging, log_level, logging.INFO))
-    
+
     gemini_logger = get_gemini_logger()
 
     # Проверяем возможность AI обработки
@@ -95,11 +95,7 @@ def parse_file_with_gemini(
     try:
         # ВСЕГДА создаем positions файлы - они нужны для AI обработки
         # Передаем информацию о том, будет ли AI использоваться
-        db_id, lot_ids_map, tender_data = parse_with_ids(
-            xlsx_path, 
-            create_reports=True,
-            will_use_ai=ai_will_be_used
-        )
+        db_id, lot_ids_map, tender_data = parse_with_ids(xlsx_path, create_reports=True, will_use_ai=ai_will_be_used)
 
         if not db_id:
             log.error("❌ Не удалось получить ID от Go-сервера")
@@ -123,9 +119,7 @@ def parse_file_with_gemini(
 
 
 def parse_with_ids(
-    xlsx_path: str, 
-    create_reports: bool = True,
-    will_use_ai: bool = False
+    xlsx_path: str, create_reports: bool = True, will_use_ai: bool = False
 ) -> tuple[Optional[str], Optional[Dict[str, int]], Optional[Dict]]:
     """
     Выполняет стандартную обработку и возвращает реальные ID и данные.
@@ -206,29 +200,25 @@ def parse_with_ids(
         temp_dir = Path("temp_tender_data")
         temp_dir.mkdir(parents=True, exist_ok=True)
         tender_data_path = temp_dir / f"{db_id}.json"
-        
+
         # Сохраняем данные атомарно через временный файл
         tmp_path = tender_data_path.with_suffix(".json.tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "tender_data": processed_data,
-                "lot_ids_map": lot_ids_map
-            }, f, ensure_ascii=False, indent=2)
+            json.dump({"tender_data": processed_data, "lot_ids_map": lot_ids_map}, f, ensure_ascii=False, indent=2)
             f.flush()
             os.fsync(f.fileno())
         tmp_path.replace(tender_data_path)
-        
+
         log.info(f"💾 Данные тендера сохранены для обработки: {tender_data_path}")
     except Exception:
         log.warning("⚠️ Не удалось сохранить данные тендера", exc_info=True)
-
 
     # Этап 4: Создание базовых отчетов (positions и base_md)
     if create_reports:
         log.info("🔄 Создание базовых локальных артефактов…")
         try:
-            from .markdown_utils.positions_report import generate_reports_for_all_lots
             from .markdown_utils.json_to_markdown import generate_markdown_for_lots
+            from .markdown_utils.positions_report import generate_reports_for_all_lots
 
             # 4.1 ВСЕГДА создаем positions файлы (нужны для AI обработки)
             output_dir = Path("tenders_positions")
@@ -241,11 +231,11 @@ def parse_with_ids(
             # 4.2 ВСЕГДА создаем полный MD с описанием тендера (БЕЗ AI данных)
             log.info("🔄 Создание полного MD с описанием тендера (из JSON)...")
             lot_markdowns, _initial_metadata = generate_markdown_for_lots(processed_data)
-            
+
             # Сохраняем базовый полный MD для каждого лота атомарно
             base_md_dir = Path("tenders_md_base")
             base_md_dir.mkdir(parents=True, exist_ok=True)
-            
+
             for lot_key, markdown_lines in lot_markdowns.items():
                 real_lot_id = lot_ids_map.get(lot_key)
                 if real_lot_id:
@@ -265,9 +255,9 @@ def parse_with_ids(
                         if tmp_path.exists():
                             tmp_path.unlink()
                         raise
-            
+
             log.info("✅ Полный MD с описанием тендера создан")
-                
+
         except Exception:
             log.exception("❌ Ошибка создания базовых файлов (не критично)")
     else:
@@ -312,8 +302,11 @@ def process_tender_lots(
                 positions_file = positions_dir / f"{tender_db_id}_{lot_db_id}_positions.md"
 
                 if positions_file.exists():
-                    gemini_logger.info("🔄 Запускаю Celery задачу для лота %s (файл: %s)", lot_db_id, positions_file.name)
+                    gemini_logger.info(
+                        "🔄 Запускаю Celery задачу для лота %s (файл: %s)", lot_db_id, positions_file.name
+                    )
                     from app.workers.gemini.tasks import process_tender_positions
+
                     task = process_tender_positions.delay(
                         tender_id=str(tender_db_id),
                         lot_id=str(lot_db_id),
@@ -344,7 +337,7 @@ def process_tender_lots(
 
         api_key = os.getenv("GOOGLE_API_KEY")
         integration = GeminiIntegration(api_key=api_key)
-        
+
         # Получаем список лотов для обработки
         lots_data = integration.create_positions_file_data(tender_db_id, tender_data, lot_ids_map)
         if not lots_data:
@@ -360,20 +353,22 @@ def process_tender_lots(
             # Создаем "пустые" результаты (заглушки)
             results = []
             for lot_info in lots_data:
-                results.append({
-                    "tender_id": tender_db_id,
-                    "lot_id": lot_info['lot_id'],
-                    "category": "Test mode",
-                    "ai_data": {"message": "No data. Test mode"},
-                    "processed_at": "",
-                    "status": "stub"
-                })
+                results.append(
+                    {
+                        "tender_id": tender_db_id,
+                        "lot_id": lot_info["lot_id"],
+                        "category": "Test mode",
+                        "ai_data": {"message": "No data. Test mode"},
+                        "processed_at": "",
+                        "status": "stub",
+                    }
+                )
 
         # Отправляем результаты в БД и регенерируем отчеты
         successful_sends = 0
         for result in results:
             lot_id = result.get("lot_id")
-            
+
             # Отправка в БД (только для реальных AI результатов)
             if result.get("status") == "success":
                 try:
@@ -471,25 +466,25 @@ def get_processing_status(tender_id: str, lot_ids: List[str], redis_config: Opti
 def _import_full_tender_via_go(processed_data: dict) -> tuple[str, dict[str, int]]:
     """
     Шлёт json_1 в Go `/api/v1/import-tender`, возвращает (db_id, lot_ids_map).
-    
+
     Go сервер использует UPSERT по etp_id, поэтому операция идемпотентна
     на уровне БД - повторные отправки безопасны.
-    
+
     Бросает исключение при ошибке.
-    
+
     ОБНОВЛЕНО: Использует новый GoApiClient через sync_wrapper.
     """
     from app.go_module import import_tender_sync
-    
+
     try:
         log.info("🔄 Импорт тендера через GoApiClient...")
         tender_db_id, lot_ids_map = import_tender_sync(processed_data)
-        
+
         log.info(f"✅ Тендер успешно импортирован: db_id={tender_db_id}")
         log.debug(f"📋 Карта ID лотов: {lot_ids_map}")
-        
+
         return tender_db_id, lot_ids_map
-        
+
     except Exception as e:
         log.error(f"❌ Ошибка импорта тендера: {e}")
         raise RuntimeError(f"Не удалось импортировать тендер на Go-сервер: {e}") from e
@@ -537,10 +532,10 @@ def main():
     # Устанавливаем уровень для root и всех app логгеров
     logging.getLogger().setLevel(getattr(logging, log_level, logging.INFO))
     logging.getLogger("app").setLevel(getattr(logging, log_level, logging.INFO))
-    
+
     # Явно устанавливаем уровень для логгеров парсера Excel
     logging.getLogger("app.excel_parser").setLevel(getattr(logging, log_level, logging.INFO))
-    
+
     get_gemini_logger().setLevel(getattr(logging, gemini_log_level, logging.INFO))
 
     # Формат логов

@@ -73,7 +73,7 @@ def create_hierarchical_report(positions_data: dict, output_filename: Path, lot_
     # Проверяем, существует ли файл (для логирования)
     file_exists = output_filename.exists()
     action = "Обновление" if file_exists else "Создание"
-    
+
     with open(output_filename, "w", encoding="utf-8") as f:
         f.write(f"# Детализированный отчет по позициям для лота - {lot_name}\n")
         f.write("---" + "\n\n")
@@ -118,7 +118,7 @@ def create_hierarchical_report(positions_data: dict, output_filename: Path, lot_
 
             final_line = ". ".join(output_parts)
             f.write(final_line + "\n\n---\n\n")
-    
+
     return action
 
 

@@ -76,21 +76,21 @@ def _openpyxl_quick_checks(xlsx_bytes: bytes) -> None:
     - Быстрая проверка формы: ровно 1 лист и не более 5000 строк.
     """
     logger = logging.getLogger(__name__)
-    
+
     wb = None
     try:
         logger.info("📊 Loading workbook with openpyxl...")
         wb = load_workbook(BytesIO(xlsx_bytes), read_only=True, data_only=True)
         sheetnames = wb.sheetnames
         logger.info("📋 Found sheets: %s", sheetnames)
-        
+
         if not sheetnames:
             raise HTTPException(status_code=400, detail="В книге нет листов.")
         if len(sheetnames) != MAX_SHEETS:
             raise HTTPException(status_code=400, detail=f"В книге должен быть ровно {MAX_SHEETS} лист.")
 
         ws = wb[sheetnames[0]]
-        
+
         # В read_only режиме max_row может возвращать максимальное значение Excel (1048576)
         # Вместо этого подсчитаем реальные строки с данными
         actual_rows = 0
@@ -101,9 +101,9 @@ def _openpyxl_quick_checks(xlsx_bytes: bytes) -> None:
                 # Прерываем, если превысили лимит
                 if actual_rows > MAX_ROWS_PER_SHEET:
                     break
-        
+
         logger.info("📏 Sheet has %d rows with data (max allowed: %d)", actual_rows, MAX_ROWS_PER_SHEET)
-        
+
         if actual_rows > MAX_ROWS_PER_SHEET:
             raise HTTPException(
                 status_code=400,
