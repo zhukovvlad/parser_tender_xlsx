@@ -2,6 +2,7 @@
 # app/workers/rag_catalog/tasks.py
 
 import asyncio
+import logging
 import os
 from ...celery_app import app as celery_app
 from .logger import get_rag_logger
@@ -9,9 +10,44 @@ from .worker import RagWorker
 
 logger = get_rag_logger("tasks")
 
+
+# Безопасное чтение timeout значений из переменных окружения
+def _parse_timeout_env(var_name: str, default: int) -> int:
+    """
+    Безопасно парсит timeout из environment variable.
+    
+    Args:
+        var_name: Имя переменной окружения
+        default: Значение по умолчанию
+        
+    Returns:
+        int: Валидное значение timeout
+    """
+    raw_value = os.getenv(var_name, "").strip()
+    
+    if not raw_value:
+        return default
+    
+    try:
+        parsed = int(raw_value)
+        if parsed <= 0:
+            logging.warning(
+                f"{var_name}={raw_value} должен быть положительным числом. "
+                f"Используется значение по умолчанию: {default}"
+            )
+            return default
+        return parsed
+    except ValueError:
+        logging.warning(
+            f"{var_name}={raw_value} не является валидным числом. "
+            f"Используется значение по умолчанию: {default}"
+        )
+        return default
+
+
 # Timeout для задач (в секундах)
-MATCHER_TIMEOUT = int(os.getenv("RAG_MATCHER_TIMEOUT", "300"))  # 5 минут
-CLEANER_TIMEOUT = int(os.getenv("RAG_CLEANER_TIMEOUT", "600"))  # 10 минут
+MATCHER_TIMEOUT = _parse_timeout_env("RAG_MATCHER_TIMEOUT", 300)  # 5 минут
+CLEANER_TIMEOUT = _parse_timeout_env("RAG_CLEANER_TIMEOUT", 600)  # 10 минут
 
 # --- Инициализация воркера ---
 try:
