@@ -111,7 +111,7 @@ def process_tender_positions(
                 # Регенерируем отчеты с AI данными
                 try:
                     from app.markdown_utils.regeneration_utils import regenerate_reports_for_lot
-                    
+
                     regenerate_reports_for_lot(
                         tender_id=tender_id,
                         lot_id=lot_id,
@@ -125,9 +125,7 @@ def process_tender_positions(
                         lot_id,
                     )
             except Exception as e:
-                logger.warning(
-                    f"⚠️ Не удалось отправить AI результаты на Go для {tender_id}_{lot_id}: {e}"
-                )
+                logger.warning(f"⚠️ Не удалось отправить AI результаты на Go для {tender_id}_{lot_id}: {e}")
                 # Сохраняем оффлайн при ошибке
                 offline_path = save_ai_results_offline(
                     tender_id=tender_id,

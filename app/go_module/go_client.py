@@ -1,10 +1,12 @@
 # app/go_module/go_client.py
 
 import os
+from typing import Any, Dict, List
+
 import httpx
-from typing import Dict, Any, List
 
 from .logger import get_go_logger
+
 
 class GoApiClient:
     """
@@ -16,22 +18,21 @@ class GoApiClient:
         self.base_url = os.getenv("GO_SERVER_API_ENDPOINT")
         if not self.base_url:
             raise ValueError("GO_SERVER_API_ENDPOINT не установлен в .env")
-        
+
         # Базовая валидация URL
         if not (self.base_url.startswith("http://") or self.base_url.startswith("https://")):
-            raise ValueError(f"GO_SERVER_API_ENDPOINT должен начинаться с http:// или https://, получено: {self.base_url}")
+            raise ValueError(
+                f"GO_SERVER_API_ENDPOINT должен начинаться с http:// или https://, получено: {self.base_url}"
+            )
 
         self.api_key = os.getenv("GO_SERVER_API_KEY")
         self.timeout = int(os.getenv("GO_HTTP_TIMEOUT", 60))
-        
+
         self.logger = get_go_logger()
-        
+
         # Создаем httpx.AsyncClient для connection pooling
-        self.client = httpx.AsyncClient(
-            base_url=self.base_url, 
-            timeout=self.timeout
-        )
-        
+        self.client = httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
+
         self.logger.info(f"GoApiClient инициализирован для {self.base_url}")
 
     def _get_headers(self) -> Dict[str, str]:
@@ -48,7 +49,7 @@ class GoApiClient:
         """
         try:
             # Проверка на 4xx и 5xx ошибки
-            response.raise_for_status() 
+            response.raise_for_status()
             # Возвращаем JSON, если ответ успешен
             return response.json()
         except httpx.HTTPStatusError as e:
@@ -64,7 +65,7 @@ class GoApiClient:
     async def import_full_tender(self, tender_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         (ЗАМЕНА) Отправляет полный JSON тендера в Go (Процесс 1).
-        
+
         Ожидает в ответ:
         {
             "tender_db_id": "1",
@@ -73,9 +74,7 @@ class GoApiClient:
         """
         self.logger.info(f"Отправка полного тендера в Go (ETP ID: {tender_data.get('tender_id')})...")
         response = await self.client.post(
-            "/import-tender",  # Эндпоинт совместимый со старым API
-            json=tender_data,
-            headers=self._get_headers()
+            "/import-tender", json=tender_data, headers=self._get_headers()  # Эндпоинт совместимый со старым API
         )
         return await self._handle_response(response)
 
@@ -89,7 +88,7 @@ class GoApiClient:
         response = await self.client.post(
             f"/lots/{lot_db_id}/ai-results",  # Эндпоинт совместимый со старым API
             json=ai_data,  # ai_data уже содержит полный payload
-            headers=self._get_headers()
+            headers=self._get_headers(),
         )
         return await self._handle_response(response)
 
@@ -98,7 +97,7 @@ class GoApiClient:
     async def get_unmatched_positions(self, limit: int = 100) -> List[Dict]:
         """
         (НОВЫЙ) Получает 'NULL' position_items для сопоставления (Процесс 2).
-        
+
         Ожидает в ответ:
         [
             {
@@ -111,9 +110,7 @@ class GoApiClient:
         """
         self.logger.debug(f"Запрос {limit} необработанных позиций...")
         response = await self.client.get(
-            "/positions/unmatched", # (Предполагаемый эндпоинт)
-            params={"limit": limit},
-            headers=self._get_headers()
+            "/positions/unmatched", params={"limit": limit}, headers=self._get_headers()  # (Предполагаемый эндпоинт)
         )
         return await self._handle_response(response)
 
@@ -121,7 +118,7 @@ class GoApiClient:
         """
         (НОВЫЙ) Отправляет успешное сопоставление в Go (Процесс 2).
         Go-бэкенд должен обновить position_items И matching_cache.
-        
+
         Payload:
         {
             "position_item_id": 9999,
@@ -131,16 +128,14 @@ class GoApiClient:
         """
         self.logger.debug(f"Отправка сопоставления: {match_data.get('position_item_id')}")
         response = await self.client.post(
-            "/positions/match", # (Предполагаемый эндпоинт)
-            json=match_data,
-            headers=self._get_headers()
+            "/positions/match", json=match_data, headers=self._get_headers()  # (Предполагаемый эндпоинт)
         )
         return await self._handle_response(response)
 
     async def get_unindexed_catalog_items(self, limit: int = 1000) -> List[Dict]:
         """
         (НОВЫЙ) Получает записи каталога для индексации в File Search (Процесс 3).
-        
+
         Ожидает в ответ:
         [
             {
@@ -152,9 +147,7 @@ class GoApiClient:
         """
         self.logger.debug(f"Запрос {limit} неиндексированных записей каталога...")
         response = await self.client.get(
-            "/catalog/unindexed", # (Предполагаемый эндпоинт)
-            params={"limit": limit},
-            headers=self._get_headers()
+            "/catalog/unindexed", params={"limit": limit}, headers=self._get_headers()  # (Предполагаемый эндпоинт)
         )
         return await self._handle_response(response)
 
@@ -164,9 +157,9 @@ class GoApiClient:
         """
         self.logger.debug(f"Сообщение об индексации {len(catalog_ids)} ID...")
         response = await self.client.post(
-            "/catalog/indexed", # (Предполагаемый эндпоинт)
+            "/catalog/indexed",  # (Предполагаемый эндпоинт)
             json={"catalog_ids": catalog_ids},
-            headers=self._get_headers()
+            headers=self._get_headers(),
         )
         return await self._handle_response(response)
 
@@ -175,15 +168,9 @@ class GoApiClient:
         (НОВЫЙ) Предлагает слияние двух записей каталога (Процесс 3).
         """
         self.logger.debug(f"Предложение слияния: {duplicate_id} -> {main_id} (score: {score})")
-        payload = {
-            "main_position_id": main_id,
-            "duplicate_position_id": duplicate_id,
-            "similarity_score": score
-        }
+        payload = {"main_position_id": main_id, "duplicate_position_id": duplicate_id, "similarity_score": score}
         response = await self.client.post(
-            "/merges/suggest", # (Предполагаемый эндпоинт)
-            json=payload,
-            headers=self._get_headers()
+            "/merges/suggest", json=payload, headers=self._get_headers()  # (Предполагаемый эндпоинт)
         )
         return await self._handle_response(response)
 

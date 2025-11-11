@@ -102,7 +102,7 @@ def _create_chunks_file(
     try:
         # Ленивый импорт - только когда реально нужно создавать chunks
         from ..markdown_to_chunks.tender_chunker import create_chunks_from_markdown_text
-        
+
         # Объединяем markdown в один текст
         markdown_text = "\n".join(markdown_lines)
 
@@ -125,14 +125,14 @@ def _create_chunks_file(
         filename = f"{tender_id}_{lot_id}_chunks.json"
         filepath = output_dir / filename
         tmp_path = output_dir / (filename + ".tmp")
-        
+
         try:
             # Пишем во временный файл с flush и fsync для долговечности
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(chunks, f, ensure_ascii=False, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
-            
+
             # Атомарная замена (предотвращает частичные файлы при сбоях)
             tmp_path.replace(filepath)
         except Exception:

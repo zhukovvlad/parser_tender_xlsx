@@ -20,9 +20,9 @@ celery_app = Celery(
     broker=f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', 6379)}/0",
     backend=f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', 6379)}/0",
     include=[
-        "app.workers.gemini.tasks", 
+        "app.workers.gemini.tasks",
         "app.workers.parser.tasks",
-        "app.workers.rag_catalog.tasks", # <-- (ИЗМЕНЕНИЕ 2: Добавлен RAG воркер)
+        "app.workers.rag_catalog.tasks",  # <-- (ИЗМЕНЕНИЕ 2: Добавлен RAG воркер)
     ],
 )
 
@@ -47,7 +47,7 @@ celery_app.conf.update(
     task_routes={
         "app.workers.gemini.tasks.*": {"queue": "default"},
         "app.workers.parser.tasks.*": {"queue": "default"},
-        "app.workers.rag_catalog.tasks.*": {"queue": "default"}, # <-- (ИЗМЕНЕНИЕ 3: Маршрут для RAG)
+        "app.workers.rag_catalog.tasks.*": {"queue": "default"},  # <-- (ИЗМЕНЕНИЕ 3: Маршрут для RAG)
     },
     # Очередь по умолчанию
     task_default_queue="default",
@@ -62,28 +62,29 @@ celery_app.conf.update(
 # --- (ИЗМЕНЕНИЕ 4: Добавлено расписание Celery Beat) ---
 celery_app.conf.beat_schedule = {
     # Задача 1: Сопоставление (часто)
-    'run-rag-matcher': {
-        'task': 'app.workers.rag_catalog.tasks.run_matching_task',
+    "run-rag-matcher": {
+        "task": "app.workers.rag_catalog.tasks.run_matching_task",
         # Запускать каждые 5 минут
-        'schedule': crontab(minute='*/5'),
+        "schedule": crontab(minute="*/5"),
     },
-    
     # Задача 2: Очистка (редко)
-    'run-rag-cleaner': {
-        'task': 'app.workers.rag_catalog.tasks.run_cleaning_task',
+    "run-rag-cleaner": {
+        "task": "app.workers.rag_catalog.tasks.run_cleaning_task",
         # Запускать раз в сутки в 3:00 ночи
-        'schedule': crontab(minute='0', hour='3'),
+        "schedule": crontab(minute="0", hour="3"),
     },
 }
 # --- Конец нового блока ---
 
 
 # Автоматическое обнаружение задач
-celery_app.autodiscover_tasks([
-    "app.workers.gemini", 
-    "app.workers.parser",
-    "app.workers.rag_catalog", # <-- (ИЗМЕНЕНИЕ 5: Добавлен RAG воркер)
-])
+celery_app.autodiscover_tasks(
+    [
+        "app.workers.gemini",
+        "app.workers.parser",
+        "app.workers.rag_catalog",  # <-- (ИЗМЕНЕНИЕ 5: Добавлен RAG воркер)
+    ]
+)
 
 # Принудительно импортируем задачи для правильной регистрации
 try:

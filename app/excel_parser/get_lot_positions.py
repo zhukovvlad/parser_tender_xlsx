@@ -126,7 +126,7 @@ def get_lot_positions(
         item[JSON_KEY_COMMENT_ORGANIZER] = ws.cell(row=current_row_num, column=6).value
         item[JSON_KEY_UNIT] = ws.cell(row=current_row_num, column=7).value
         item[JSON_KEY_QUANTITY] = ws.cell(row=current_row_num, column=8).value
-        
+
         log.debug(
             f"get_lot_positions: Строка {current_row_num} - "
             f"№{item[JSON_KEY_NUMBER]}, работа: '{original_job_title}'"

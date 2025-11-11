@@ -130,7 +130,7 @@ def send_lot_ai_results(
     timeout: int = 30,
 ) -> Tuple[bool, Optional[int], Optional[Dict[str, Any]]]:
     """POST AI-результаты на Go.
-    
+
     Go сервер использует UPDATE с COALESCE, поэтому операция идемпотентна
     на уровне БД - повторные отправки безопасны.
 
@@ -173,12 +173,12 @@ def save_ai_results_offline(
     reason: str = "network_error",
 ) -> Path:
     """Сохраняет payload для последующей синхронизации.
-    
+
     ВАЖНО: Использует build_ai_results_endpoint() для получения актуального пути API.
     Это гарантирует, что offline replay будет отправлять данные на правильный endpoint:
     - Текущий формат: /lots/{lot_id}/ai-results (соответствует GoApiClient)
     - Endpoint сохраняется в поле _sync.endpoint для последующего replay
-    
+
     Args:
         tender_id: ID тендера
         lot_id: ID лота
@@ -186,7 +186,7 @@ def save_ai_results_offline(
         ai_data: Словарь с AI результатами
         processed_at: ISO timestamp обработки
         reason: Причина offline сохранения (для логов)
-        
+
     Returns:
         Path: Путь к сохраненному файлу в pending_sync_json/ai_results/
     """
