@@ -45,10 +45,10 @@ class FileSearchClient:
 
         self.logger.info("Временный JSONL файл каталога создан. Загружаю...")
         try:
-            # Загружаем файл через aio namespace
+            # Загружаем файл через aio namespace с правильными параметрами
             uploaded_file = await self.client.aio.files.upload(
-                path=temp_file_path, 
-                display_name="catalog_positions.jsonl"
+                file=temp_file_path,
+                config={"display_name": "catalog_positions.jsonl"}
             )
             self.logger.info(f"Каталог успешно загружен, File ID: {uploaded_file.name}")
             return uploaded_file
