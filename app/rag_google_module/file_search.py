@@ -29,8 +29,8 @@ class FileSearchClient:
         
         # Наш "индекс" - это просто объект загруженного файла
         self._catalog_file = None 
-        # Модель, которую мы будем использовать для RAG
-        self._model_name = "gemini-1.5-pro-latest"
+        # Модель, которую мы будем использовать для RAG (конфигурируемая через env)
+        self._model_name = os.getenv("GOOGLE_RAG_MODEL", "gemini-1.5-pro-latest")
         
         self.logger.info(f"FileSearchClient (RAG v3, model-based) инициализирован с моделью {self._model_name}.")
 
@@ -45,8 +45,8 @@ class FileSearchClient:
 
         self.logger.info("Временный JSONL файл каталога создан. Загружаю...")
         try:
-            # Загружаем файл
-            uploaded_file = await self.client.files.upload_async(
+            # Загружаем файл через aio namespace
+            uploaded_file = await self.client.aio.files.upload(
                 path=temp_file_path, 
                 display_name="catalog_positions.jsonl"
             )
@@ -71,7 +71,7 @@ class FileSearchClient:
         self.logger.debug(f"Ожидание индексации файла {file_name}...")
         for _ in range(timeout // 5):
             try:
-                file_obj = await self.client.files.get_async(name=file_name)
+                file_obj = await self.client.aio.files.get(name=file_name)
                 if file_obj.state.name == "ACTIVE":
                     self.logger.info(f"Файл {file_name} успешно проиндексирован (ACTIVE).")
                     return
@@ -112,8 +112,8 @@ class FileSearchClient:
         
         try:
             # (ИЗМЕНЕНИЕ) Главный вызов!
-            # Мы передаем и файл, и промпт в contents через Responses API.
-            response = await self.client.models.generate_content_async(
+            # Мы передаем и файл, и промпт в contents через aio namespace.
+            response = await self.client.aio.models.generate_content(
                 model=self._model_name,
                 contents=[self._catalog_file, system_prompt],
                 # Просим модель вернуть чистый JSON
