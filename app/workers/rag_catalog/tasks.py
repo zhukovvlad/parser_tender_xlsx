@@ -1,11 +1,17 @@
+# -*- coding: utf-8 -*-
 # app/workers/rag_catalog/tasks.py
 
 import asyncio
+import os
 from ...celery_app import app as celery_app
 from .logger import get_rag_logger
 from .worker import RagWorker
 
 logger = get_rag_logger("tasks")
+
+# Timeout для задач (в секундах)
+MATCHER_TIMEOUT = int(os.getenv("RAG_MATCHER_TIMEOUT", "300"))  # 5 минут
+CLEANER_TIMEOUT = int(os.getenv("RAG_CLEANER_TIMEOUT", "600"))  # 10 минут
 
 # --- Инициализация воркера ---
 try:
@@ -19,6 +25,8 @@ except Exception as e:
     worker_instance = None
 
 # --- ЗАДАЧА 1: Сопоставление (Частая) ---
+# NOTE: Использует asyncio.run() для совместимости с существующими sync задачами.
+# TODO: Рассмотреть миграцию на native async tasks при переходе всего проекта на async pool.
 @celery_app.task(name="app.workers.rag_catalog.tasks.run_matching_task")
 def run_matching_task():
     """
@@ -36,14 +44,21 @@ def run_matching_task():
 
     logger.info("--- (RAG) Запуск задачи Matcher (Процесс 2) ---")
     try:
-        result = asyncio.run(worker_instance.run_matcher())
+        result = asyncio.run(
+            asyncio.wait_for(worker_instance.run_matcher(), timeout=MATCHER_TIMEOUT)
+        )
         logger.info(f"--- (RAG) Задача Matcher завершена: {result} ---")
         return result
-    except Exception as e:
-        logger.exception(f"Критическая ошибка в RAG Matcher: {e}")
-        return {"status": "error", "message": str(e)}
+    except asyncio.TimeoutError:
+        logger.exception(f"RAG Matcher превысил timeout ({MATCHER_TIMEOUT}s)")
+        return {"status": "error", "message": f"Timeout after {MATCHER_TIMEOUT}s"}
+    except Exception:
+        logger.exception("Критическая ошибка в RAG Matcher")
+        return {"status": "error", "message": "Internal error"}
 
 # --- ЗАДАЧА 2: Очистка (Редкая) ---
+# NOTE: Использует asyncio.run() для совместимости с существующими sync задачами.
+# TODO: Рассмотреть миграцию на native async tasks при переходе всего проекта на async pool.
 @celery_app.task(name="app.workers.rag_catalog.tasks.run_cleaning_task")
 def run_cleaning_task(force_reindex: bool = False):
     """
@@ -65,9 +80,14 @@ def run_cleaning_task(force_reindex: bool = False):
     # --- Конец ---
         
     try:
-        result = asyncio.run(worker_instance.run_cleaner(force_reindex=force_reindex))
+        result = asyncio.run(
+            asyncio.wait_for(worker_instance.run_cleaner(force_reindex=force_reindex), timeout=CLEANER_TIMEOUT)
+        )
         logger.info(f"--- (RAG) Задача Cleaner завершена: {result} ---")
         return result
-    except Exception as e:
-        logger.exception(f"Критическая ошибка в RAG Cleaner: {e}")
-        return {"status": "error", "message": str(e)}
+    except asyncio.TimeoutError:
+        logger.exception(f"RAG Cleaner превысил timeout ({CLEANER_TIMEOUT}s)")
+        return {"status": "error", "message": f"Timeout after {CLEANER_TIMEOUT}s"}
+    except Exception:
+        logger.exception("Критическая ошибка в RAG Cleaner")
+        return {"status": "error", "message": "Internal error"}

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # app/workers/rag_catalog/worker.py
 
 import os
@@ -67,10 +68,10 @@ class RagWorker:
         self.logger.info("Процесс 2: Поиск необработанных position_items...")
         
         # 1. Получаем 'NULL'-позиции от Go
-        unmatched_items = await self.go_client.get_unmatched_positions(limit=100) #
+        unmatched_items = await self.go_client.get_unmatched_positions(limit=100)
         
         if not unmatched_items:
-            return {"status": "success", "matched": 0, "message": "Необработанные позиции не найдены."}
+            return {"status": "success", "matched": 0, "processed": 0, "message": "Необработанные позиции не найдены."}
 
         self.logger.info(f"Найдено {len(unmatched_items)} позиций для сопоставления.")
         matched_count = 0
