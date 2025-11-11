@@ -30,19 +30,20 @@ def _parse_timeout_env(var_name: str, default: int) -> int:
     
     try:
         parsed = int(raw_value)
+    except ValueError:
+        logger.warning(
+            f"{var_name}={raw_value} не является валидным числом. "
+            f"Используется значение по умолчанию: {default}"
+        )
+        return default
+    else:
         if parsed <= 0:
-            logging.warning(
+            logger.warning(
                 f"{var_name}={raw_value} должен быть положительным числом. "
                 f"Используется значение по умолчанию: {default}"
             )
             return default
         return parsed
-    except ValueError:
-        logging.warning(
-            f"{var_name}={raw_value} не является валидным числом. "
-            f"Используется значение по умолчанию: {default}"
-        )
-        return default
 
 
 # Timeout для задач (в секундах)
