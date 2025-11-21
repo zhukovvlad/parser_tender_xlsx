@@ -77,10 +77,11 @@ class GoApiClient:
         }
         """
         self.logger.info(f"Отправка полного тендера в Go (ETP ID: {tender_data.get('tender_id')})...")
-        response = await self.client.post(
-            "/import-tender", json=tender_data, headers=self._get_headers()  # Эндпоинт совместимый со старым API
-        )
-        return await self._handle_response(response)
+        async with self._get_client() as client:
+            response = await client.post(
+                "/import-tender", json=tender_data, headers=self._get_headers()  # Эндпоинт совместимый со старым API
+            )
+            return await self._handle_response(response)
 
     async def update_lot_key_parameters(self, lot_db_id: str, ai_data: Dict[str, Any]) -> Dict[str, Any]:
         """
