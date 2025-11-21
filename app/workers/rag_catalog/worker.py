@@ -142,11 +142,20 @@ class RagWorker:
             indexed_ids = []
             for item in items_batch:
                 # DTO: { "catalog_id": 123, "rich_context_string": "..." }
-                catalog_id = item["catalog_id"]
+                catalog_id = item.get("catalog_id") or item.get("id")
+                if not catalog_id:
+                    self.logger.warning(f"Пропуск элемента без ID: {item}")
+                    continue
+
+                context_string = item.get("rich_context_string")
+                if not context_string:
+                    self.logger.warning(f"Пропуск элемента без контекста: {catalog_id}")
+                    continue
+
                 jsonl_data.append(
                     {
                         "catalog_id": catalog_id,
-                        "context_string": item["rich_context_string"],
+                        "context_string": context_string,
                     }
                 )
                 indexed_ids.append(catalog_id)
