@@ -37,9 +37,9 @@ stop_by_pattern "FastAPI (Uvicorn)" "uvicorn main:app"
 
 # Финальная зачистка (на всякий случай)
 echo -e "${BLUE}🧹 Проверяю оставшиеся процессы...${NC}"
-if pgrep -f "celery" > /dev/null; then
+if pgrep -f "celery -A app.celery_app" > /dev/null; then
     echo -e "${BLUE}🔪 Принудительно завершаю остатки...${NC}"
-    pkill -f "celery" || true
+    pkill -f "celery -A app.celery_app" || true
 fi
 
 # Удаляем старые PID файлы, если они есть (для очистки мусора)

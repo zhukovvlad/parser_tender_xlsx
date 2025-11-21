@@ -62,7 +62,7 @@ class TenderProcessor:
                 if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
                     if attempt < max_retries - 1:
                         # Добавляем случайный Jitter (1-5 сек) к экспоненциальной задержке
-                        jitter = random.uniform(1, 5)
+                        jitter = random.uniform(1, 5)  # noqa: S311 (Jitter for backoff, not security)
                         delay = (base_delay * (2 ** attempt)) + jitter
                         
                         self.logger.warning(f"Ошибка 429 (Resource Exhausted). Повторная попытка {attempt + 1}/{max_retries} через {delay:.2f} сек...")
@@ -70,7 +70,7 @@ class TenderProcessor:
                         continue
                 
                 # Если ошибка не 429 или закончились попытки
-                self.logger.error(f"Ошибка при запросе к Gemini: {e}")
+                self.logger.exception("Ошибка при запросе к Gemini")
                 raise
 
     def classify(self, categories: list[str], fallback_label: str = "не найдено") -> str:

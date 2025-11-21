@@ -24,7 +24,7 @@ if not api_key:
     print("Ошибка: Переменная окружения GOOGLE_API_KEY не установлена.")
     sys.exit(1)
 
-print(f"API Key loaded: {api_key[:5]}... (len={len(api_key)})")
+print("API Key loaded successfully from environment.")
 
 # Создаем клиент
 client = genai.Client(api_key=api_key)
@@ -37,11 +37,6 @@ async def main():
         target_store = None
         stores_pager = await client.aio.file_search_stores.list()
         async for store in stores_pager:
-            print(f"- Name: {store.name}, Display Name: {store.display_name}")
-            if store.display_name == STORE_DISPLAY_NAME:
-                target_store = store
-                
-        if target_store:
             print(f"- Name: {store.name}, Display Name: {store.display_name}")
             if store.display_name == STORE_DISPLAY_NAME:
                 target_store = store
