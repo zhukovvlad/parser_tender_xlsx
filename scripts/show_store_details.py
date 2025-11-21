@@ -9,6 +9,7 @@
 import os
 import sys
 import json
+import tempfile
 from pathlib import Path
 from google import genai
 from dotenv import load_dotenv
@@ -20,7 +21,7 @@ load_dotenv(project_root / ".env")
 api_key = os.getenv("GOOGLE_API_KEY")
 if not api_key:
     print("❌ Ошибка: GOOGLE_API_KEY не установлен")
-    exit(1)
+    sys.exit(1)
 
 client = genai.Client(api_key=api_key)
 STORE_DISPLAY_NAME = "Tenders Catalog Store"
@@ -47,10 +48,10 @@ try:
     
     if not target_store:
         print(f"❌ Хранилище '{STORE_DISPLAY_NAME}' не найдено")
-        exit(1)
+        sys.exit(1)
     
     # Информация о Store
-    print(f"\n✅ Хранилище найдено!")
+    print("\n✅ Хранилище найдено!")
     print(f"   Name: {target_store.name}")
     print(f"   Display Name: {target_store.display_name}")
     print(f"   Create Time: {target_store.create_time}")
@@ -83,7 +84,7 @@ try:
             
             # Пытаемся прочитать содержимое из временного файла (если он еще существует)
             temp_file_name = doc.display_name.replace('.json', '')
-            temp_file_path = f"/tmp/{temp_file_name}.json"
+            temp_file_path = os.path.join(tempfile.gettempdir(), f"{temp_file_name}.json")
             
             if os.path.exists(temp_file_path):
                 try:
@@ -95,7 +96,7 @@ try:
                         # Показываем первую запись как пример
                         if data:
                             first_record = data[0]
-                            print(f"  📌 Пример записи:")
+                            print("  📌 Пример записи:")
                             print(f"     catalog_id: {first_record.get('catalog_id')}")
                             context = first_record.get('context_string', '')
                             # Декодируем unicode для читабельности
@@ -103,20 +104,21 @@ try:
                                 # Берем первые 100 символов для краткости
                                 preview = context[:100] + "..." if len(context) > 100 else context
                                 print(f"     context: {preview}")
-                except Exception as e:
+                except (json.JSONDecodeError, OSError) as e:
                     print(f"  ⚠️  Не удалось прочитать файл: {e}")
             else:
                 print(f"  ⚠️  Временный файл не найден: {temp_file_path}")
         
         print_separator()
-        print(f"📊 ИТОГОВАЯ СТАТИСТИКА:")
+        print("📊 ИТОГОВАЯ СТАТИСТИКА:")
         print(f"   Документов (батчей): {len(documents)}")
         print(f"   Записей из каталога: {total_records if total_records > 0 else 'Н/Д'}")
         print_separator()
+
+    print("\n✅ Готово!")
 
 except Exception as e:
     print(f"\n❌ Ошибка: {e}")
     import traceback
     traceback.print_exc()
-
-print("\n✅ Готово!")
+    sys.exit(1)
