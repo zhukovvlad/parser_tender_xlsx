@@ -67,12 +67,13 @@ celery_app.conf.beat_schedule = {
         # Запускать каждые 5 минут
         "schedule": crontab(minute="*/5"),
     },
-    # Задача 2: Очистка (редко)
-    "run-rag-cleaner": {
-        "task": "app.workers.rag_catalog.tasks.run_cleaning_task",
+    # Задача 2: Дедупликация (редко, ночная задача)
+    "run-rag-deduplicator": {
+        "task": "app.workers.rag_catalog.tasks.run_deduplication_task",
         # Запускать раз в сутки в 3:00 ночи
         "schedule": crontab(minute="0", hour="3"),
     },
+    # Задача 3: Индексация НЕ в расписании - вызывается event-driven
 }
 # --- Конец нового блока ---
 
@@ -86,13 +87,8 @@ celery_app.autodiscover_tasks(
     ]
 )
 
-# Принудительно импортируем задачи для правильной регистрации
-try:
-    import app.workers.gemini.tasks  # noqa: F401
-    import app.workers.parser.tasks  # noqa: F401
-    import app.workers.rag_catalog.tasks  # noqa: F401 # <-- (ИЗМЕНЕНИЕ 6: Добавлен RAG воркер)
-except ImportError as e:
-    print(f"Warning: Could not import tasks: {e}")
-
 if __name__ == "__main__":
     celery_app.start()
+
+# Экспортируем app для обратной совместимости
+app = celery_app
