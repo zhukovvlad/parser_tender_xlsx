@@ -62,6 +62,23 @@ fi
 # Создаем необходимые директории
 mkdir -p logs temp_uploads
 
+# --- CLEANUP SECTION ---
+echo -e "${YELLOW}🧹 Cleaning up old processes and locks...${NC}"
+
+# 1. Kill old celery processes aggressively
+pkill -f "celery -A app.celery_app" || true
+
+# 2. Remove old PID files
+rm -f logs/*.pid
+
+# 3. Remove local schedule file (we use RedBeat now, but just in case)
+rm -f celerybeat-schedule.db
+
+# 4. Wait a moment for ports to free up
+sleep 2
+echo -e "${GREEN}✅ Cleanup complete${NC}"
+# -----------------------
+
 # Устанавливаем зависимости, если requirements.txt изменился
 REQUIREMENTS_HASH=$(md5sum requirements.txt | cut -d' ' -f1)
 STORED_HASH=""
@@ -85,14 +102,21 @@ start_service() {
     echo -e "${BLUE}🚀 Запускаю $name...${NC}"
     nohup $command > $logfile 2>&1 &
     local pid=$!
-    echo $pid > "logs/${name}.pid"
     echo -e "${GREEN}✅ $name запущен (PID: $pid)${NC}"
 }
 
-# Запускаем Celery Worker
-start_service "celery-worker" \
-    "celery -A app.celery_app worker --loglevel=INFO --queues=default" \
-    "logs/celery_worker.log"
+# 1. Запускаем "Медленный" воркер для AI (Gemini)
+# Он слушает ТОЛЬКО очередь ai_queue и работает в 1 поток
+start_service "celery-ai" \
+    "celery -A app.celery_app worker --loglevel=INFO --queues=ai_queue --concurrency=1 --hostname=ai@%h" \
+    "logs/celery_ai.log"
+
+# 2. Запускаем "Быстрый" воркер для остальных задач (Default)
+# Он слушает очередь default (сюда упадут Matcher, Cleaner и системные задачи)
+# Ставим concurrency=4, чтобы они работали параллельно
+start_service "celery-default" \
+    "celery -A app.celery_app worker --loglevel=INFO --queues=default --concurrency=4 --hostname=default@%h" \
+    "logs/celery_default.log"
 
 # Запускаем Celery Beat (планировщик)
 start_service "celery-beat" \
@@ -121,7 +145,11 @@ echo -e "${BLUE}🌐 Запускаю FastAPI приложение...${NC}"
 echo -e "${GREEN}📝 Логи сервисов:${NC}"
 echo -e "  - Celery Worker: logs/celery_worker.log"
 echo -e "  - Celery Beat: logs/celery_beat.log"
-echo -e "  - FastAPI: будет выводиться в консоль"
+echo -e "  - FastAPI: logs/fastapi.log"
 
-# Запускаем FastAPI (не в фоне, чтобы видеть логи)
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+# Запускаем FastAPI в фоне
+nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload > logs/fastapi.log 2>&1 &
+FASTAPI_PID=$!
+echo -e "${GREEN}✅ FastAPI запущен (PID: $FASTAPI_PID)${NC}"
+
+echo -e "${GREEN}🚀 Все сервисы успешно запущены!${NC}"

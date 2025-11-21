@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from google import genai
 from google.api_core import exceptions as google_exceptions
-from google.genai import types
+from google.genai import types, errors
 
 from .logger import get_rag_logger
 
@@ -28,7 +28,8 @@ class FileSearchClient:
         if not self.api_key:
             raise ValueError("GOOGLE_API_KEY не установлен в .env")
 
-        self.client = genai.Client(api_key=self.api_key)
+        # self.client удален из __init__, чтобы избежать привязки к старому Event Loop
+        # Используйте _get_client() для создания клиента в текущем контексте.
         self.logger = get_rag_logger("file_search_client")
 
         # Наш "индекс" - это ID постоянного хранилища (корпуса)
@@ -43,6 +44,10 @@ class FileSearchClient:
             f" Store ID: {self.store_id}, Model: {self._model_name}"
         )
 
+    def _get_client(self):
+        """Создает новый экземпляр клиента для текущего Event Loop."""
+        return genai.Client(api_key=self.api_key)
+
     async def initialize_store(self):
         """
         Проверяет наличие 'File Search store' или создает новый.
@@ -50,10 +55,11 @@ class FileSearchClient:
         """
         self.logger.info(f"Инициализация File Search Store (display_name: '{STORE_DISPLAY_NAME}')...")
 
+        client = self._get_client()
         try:
             # --- ШАГАН 1: Пытаемся найти существующий Store ---
             self.logger.debug("Проверяем существующие Store...")
-            stores_pager = await self.client.aio.file_search_stores.list()
+            stores_pager = await client.aio.file_search_stores.list()
 
             # Ищем Store с нужным display_name
             async for store in stores_pager:
@@ -65,7 +71,7 @@ class FileSearchClient:
 
             # --- ШАГАН 2: Если не нашли - создаем новый ---
             self.logger.info("Существующий Store не найден. Создаем новый...")
-            store = await self.client.aio.file_search_stores.create(
+            store = await client.aio.file_search_stores.create(
                 config={"display_name": STORE_DISPLAY_NAME},
             )
             self.logger.info(f"✓ Новый Store '{store.display_name}' создан. Store name: {store.name}")
@@ -83,6 +89,8 @@ class FileSearchClient:
         except Exception as e:
             self.logger.critical(f"Неизвестная ошибка инициализации File Search Store: {e}")
             raise
+        finally:
+            client.close()
 
     async def add_batch_to_store(self, jsonl_data: List[Dict]):
         """
@@ -102,10 +110,11 @@ class FileSearchClient:
             temp_file_path = temp_f.name
 
         self.logger.debug(f"Временный JSON файл ({len(jsonl_data)} записей) создан. Загружаю в Store...")
+        client = self._get_client()
         try:
             # Загружаем напрямую в File Search Store
             # JSON автоматически распознается по расширению .json
-            operation = await self.client.aio.file_search_stores.upload_to_file_search_store(
+            operation = await client.aio.file_search_stores.upload_to_file_search_store(
                 file=temp_file_path,
                 file_search_store_name=self._store_name,
                 config={
@@ -122,23 +131,27 @@ class FileSearchClient:
             # API возвращает объект операции, передаем его напрямую
             operation_name = operation.name if hasattr(operation, "name") else str(operation)
             self.logger.debug(f"Ожидание индексации батча (Operation: {operation_name})...")
-            await self._wait_for_operation(operation)
+            await self._wait_for_operation(operation, client=client)
             self.logger.info(f"Батч ({len(jsonl_data)} записей) успешно добавлен в File Search Store.")
 
         except Exception:
             self.logger.exception("Ошибка при загрузке батча в File Search Store")
             raise
         finally:
+            client.close()
             # Всегда удаляем временный файл после загрузки
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
                 self.logger.debug(f"Временный файл удален: {temp_file_path}")
 
-    async def _wait_for_operation(self, operation, timeout: int = 600):
+    async def _wait_for_operation(self, operation, timeout: int = 600, client=None):
         """Ожидает завершения LRO (Long-Running Operation)."""
+        if client is None:
+            client = self._get_client()
+            
         for _ in range(timeout // 5):
             # Обновляем состояние операции
-            updated_operation = await self.client.aio.operations.get(operation)
+            updated_operation = await client.aio.operations.get(operation)
             if updated_operation.done:
                 if updated_operation.error:
                     self.logger.error(
@@ -180,12 +193,70 @@ class FileSearchClient:
             {{"catalog_id": 456, "score": 0.80}}
         ]
 
-        Если ничего не найдено, верни пустой список [].
+                If ничего не найдено, верни пустой список [].
         """
 
+        for attempt in range(3):
+            client = self._get_client()
+            try:
+                # (ИЗМЕНЕНИЕ) Главный вызов!
+                response = await client.aio.models.generate_content(
+                    model=self._model_name,
+                    contents=[system_prompt],  # Передаем только промпт
+                    # Указываем наш корпус как инструмент
+                    config=types.GenerateContentConfig(
+                        tools=[types.Tool(file_search=types.FileSearch(file_search_store_names=[self._store_name]))],
+                        # Просим модель вернуть чистый JSON
+                        response_mime_type="application/json",
+                    ),
+                )
+
+                # Парсим JSON-ответ от модели
+                result_json = json.loads(response.text)
+
+                # Ожидаем список, но если модель вернула один объект - оборачиваем
+                if isinstance(result_json, dict):
+                    result_json = [result_json]
+
+                if not result_json:
+                    self.logger.warning(f"RAG-поиск не дал релевантных JSON-результатов для: {query[:50]}...")
+                    return []
+
+                valid_results = []
+                for item in result_json:
+                    if "catalog_id" in item:
+                        # Добавляем 'score' по умолчанию, если модель его не вернула
+                        if "score" not in item:
+                            item["score"] = 0.0  # Безопасный дефолт
+                        valid_results.append(item)
+
+                self.logger.info(f"RAG-поиск нашел {len(valid_results)} совпадений.")
+                return valid_results
+
+            except errors.ServerError as e:
+                self.logger.warning(f"Google API ServerError (500) on attempt {attempt+1}: {e}")
+                if attempt == 2:
+                    self.logger.error("Giving up on ServerError after 3 attempts.")
+                    return []
+                await asyncio.sleep(2 * (attempt + 1))
+
+            except json.JSONDecodeError:
+                # Пустой ответ от модели - нормальная ситуация, когда Store пустой или нет совпадений
+                self.logger.debug("RAG-поиск: пустой ответ от модели (Store может быть пустым). " f"Query: {query[:50]}...")
+                return []
+            except Exception:
+                self.logger.exception("Ошибка RAG-поиска (corpus-based)")
+                return []
+            finally:
+                client.close()
+        return []
+
+        """
+
+        client = self._get_client()
         try:
             # (ИЗМЕНЕНИЕ) Главный вызов!
-            response = await self.client.aio.models.generate_content(
+            response = await client.aio.models.generate_content(
                 model=self._model_name,
                 contents=[system_prompt],  # Передаем только промпт
                 # Указываем наш корпус как инструмент
@@ -225,3 +296,5 @@ class FileSearchClient:
         except Exception:
             self.logger.exception("Ошибка RAG-поиска (corpus-based)")
             return []
+        finally:
+            client.close()

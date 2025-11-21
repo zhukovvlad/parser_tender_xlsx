@@ -15,42 +15,35 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}🛑 Stopping Tender Parser Services${NC}"
 
-# Функция для остановки сервиса по PID файлу
-stop_service() {
+# Функция для остановки по паттерну
+stop_by_pattern() {
     local name=$1
-    local pidfile="logs/${name}.pid"
+    local pattern=$2
     
-    if [ -f "$pidfile" ]; then
-        local pid=$(cat "$pidfile")
-        if kill -0 "$pid" 2>/dev/null; then
-            echo -e "${BLUE}🛑 Останавливаю $name (PID: $pid)...${NC}"
-            kill "$pid"
-            rm "$pidfile"
-            echo -e "${GREEN}✅ $name остановлен${NC}"
-        else
-            echo -e "${RED}⚠️ Процесс $name (PID: $pid) уже не активен${NC}"
-            rm "$pidfile"
-        fi
+    echo -e "${BLUE}🔍 Ищу процессы $name...${NC}"
+    if pgrep -f "$pattern" > /dev/null; then
+        pkill -f "$pattern"
+        echo -e "${GREEN}✅ $name остановлен${NC}"
     else
-        echo -e "${RED}⚠️ PID файл для $name не найден${NC}"
+        echo -e "${RED}⚠️ Процессы $name не найдены${NC}"
     fi
 }
 
-# Останавливаем сервисы
-stop_service "celery-worker"
-stop_service "celery-beat"
-stop_service "flower"
+# Останавливаем конкретные сервисы
+stop_by_pattern "Celery Workers" "celery -A app.celery_app worker"
+stop_by_pattern "Celery Beat" "celery -A app.celery_app beat"
+stop_by_pattern "Flower" "celery -A app.celery_app flower"
+stop_by_pattern "FastAPI (Uvicorn)" "uvicorn main:app"
 
-# Останавливаем все Celery процессы (на всякий случай)
-echo -e "${BLUE}🧹 Очищаю оставшиеся Celery процессы...${NC}"
-pkill -f "celery" || true
-
-# Показываем оставшиеся процессы
+# Финальная зачистка (на всякий случай)
+echo -e "${BLUE}🧹 Проверяю оставшиеся процессы...${NC}"
 if pgrep -f "celery" > /dev/null; then
-    echo -e "${RED}⚠️ Обнаружены активные Celery процессы:${NC}"
-    pgrep -f "celery" | head -5
-else
-    echo -e "${GREEN}✅ Все Celery процессы остановлены${NC}"
+    echo -e "${BLUE}🔪 Принудительно завершаю остатки...${NC}"
+    pkill -f "celery" || true
 fi
 
+# Удаляем старые PID файлы, если они есть (для очистки мусора)
+rm -f logs/*.pid
+
 echo -e "${GREEN}🏁 Все сервисы остановлены${NC}"
+
