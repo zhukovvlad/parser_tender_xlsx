@@ -26,7 +26,13 @@ from .worker import GeminiWorker
 logger = get_task_logger(__name__)
 
 
-@celery_app.task(bind=True, autoretry_for=(Exception,), retry_kwargs={"max_retries": 3, "countdown": 60})
+@celery_app.task(
+    bind=True, 
+    queue='ai_queue',  # Направляем в отдельную очередь для AI задач
+    autoretry_for=(Exception,), 
+    retry_kwargs={"max_retries": 5, "countdown": 60},
+    rate_limit='10/m'  # Ограничение: не более 10 задач в минуту на воркер
+)
 def process_tender_positions(
     self, tender_id: str, lot_id: str, positions_file_path: str, api_key: str
 ) -> Dict[str, Any]:
@@ -224,8 +230,13 @@ def process_tender_batch(self, tender_id: str, lots_data: list, api_key: str) ->
 
             logger.info(f"📝 Starting async processing for lot {i+1}/{len(lots_data)}: {lot_id}")
 
-            # Запускаем подзадачу асинхронно (без ожидания)
-            subtask = process_tender_positions.delay(tender_id, lot_id, positions_file, api_key)
+            # Запускаем подзадачу асинхронно с задержкой (Rate Limiting)
+            # Сдвигаем запуск каждой следующей задачи на 4 секунды, чтобы не превысить RPM лимит
+            delay_seconds = i * 4
+            subtask = process_tender_positions.apply_async(
+                args=[tender_id, lot_id, positions_file, api_key],
+                countdown=delay_seconds
+            )
             subtask_ids.append(subtask.id)
 
         # Обновляем прогресс - все задачи отправлены
@@ -320,13 +331,3 @@ def cleanup_old_results():
         logger.error(f"❌ Cleanup error: {str(e)}")
         raise
 
-
-# Настройка периодических задач
-
-celery_app.conf.beat_schedule = {
-    "cleanup-old-results": {
-        "task": "app.workers.gemini.tasks.cleanup_old_results",
-        "schedule": crontab(hour=2, minute=0),  # Каждый день в 2:00
-    },
-}
-celery_app.conf.timezone = "UTC"

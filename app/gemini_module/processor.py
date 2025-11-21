@@ -3,6 +3,8 @@
 import json
 import os
 import re
+import time
+import random
 
 from google import genai
 
@@ -39,15 +41,37 @@ class TenderProcessor:
         model = model_name or DEFAULT_MODEL
 
         self.logger.debug(f"Отправляю запрос к модели {model}")
-        response = self.client.models.generate_content(model=model, contents=[self.file, prompt])
 
-        if not response.candidates:
-            self.logger.warning("Модель не вернула кандидатов в ответе")
-            return ""
+        max_retries = 5
+        base_delay = 5  # Увеличил базовую задержку
 
-        result = response.candidates[0].content.parts[0].text.strip()
-        self.logger.debug(f"Получен ответ длиной {len(result)} символов")
-        return result
+        for attempt in range(max_retries):
+            try:
+                response = self.client.models.generate_content(model=model, contents=[self.file, prompt])
+
+                if not response.candidates:
+                    self.logger.warning("Модель не вернула кандидатов в ответе")
+                    return ""
+
+                result = response.candidates[0].content.parts[0].text.strip()
+                self.logger.debug(f"Получен ответ длиной {len(result)} символов")
+                return result
+
+            except Exception as e:
+                error_str = str(e)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    if attempt < max_retries - 1:
+                        # Добавляем случайный Jitter (1-5 сек) к экспоненциальной задержке
+                        jitter = random.uniform(1, 5)
+                        delay = (base_delay * (2 ** attempt)) + jitter
+                        
+                        self.logger.warning(f"Ошибка 429 (Resource Exhausted). Повторная попытка {attempt + 1}/{max_retries} через {delay:.2f} сек...")
+                        time.sleep(delay)
+                        continue
+                
+                # Если ошибка не 429 или закончились попытки
+                self.logger.error(f"Ошибка при запросе к Gemini: {e}")
+                raise
 
     def classify(self, categories: list[str], fallback_label: str = "не найдено") -> str:
         """Классифицирует документ строго по заданному списку категорий."""

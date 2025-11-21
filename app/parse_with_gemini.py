@@ -178,6 +178,18 @@ def parse_with_ids(
 
     try:
         db_id, lot_ids_map = _import_full_tender_via_go(processed_data)
+
+        # --- Trigger Matcher Task ---
+        # Запускаем Matcher сразу после успешной регистрации тендера,
+        # чтобы он начал искать совпадения для новых позиций параллельно с остальной обработкой.
+        try:
+            from app.celery_app import celery_app
+            log.info("🚀 Тендер зарегистрирован. Запускаю фоновый Matcher (run_matching_task)...")
+            celery_app.send_task('app.workers.rag_catalog.tasks.run_matching_task')
+        except Exception:
+            log.warning("⚠️ Не удалось запустить Matcher задачу (не критично)", exc_info=True)
+        # ----------------------------
+
     except Exception as e:
         log.error(f"❌ Ошибка регистрации тендера на Go-сервере: {e}")
         return None, None, None

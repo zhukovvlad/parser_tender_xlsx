@@ -133,9 +133,13 @@ worker-start:
 
 # === CELERY КОМАНДЫ ===
 
-celery-worker:
-	@echo "🚀 Запускаю Celery воркер для AI обработки..."
-	.venv/bin/celery -A app.celery_app worker --loglevel=DEBUG
+celery-worker-ai:
+	@echo "🚀 Запускаю Celery воркер для AI (ai_queue)..."
+	.venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=ai_queue --concurrency=1 --hostname=ai@%h
+
+celery-worker-default:
+	@echo "🚀 Запускаю Celery воркер для общих задач (default)..."
+	.venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=default --concurrency=4 --hostname=default@%h
 
 celery-beat:
 	@echo "⏰ Запускаю Celery Beat планировщик..."

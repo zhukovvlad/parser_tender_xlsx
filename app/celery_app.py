@@ -57,6 +57,12 @@ celery_app.conf.update(
     # Мониторинг
     worker_send_task_events=True,
     task_send_sent_event=True,
+    
+    # --- RedBeat Configuration (Redis-backed Scheduler) ---
+    beat_scheduler="redbeat.RedBeatScheduler",
+    beat_max_loop_interval=5,  # Проверять расписание каждые 5 секунд
+    redbeat_redis_url=f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', 6379)}/0",
+    redbeat_key_prefix="redbeat:",
 )
 
 # --- (ИЗМЕНЕНИЕ 4: Добавлено расписание Celery Beat) ---
@@ -64,8 +70,8 @@ celery_app.conf.beat_schedule = {
     # Задача 1: Сопоставление (часто)
     "run-rag-matcher": {
         "task": "app.workers.rag_catalog.tasks.run_matching_task",
-        # Запускать каждые 5 минут
-        "schedule": crontab(minute="*/5"),
+        # Запускать каждые 10 минут
+        "schedule": crontab(minute="*/10"),
     },
     # Задача 2: Дедупликация (редко, ночная задача)
     "run-rag-deduplicator": {
@@ -73,9 +79,16 @@ celery_app.conf.beat_schedule = {
         # Запускать раз в сутки в 3:00 ночи
         "schedule": crontab(minute="0", hour="3"),
     },
-    # Задача 3: Индексация НЕ в расписании - вызывается event-driven
+    # Задача 3: Очистка старых результатов (Gemini)
+    "cleanup-old-results": {
+        "task": "app.workers.gemini.tasks.cleanup_old_results",
+        # Запускать раз в сутки в 2:00 ночи
+        "schedule": crontab(minute="0", hour="2"),
+    },
 }
 # --- Конец нового блока ---
+
+
 
 
 # Автоматическое обнаружение задач
