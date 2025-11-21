@@ -12,6 +12,10 @@ from google.genai import types
 
 from .logger import get_rag_logger
 
+DEFAULT_STORE_ID = "rag-catalog-store"
+STORE_DISPLAY_NAME = "Tenders Catalog Store"
+DEFAULT_MODEL_NAME = "gemini-2.5-flash"
+
 
 class FileSearchClient:
     """
@@ -28,14 +32,14 @@ class FileSearchClient:
         self.logger = get_rag_logger("file_search_client")
 
         # Наш "индекс" - это ID постоянного хранилища (корпуса)
-        self.store_id = os.getenv("GOOGLE_RAG_STORE_ID", "rag-catalog-store")
+        self.store_id = os.getenv("GOOGLE_RAG_STORE_ID", DEFAULT_STORE_ID)
         self._store_name = ""  # Будет заполнен при инициализации
 
         # Модель, которую мы будем использовать для RAG
-        self._model_name = os.getenv("GOOGLE_RAG_MODEL", "gemini-2.5-flash")
+        self._model_name = os.getenv("GOOGLE_RAG_MODEL", DEFAULT_MODEL_NAME)
 
         self.logger.info(
-            f"FileSearchClient (RAG v4, corpus-based) инициализирован."
+            "FileSearchClient (RAG v4, corpus-based) инициализирован."
             f" Store ID: {self.store_id}, Model: {self._model_name}"
         )
 
@@ -44,34 +48,34 @@ class FileSearchClient:
         Проверяет наличие 'File Search store' или создает новый.
         Сначала ищет существующий по display_name, если не найден - создает новый.
         """
-        self.logger.info(f"Инициализация File Search Store (display_name: 'Tenders Catalog Store')...")
-        
+        self.logger.info(f"Инициализация File Search Store (display_name: '{STORE_DISPLAY_NAME}')...")
+
         try:
             # --- ШАГАН 1: Пытаемся найти существующий Store ---
             self.logger.debug("Проверяем существующие Store...")
             stores_pager = await self.client.aio.file_search_stores.list()
-            
+
             # Ищем Store с нужным display_name
             async for store in stores_pager:
-                if store.display_name == "Tenders Catalog Store":
+                if store.display_name == STORE_DISPLAY_NAME:
                     self.logger.info(f"✓ Найден существующий Store: '{store.display_name}' (name: {store.name})")
                     self._store_name = store.name
-                    self.logger.info(f"✓ Переиспользуем существующий Store вместо создания нового")
+                    self.logger.info("✓ Переиспользуем существующий Store вместо создания нового")
                     return
-            
+
             # --- ШАГАН 2: Если не нашли - создаем новый ---
             self.logger.info("Существующий Store не найден. Создаем новый...")
             store = await self.client.aio.file_search_stores.create(
-                config={"display_name": "Tenders Catalog Store"},
+                config={"display_name": STORE_DISPLAY_NAME},
             )
             self.logger.info(f"✓ Новый Store '{store.display_name}' создан. Store name: {store.name}")
             self._store_name = store.name
 
         except google_exceptions.PermissionDenied as e:
             self.logger.critical(
-                f"КРИТИЧЕСКАЯ ОШИБКА (403): У API-ключа нет прав (Permission Denied) "
-                f"на создание или получение Store. "
-                f"Проверьте права ключа в Google AI Studio."
+                "КРИТИЧЕСКАЯ ОШИБКА (403): У API-ключа нет прав (Permission Denied) "
+                "на создание или получение Store. "
+                "Проверьте права ключа в Google AI Studio."
             )
             self.logger.critical(f"Детали ошибки: {e}")
             raise
@@ -116,15 +120,13 @@ class FileSearchClient:
 
             # Ожидаем завершения индексации этого батча
             # API возвращает объект операции, передаем его напрямую
-            operation_name = operation.name if hasattr(operation, 'name') else str(operation)
+            operation_name = operation.name if hasattr(operation, "name") else str(operation)
             self.logger.debug(f"Ожидание индексации батча (Operation: {operation_name})...")
             await self._wait_for_operation(operation)
             self.logger.info(f"Батч ({len(jsonl_data)} записей) успешно добавлен в File Search Store.")
 
-        except Exception as e:
-            # В случае ошибки удаляем временный файл
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
+        except Exception:
+            self.logger.exception("Ошибка при загрузке батча в File Search Store")
             raise
         finally:
             # Всегда удаляем временный файл после загрузки
@@ -139,7 +141,9 @@ class FileSearchClient:
             updated_operation = await self.client.aio.operations.get(operation)
             if updated_operation.done:
                 if updated_operation.error:
-                    self.logger.error(f"Ошибка операции {operation.name if hasattr(operation, 'name') else operation}: {updated_operation.error}")
+                    self.logger.error(
+                        f"Ошибка операции {operation.name if hasattr(operation, 'name') else operation}: {updated_operation.error}"
+                    )
                     raise RuntimeError(f"Operation failed: {updated_operation.error}")
                 return
             await asyncio.sleep(5)
@@ -214,10 +218,10 @@ class FileSearchClient:
             self.logger.info(f"RAG-поиск нашел {len(valid_results)} совпадений.")
             return valid_results
 
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             # Пустой ответ от модели - нормальная ситуация, когда Store пустой или нет совпадений
-            self.logger.debug(f"RAG-поиск: пустой ответ от модели (Store может быть пустым). Query: {query[:50]}...")
+            self.logger.debug("RAG-поиск: пустой ответ от модели (Store может быть пустым). " f"Query: {query[:50]}...")
             return []
-        except Exception as e:
-            self.logger.error(f"Ошибка RAG-поиска (corpus-based): {e}")
+        except Exception:
+            self.logger.exception("Ошибка RAG-поиска (corpus-based)")
             return []

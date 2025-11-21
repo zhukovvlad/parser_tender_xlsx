@@ -5,7 +5,7 @@
 Использование:
     python scripts/delete_google_store.py
 
-Примечание: 
+Примечание:
     - Использует REST API для force delete
     - Удаляет хранилище 'Tenders Catalog Store' вместе со всеми документами
     - Требует GOOGLE_API_KEY в .env файле
@@ -36,13 +36,17 @@ def find_store(client, display_name):
     return None
 
 
-def delete_store_rest_api(store_name, api_key):
+def delete_store_rest_api(store_name, api_key, timeout=10.0):
     """Удалить хранилище через REST API с force=true"""
     url = f"https://generativelanguage.googleapis.com/v1beta/{store_name}?force=true"
     headers = {"x-goog-api-key": api_key}
-    
-    response = requests.delete(url, headers=headers)
-    return response
+
+    try:
+        response = requests.delete(url, headers=headers, timeout=timeout)
+        return response
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Ошибка сети при удалении: {e}")
+        return None
 
 
 def main():
@@ -51,24 +55,24 @@ def main():
     if not api_key:
         print("❌ Ошибка: GOOGLE_API_KEY не установлен в .env")
         return 1
-    
+
     client = genai.Client(api_key=api_key)
-    
+
     print("=" * 80)
     print("🗑️  УДАЛЕНИЕ GOOGLE FILE SEARCH STORE")
     print("=" * 80)
-    
+
     # Ищем хранилище
     print(f"\n🔍 Поиск хранилища: '{STORE_DISPLAY_NAME}'...")
     target_store = find_store(client, STORE_DISPLAY_NAME)
-    
+
     if not target_store:
         print(f"⚠️  Хранилище '{STORE_DISPLAY_NAME}' не найдено")
         print("✅ Ничего удалять не нужно")
         return 0
-    
+
     print(f"✅ Найдено хранилище: {target_store.name}")
-    
+
     # Получаем информацию о документах
     try:
         documents = list(client.file_search_stores.documents.list(parent=target_store.name))
@@ -76,24 +80,24 @@ def main():
     except Exception as e:
         print(f"⚠️  Не удалось получить список документов: {e}")
         documents = []
-    
+
     # Подтверждение удаления
     print("\n⚠️  ВНИМАНИЕ: Это действие необратимо!")
     print(f"   Будет удалено хранилище и {len(documents)} документов")
-    
+
     confirm = input("\nПродолжить удаление? (yes/no): ").strip().lower()
     if confirm not in ['yes', 'y']:
         print("❌ Удаление отменено")
         return 0
-    
+
     # Удаляем через REST API
-    print(f"\n🗑️  Удаление хранилища через REST API...")
+    print("\n🗑️  Удаление хранилища через REST API...")
     response = delete_store_rest_api(target_store.name, api_key)
-    
-    if response.status_code == 200:
+
+    if response and response.status_code == 200:
         print("✅ Хранилище успешно удалено!")
         print(f"   Удалено документов: {len(documents)}")
-        
+
         # Проверяем удаление
         print("\n🔍 Проверка удаления...")
         verify_store = find_store(client, STORE_DISPLAY_NAME)
@@ -101,11 +105,13 @@ def main():
             print("✅ Подтверждено: хранилище удалено")
         else:
             print("⚠️  Хранилище все еще существует")
-            
+
         return 0
-    else:
+    elif response:
         print(f"❌ Ошибка при удалении: {response.status_code}")
         print(f"   Response: {response.text}")
+        return 1
+    else:
         return 1
 
 

@@ -2,7 +2,7 @@
 # app/workers/rag_catalog/worker.py
 
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from ...go_module.go_client import GoApiClient
 from ...rag_google_module.file_search import FileSearchClient
@@ -74,13 +74,13 @@ class RagWorker:
                 if not search_results:
                     self.logger.warning(f"Не найдено совпадение для item {item['position_item_id']}")
                     continue
-                
+
                 # Берем лучший результат (первый в списке)
                 best_match = search_results[0]
 
                 if "catalog_id" not in best_match or "score" not in best_match:
-                     self.logger.warning(f"Некорректный формат ответа для item {item['position_item_id']}")
-                     continue
+                    self.logger.warning(f"Некорректный формат ответа для item {item['position_item_id']}")
+                    continue
 
                 # 4. Проверяем порог схожести
                 if best_match["score"] < MATCHING_THRESHOLD:
@@ -141,8 +141,8 @@ class RagWorker:
             jsonl_data = []
             indexed_ids = []
             for item in items_batch:
-                # DTO: { "position_item_id": 123 (это catalog_id), "rich_context_string": "..." }
-                catalog_id = item["position_item_id"]
+                # DTO: { "catalog_id": 123, "rich_context_string": "..." }
+                catalog_id = item["catalog_id"]
                 jsonl_data.append(
                     {
                         "catalog_id": catalog_id,
@@ -222,14 +222,14 @@ class RagWorker:
                         # Пропускаем "самого себя"
                         if str(item_id) == str(matched_id):
                             continue
-                        
+
                         # Если нашли ДРУГУЮ запись с высоким score
                         if score > SUGGEST_THRESHOLD:
                             self.logger.info(f"Обнаружен дубликат! {item_id} -> {matched_id} (Score: {score:.4f})")
 
                             # 6. Предлагаем слияние
                             await self.go_client.post_suggest_merge(
-                                main_id=int(matched_id), duplicate_id=int(item_id), similarity_score=score
+                                main_id=int(matched_id), duplicate_id=int(item_id), score=score
                             )
                             total_suggestions += 1
                             # Нашли лучший дубликат, переходим к следующему item

@@ -19,7 +19,7 @@ load_dotenv(project_root / ".env")
 api_key = os.getenv("GOOGLE_API_KEY")
 if not api_key:
     print("Ошибка: Переменная окружения GOOGLE_API_KEY не установлена.")
-    exit()
+    sys.exit(1)
 
 # Создаем клиент, передавая ключ напрямую
 client = genai.Client(api_key=api_key)
