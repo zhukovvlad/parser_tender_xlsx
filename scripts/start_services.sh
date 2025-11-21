@@ -143,7 +143,8 @@ fi
 # Запускаем FastAPI приложение
 echo -e "${BLUE}🌐 Запускаю FastAPI приложение...${NC}"
 echo -e "${GREEN}📝 Логи сервисов:${NC}"
-echo -e "  - Celery Worker: logs/celery_worker.log"
+echo -e "  - Celery AI Worker: logs/celery_ai.log"
+echo -e "  - Celery Default Worker: logs/celery_default.log"
 echo -e "  - Celery Beat: logs/celery_beat.log"
 echo -e "  - FastAPI: logs/fastapi.log"
 

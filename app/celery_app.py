@@ -84,6 +84,8 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.gemini.tasks.cleanup_old_results",
         # Запускать раз в сутки в 2:00 ночи
         "schedule": crontab(minute="0", hour="2"),
+        # Явно указываем очередь default, чтобы не занимать AI-воркер
+        "options": {"queue": "default"},
     },
 }
 # --- Конец нового блока ---

@@ -146,21 +146,29 @@ class FileSearchClient:
 
     async def _wait_for_operation(self, operation, timeout: int = 600, client=None):
         """Ожидает завершения LRO (Long-Running Operation)."""
+        owns_client = False
         if client is None:
             client = self._get_client()
-            
-        for _ in range(timeout // 5):
-            # Обновляем состояние операции
-            updated_operation = await client.aio.operations.get(operation)
-            if updated_operation.done:
-                if updated_operation.error:
-                    self.logger.error(
-                        f"Ошибка операции {operation.name if hasattr(operation, 'name') else operation}: {updated_operation.error}"
-                    )
-                    raise RuntimeError(f"Operation failed: {updated_operation.error}")
-                return
-            await asyncio.sleep(5)
-        raise TimeoutError(f"Таймаут ожидания операции {operation.name if hasattr(operation, 'name') else operation}")
+            owns_client = True
+
+        try:
+            for _ in range(timeout // 5):
+                # Обновляем состояние операции
+                updated_operation = await client.aio.operations.get(operation)
+                if updated_operation.done:
+                    if updated_operation.error:
+                        self.logger.error(
+                            f"Ошибка операции {operation.name if hasattr(operation, 'name') else operation}: {updated_operation.error}"
+                        )
+                        raise RuntimeError(f"Operation failed: {updated_operation.error}")
+                    return
+                await asyncio.sleep(5)
+            raise TimeoutError(
+                f"Таймаут ожидания операции {operation.name if hasattr(operation, 'name') else operation}"
+            )
+        finally:
+            if owns_client:
+                client.close()
 
     async def search(self, query: str) -> Optional[List[Dict[str, Any]]]:
         """
@@ -250,51 +258,3 @@ class FileSearchClient:
             finally:
                 client.close()
         return []
-
-        """
-
-        client = self._get_client()
-        try:
-            # (ИЗМЕНЕНИЕ) Главный вызов!
-            response = await client.aio.models.generate_content(
-                model=self._model_name,
-                contents=[system_prompt],  # Передаем только промпт
-                # Указываем наш корпус как инструмент
-                config=types.GenerateContentConfig(
-                    tools=[types.Tool(file_search=types.FileSearch(file_search_store_names=[self._store_name]))],
-                    # Просим модель вернуть чистый JSON
-                    response_mime_type="application/json",
-                ),
-            )
-
-            # Парсим JSON-ответ от модели
-            result_json = json.loads(response.text)
-
-            # Ожидаем список, но если модель вернула один объект - оборачиваем
-            if isinstance(result_json, dict):
-                result_json = [result_json]
-
-            if not result_json:
-                self.logger.warning(f"RAG-поиск не дал релевантных JSON-результатов для: {query[:50]}...")
-                return []
-
-            valid_results = []
-            for item in result_json:
-                if "catalog_id" in item:
-                    # Добавляем 'score' по умолчанию, если модель его не вернула
-                    if "score" not in item:
-                        item["score"] = 0.0  # Безопасный дефолт
-                    valid_results.append(item)
-
-            self.logger.info(f"RAG-поиск нашел {len(valid_results)} совпадений.")
-            return valid_results
-
-        except json.JSONDecodeError:
-            # Пустой ответ от модели - нормальная ситуация, когда Store пустой или нет совпадений
-            self.logger.debug("RAG-поиск: пустой ответ от модели (Store может быть пустым). " f"Query: {query[:50]}...")
-            return []
-        except Exception:
-            self.logger.exception("Ошибка RAG-поиска (corpus-based)")
-            return []
-        finally:
-            client.close()

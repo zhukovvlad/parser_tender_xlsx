@@ -66,20 +66,28 @@ class RagWorker:
         for item in unmatched_items:
             # DTO: { "position_item_id": 9999 (из position_items), "hash": "...", "rich_context_string": "..." }
             try:
+                # Проверка целостности данных
+                item_id = item.get("position_item_id")
+                context_str = item.get("rich_context_string")
+                
+                if not item_id or not context_str:
+                    self.logger.warning(f"Пропуск некорректного item от Go: {item}")
+                    continue
+
                 # 2. Ищем в File Search (по корпусу)
-                search_query = item["rich_context_string"]
+                search_query = context_str
                 search_results = await self.file_search.search(search_query)
 
                 # 3. Анализируем результат
                 if not search_results:
-                    self.logger.warning(f"Не найдено совпадение для item {item['position_item_id']}")
+                    self.logger.warning(f"Не найдено совпадение для item {item_id}")
                     continue
 
                 # Берем лучший результат (первый в списке)
                 best_match = search_results[0]
 
                 if "catalog_id" not in best_match or "score" not in best_match:
-                    self.logger.warning(f"Некорректный формат ответа для item {item['position_item_id']}")
+                    self.logger.warning(f"Некорректный формат ответа для item {item_id}")
                     continue
 
                 # 4. Проверяем порог схожести
@@ -91,12 +99,12 @@ class RagWorker:
                     continue
 
                 matched_catalog_id = best_match["catalog_id"]
-                self.logger.info(f"Найдено совпадение! Item {item['position_item_id']} -> Catalog {matched_catalog_id}")
+                self.logger.info(f"Найдено совпадение! Item {item_id} -> Catalog {matched_catalog_id}")
 
                 # 5. Отправляем результат в Go
                 await self.go_client.post_position_match(
                     {
-                        "position_item_id": item["position_item_id"],
+                        "position_item_id": item_id,
                         "catalog_position_id": matched_catalog_id,
                         "hash": item["hash"],
                     }
@@ -213,8 +221,12 @@ class RagWorker:
             for item in items_batch:
                 try:
                     # DTO: { "position_item_id": 123 (это catalog_id), "rich_context_string": "..." }
-                    item_id = item["position_item_id"]
-                    context_str = item["rich_context_string"]
+                    item_id = item.get("position_item_id")
+                    context_str = item.get("rich_context_string")
+
+                    if not item_id or not context_str:
+                        self.logger.warning(f"Пропуск некорректного item (дедупликация): {item}")
+                        continue
 
                     # 4. "Поиск самого себя" в КОРПУСЕ
                     search_results = await self.file_search.search(context_str)
