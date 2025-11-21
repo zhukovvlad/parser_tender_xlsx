@@ -73,8 +73,25 @@ def import_tender_sync(tender_data: Dict[str, Any]) -> Tuple[str, Dict[str, int]
                 raise ValueError(f"Go-сервер не вернул tender_db_id. Ответ: {response}")
 
             lot_ids_map = response.get("lot_ids_map") or response.get("lots_id") or {}
+            
+            # (НОВОЕ) Проверяем флаг для event-driven индексации
+            new_catalog_items = response.get("new_catalog_items_pending", False)
 
             log.info(f"✅ Тендер импортирован: db_id={tender_db_id}, лотов={len(lot_ids_map)}")
+            
+            # (НОВОЕ) Если есть новые pending позиции, запускаем индексацию
+            if new_catalog_items:
+                log.info("🔔 Обнаружены новые 'pending' позиции, запускаем индексацию...")
+                try:
+                    # Ленивый импорт чтобы избежать циклических зависимостей
+                    from app.workers.rag_catalog.tasks import run_indexing_task
+                    # Запускаем задачу асинхронно
+                    run_indexing_task.delay()
+                    log.info("✅ Задача индексации отправлена в очередь Celery")
+                except Exception as e:
+                    log.warning(f"⚠️ Не удалось запустить задачу индексации: {e}")
+                    # Не прерываем импорт из-за ошибки индексации
+
             return str(tender_db_id), lot_ids_map
 
         finally:

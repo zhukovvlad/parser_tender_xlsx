@@ -132,7 +132,7 @@ class GoApiClient:
         )
         return await self._handle_response(response)
 
-    async def get_unindexed_catalog_items(self, limit: int = 1000) -> List[Dict]:
+    async def get_unindexed_catalog_items(self, limit: int = 1000, offset: int = 0) -> List[Dict]:
         """
         (НОВЫЙ) Получает записи каталога для индексации в File Search (Процесс 3).
 
@@ -145,9 +145,9 @@ class GoApiClient:
             ...
         ]
         """
-        self.logger.debug(f"Запрос {limit} неиндексированных записей каталога...")
+        self.logger.debug(f"Запрос {limit} неиндексированных записей каталога (offset={offset})...")
         response = await self.client.get(
-            "/catalog/unindexed", params={"limit": limit}, headers=self._get_headers()  # (Предполагаемый эндпоинт)
+            "/catalog/unindexed", params={"limit": limit, "offset": offset}, headers=self._get_headers()
         )
         return await self._handle_response(response)
 
@@ -172,6 +172,26 @@ class GoApiClient:
         response = await self.client.post(
             "/merges/suggest", json=payload, headers=self._get_headers()  # (Предполагаемый эндпоинт)
         )
+        return await self._handle_response(response)
+
+    async def get_all_active_catalog_items(self, limit: int, offset: int) -> List[Dict]:
+        """
+        (НОВЫЙ) Получает 'активные' записи каталога для поиска дубликатов (Процесс 3, Часть Б).
+        Использует пагинацию (limit/offset).
+
+        Ожидает в ответ:
+        [
+            {
+                "position_item_id": 123, // Это catalog_id
+                "job_title_in_proposal": "лемма...",
+                "rich_context_string": "Работа: лемма... | Описание: ..."
+            },
+            ...
+        ]
+        """
+        self.logger.debug(f"Запрос батча активного каталога (limit={limit}, offset={offset})...")
+        params = {"limit": limit, "offset": offset}
+        response = await self.client.get("/catalog/active", params=params, headers=self._get_headers())
         return await self._handle_response(response)
 
     async def close(self):
