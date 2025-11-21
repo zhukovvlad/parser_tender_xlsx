@@ -52,9 +52,9 @@ def _parse_timeout_env(var_name: str, default: int) -> int:
 # --- Конец функции ---
 
 # Timeout для задач (в секундах)
-MATCHER_TIMEOUT = _parse_timeout_env("RAG_MATCHER_TIMEOUT", 300)  # 5 минут
-INDEXER_TIMEOUT = _parse_timeout_env("RAG_INDEXER_TIMEOUT", 900)  # 15 минут
-DEDUPLICATOR_TIMEOUT = _parse_timeout_env("RAG_DEDUPLICATOR_TIMEOUT", 1800)  # 30 минут
+MATCHER_TIMEOUT = _parse_timeout_env("RAG_MATCHER_TIMEOUT", 600)  # 10 минут
+INDEXER_TIMEOUT = _parse_timeout_env("RAG_INDEXER_TIMEOUT", 1800)  # 30 минут
+DEDUPLICATOR_TIMEOUT = _parse_timeout_env("RAG_DEDUPLICATOR_TIMEOUT", 3600)  # 60 минут
 
 # --- (ИЗМЕНЕНИЕ 1) ---
 # Просто инициализируем. БЕЗ `asyncio.run()`.

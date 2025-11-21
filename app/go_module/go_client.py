@@ -30,10 +30,14 @@ class GoApiClient:
 
         self.logger = get_go_logger()
 
-        # Создаем httpx.AsyncClient для connection pooling
-        self.client = httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
+        # self.client удален из __init__, чтобы избежать привязки к старому Event Loop
+        # Используйте _get_client() для создания клиента в текущем контексте.
 
         self.logger.info(f"GoApiClient инициализирован для {self.base_url}")
+
+    def _get_client(self):
+        """Создает новый экземпляр клиента для текущего Event Loop."""
+        return httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
 
     def _get_headers(self) -> Dict[str, str]:
         """Возвращает заголовки для аутентификации."""
@@ -85,12 +89,13 @@ class GoApiClient:
         """
         self.logger.info(f"Обновление key_parameters для лота {lot_db_id}...")
         # Формат payload совместимый со старым API
-        response = await self.client.post(
-            f"/lots/{lot_db_id}/ai-results",  # Эндпоинт совместимый со старым API
-            json=ai_data,  # ai_data уже содержит полный payload
-            headers=self._get_headers(),
-        )
-        return await self._handle_response(response)
+        async with self._get_client() as client:
+            response = await client.post(
+                f"/lots/{lot_db_id}/ai-results",  # Эндпоинт совместимый со старым API
+                json=ai_data,  # ai_data уже содержит полный payload
+                headers=self._get_headers(),
+            )
+            return await self._handle_response(response)
 
     # --- МЕТОДЫ ДЛЯ НОВОГО ВОРКЕРА (RagWorker) ---
 
@@ -109,10 +114,11 @@ class GoApiClient:
         ]
         """
         self.logger.debug(f"Запрос {limit} необработанных позиций...")
-        response = await self.client.get(
-            "/positions/unmatched", params={"limit": limit}, headers=self._get_headers()  # (Предполагаемый эндпоинт)
-        )
-        return await self._handle_response(response)
+        async with self._get_client() as client:
+            response = await client.get(
+                "/positions/unmatched", params={"limit": limit}, headers=self._get_headers()  # (Предполагаемый эндпоинт)
+            )
+            return await self._handle_response(response)
 
     async def post_position_match(self, match_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -127,10 +133,11 @@ class GoApiClient:
         }
         """
         self.logger.debug(f"Отправка сопоставления: {match_data.get('position_item_id')}")
-        response = await self.client.post(
-            "/positions/match", json=match_data, headers=self._get_headers()  # (Предполагаемый эндпоинт)
-        )
-        return await self._handle_response(response)
+        async with self._get_client() as client:
+            response = await client.post(
+                "/positions/match", json=match_data, headers=self._get_headers()  # (Предполагаемый эндпоинт)
+            )
+            return await self._handle_response(response)
 
     async def get_unindexed_catalog_items(self, limit: int = 1000, offset: int = 0) -> List[Dict]:
         """
@@ -146,22 +153,24 @@ class GoApiClient:
         ]
         """
         self.logger.debug(f"Запрос {limit} неиндексированных записей каталога (offset={offset})...")
-        response = await self.client.get(
-            "/catalog/unindexed", params={"limit": limit, "offset": offset}, headers=self._get_headers()
-        )
-        return await self._handle_response(response)
+        async with self._get_client() as client:
+            response = await client.get(
+                "/catalog/unindexed", params={"limit": limit, "offset": offset}, headers=self._get_headers()
+            )
+            return await self._handle_response(response)
 
     async def post_catalog_indexed(self, catalog_ids: List[int]) -> Dict[str, Any]:
         """
         (НОВЫЙ) Сообщает Go, что пачка ID была проиндексирована (Процесс 3).
         """
         self.logger.debug(f"Сообщение об индексации {len(catalog_ids)} ID...")
-        response = await self.client.post(
-            "/catalog/indexed",  # (Предполагаемый эндпоинт)
-            json={"catalog_ids": catalog_ids},
-            headers=self._get_headers(),
-        )
-        return await self._handle_response(response)
+        async with self._get_client() as client:
+            response = await client.post(
+                "/catalog/indexed",  # (Предполагаемый эндпоинт)
+                json={"catalog_ids": catalog_ids},
+                headers=self._get_headers(),
+            )
+            return await self._handle_response(response)
 
     async def post_suggest_merge(self, main_id: int, duplicate_id: int, score: float) -> Dict[str, Any]:
         """
@@ -169,10 +178,11 @@ class GoApiClient:
         """
         self.logger.debug(f"Предложение слияния: {duplicate_id} -> {main_id} (score: {score})")
         payload = {"main_position_id": main_id, "duplicate_position_id": duplicate_id, "similarity_score": score}
-        response = await self.client.post(
-            "/merges/suggest", json=payload, headers=self._get_headers()  # (Предполагаемый эндпоинт)
-        )
-        return await self._handle_response(response)
+        async with self._get_client() as client:
+            response = await client.post(
+                "/merges/suggest", json=payload, headers=self._get_headers()  # (Предполагаемый эндпоинт)
+            )
+            return await self._handle_response(response)
 
     async def get_all_active_catalog_items(self, limit: int, offset: int) -> List[Dict]:
         """
@@ -191,8 +201,9 @@ class GoApiClient:
         """
         self.logger.debug(f"Запрос батча активного каталога (limit={limit}, offset={offset})...")
         params = {"limit": limit, "offset": offset}
-        response = await self.client.get("/catalog/active", params=params, headers=self._get_headers())
-        return await self._handle_response(response)
+        async with self._get_client() as client:
+            response = await client.get("/catalog/active", params=params, headers=self._get_headers())
+            return await self._handle_response(response)
 
     async def close(self):
         """
