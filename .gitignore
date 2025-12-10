@@ -16,6 +16,8 @@ Makefile.local
 
 # Не игнорировать документацию
 !TESTING.md
+!CODE_REVIEW_REPORT.md
+!REVIEW_SUMMARY.md
 
 # Исключаем виртуальное окружение и настройки VSCode
 .venv/
