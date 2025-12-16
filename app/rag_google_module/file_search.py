@@ -214,8 +214,7 @@ class FileSearchClient:
                     # Указываем наш корпус как инструмент
                     config=types.GenerateContentConfig(
                         tools=[types.Tool(file_search=types.FileSearch(file_search_store_names=[self._store_name]))],
-                        # Просим модель вернуть чистый JSON
-                        response_mime_type="application/json",
+                        # НЕ используем response_mime_type с tools - это несовместимо
                     ),
                 )
 
