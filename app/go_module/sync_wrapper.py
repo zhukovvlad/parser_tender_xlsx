@@ -95,9 +95,6 @@ def import_tender_sync(tender_data: Dict[str, Any]) -> Tuple[str, Dict[str, int]
 
             return str(tender_db_id), lot_ids_map
 
-        finally:
-            await client.close()
-
     try:
         return asyncio.run(_async_import())
     except Exception as e:
@@ -157,9 +154,6 @@ def update_lot_ai_results_sync(
 
             log.info(f"✅ AI результаты обновлены для лота {lot_db_id}")
             return response
-
-        finally:
-            await client.close()
 
     try:
         return asyncio.run(_async_update())
