@@ -75,18 +75,17 @@ class GoApiClient:
             )
 
         self.api_key = os.getenv("GO_SERVER_API_KEY")
-        # self.timeout = int(os.getenv("GO_HTTP_TIMEOUT", 60))
 
         self.timeout = httpx.Timeout(
             connect=10,
-            read=float(os.getenv("GO_HTTP_TIMEOUT", 60)),
+            read=float(os.getenv("GO_HTTP_TIMEOUT", "60")),
             write=30,
             pool=10
         )
 
         self.import_tender_timeout = httpx.Timeout(
             connect=10,
-            read=float(os.getenv("GO_IMPORT_TENDER_TIMEOUT", 600)),
+            read=float(os.getenv("GO_IMPORT_TENDER_TIMEOUT", "600")),
             write=60,
             pool=10
         )
@@ -168,14 +167,14 @@ class GoApiClient:
             # Пробрасываем ошибку дальше, чтобы Celery мог ее поймать
             raise
 
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as err:
             ctype = response.headers.get("content-type")
             url = str(response.request.url)
-            self.logger.error(
+            self.logger.exception(
                 f"Некорректный JSON от API Go. URL: {url}. Status: {response.status_code}. Content-Type: {ctype}. "
                 f"Body: {response.text[:200]}"
             )
-            raise ValueError(f"Invalid JSON response from Go API: {response.text[:100]}")
+            raise ValueError(f"Invalid JSON response from Go API: {response.text[:100]}") from err
         
         except Exception as e:
             self.logger.exception(f"Критическая ошибка клиента Go API: {e}")
