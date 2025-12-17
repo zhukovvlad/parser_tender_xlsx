@@ -31,7 +31,6 @@ Celery задачи для RAG Worker (Процессы 2 и 3).
 """
 
 import asyncio
-import logging
 import os
 
 from celery import signals
