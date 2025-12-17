@@ -15,10 +15,18 @@
 rag_catalog/
 ├── __init__.py          # Инициализация модуля
 ├── logger.py            # Специализированный логгер (logs/rag_catalog.log)
-├── tasks.py             # Celery задачи для периодического выполнения
+├── tasks.py             # Celery задачи с run_async() обертками
 ├── worker.py            # Бизнес-логика RAG-воркера
 └── README.md            # Документация
 ```
+
+### Управление Event Loop
+
+Все Celery задачи используют `run_async()` из `app.utils.async_runner` для безопасного
+запуска async кода в синхронном контексте:
+- Создает новый event loop если его нет
+- Запускает в отдельном потоке если loop уже активен
+- Избегает конфликтов с Celery event loop
 
 ### Взаимодействие с другими модулями
 
@@ -168,10 +176,10 @@ print(result.get())
 ### Использование RagWorker напрямую
 
 ```python
-import asyncio
+from app.utils.async_runner import run_async
 from app.workers.rag_catalog import RagWorker
 
-async def main():
+async def process_catalog():
     worker = RagWorker()
     
     # Инициализация
@@ -185,7 +193,8 @@ async def main():
     result = await worker.run_cleaner(force_reindex=False)
     print(f"Suggested merges: {result['suggested_merges']}")
 
-asyncio.run(main())
+# Запуск через run_async для безопасного выполнения
+result = run_async(process_catalog())
 ```
 
 ## Логирование
@@ -232,10 +241,12 @@ asyncio.run(main())
 
 **`run_matching_task()`**
 - Синхронная обертка над `RagWorker.run_matcher()`
+- Использует `run_async()` для выполнения async кода
 - Автоматически вызывается Celery Beat каждые 5 минут
 
 **`run_cleaning_task(force_reindex: bool = False)`**
 - Синхронная обертка над `RagWorker.run_cleaner()`
+- Использует `run_async()` для выполнения async кода
 - Автоматически вызывается Celery Beat в 3:00
 
 ## Зависимости
@@ -243,6 +254,7 @@ asyncio.run(main())
 - `GoApiClient` - HTTP-клиент для взаимодействия с Go-бэкендом
 - `FileSearchClient` - клиент для Google Gemini File Search API
 - `celery` - система очередей для фоновых задач
+- `run_async` - утилита для безопасного запуска async кода в Celery
 - `asyncio` - асинхронное выполнение
 
 ## Мониторинг
@@ -259,6 +271,20 @@ celery -A app.celery_app flower --port=5555
 - Графиков производительности
 
 ## Troubleshooting
+
+### Технические детали выполнения
+
+**Event Loop Management:**
+- Все Celery задачи обернуты через `run_async()` из `app.utils.async_runner`
+- `run_async()` автоматически определяет наличие активного event loop
+- При наличии loop создается отдельный поток для выполнения
+- Это решает проблемы с "RuntimeError: This event loop is already running"
+
+**Многопроцессная модель:**
+- Главный процесс создает RagWorker без инициализации Store
+- Worker_ready signal инициализирует Store через `run_async()`
+- Дочерние процессы создают свой RagWorker и Store по требованию
+- Каждый процесс имеет изолированное состояние
 
 ### Задача Matcher постоянно пропускается
 
