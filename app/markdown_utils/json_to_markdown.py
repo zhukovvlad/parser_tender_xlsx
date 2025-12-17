@@ -167,10 +167,10 @@ def generate_markdown_for_lots(
         baseline_prop_title = sanitize_text(baseline_prop.get(JSON_KEY_CONTRACTOR_TITLE, ""))
 
         if baseline_prop_title == "Расчетная стоимость отсутствует":
-            lot_specific_md_lines.append(f"### Расчетная стоимость\n")
+            lot_specific_md_lines.append("### Расчетная стоимость\n")
             lot_specific_md_lines.append("Не предоставлялась или не валидна.\n")
         elif baseline_prop:
-            lot_specific_md_lines.append(f"### Расчетная стоимость\n")
+            lot_specific_md_lines.append("### Расчетная стоимость\n")
             lot_specific_md_lines.append(f'**Название:** "{baseline_prop_title}"')
             baseline_summary_items = baseline_prop.get(JSON_KEY_CONTRACTOR_ITEMS, {}).get(
                 JSON_KEY_CONTRACTOR_SUMMARY, {}
@@ -214,7 +214,7 @@ def generate_markdown_for_lots(
             if accr_s := sanitize_text(contractor_data.get(JSON_KEY_CONTRACTOR_ACCREDITATION)):
                 details_md_parts.append(f"**Статус аккредитации:** {accr_s}.")
             if details_md_parts:
-                lot_specific_md_lines.append(f"#### Основные сведения о подрядчике\n")
+                lot_specific_md_lines.append("#### Основные сведения о подрядчике\n")
                 lot_specific_md_lines.append("  ".join(details_md_parts) + "  \n")
 
             # -- 3.2.2 Коммерческие условия (H4) --
@@ -391,7 +391,7 @@ def generate_markdown_for_lots(
                             )
                         else:
                             lot_specific_md_lines.append(
-                                f"  \nПо данной позиции согласно тендерного задания объем работ не указан."
+                                "  \nПо данной позиции согласно тендерного задания объем работ не указан."
                             )
 
                         if pos_sugg_qty_val is not None and pos_sugg_qty_val != pos_quantity_val:

@@ -9,7 +9,6 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict
 
-from celery.schedules import crontab
 from celery.utils.log import get_task_logger
 
 from ...celery_app import celery_app
@@ -27,11 +26,11 @@ logger = get_task_logger(__name__)
 
 
 @celery_app.task(
-    bind=True, 
-    queue='ai_queue',  # Направляем в отдельную очередь для AI задач
-    autoretry_for=(Exception,), 
+    bind=True,
+    queue="ai_queue",  # Направляем в отдельную очередь для AI задач
+    autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 5, "countdown": 60},
-    rate_limit='10/m'  # Ограничение: не более 10 задач в минуту на воркер
+    rate_limit="10/m",  # Ограничение: не более 10 задач в минуту на воркер
 )
 def process_tender_positions(
     self, tender_id: str, lot_id: str, positions_file_path: str, api_key: str
@@ -234,8 +233,7 @@ def process_tender_batch(self, tender_id: str, lots_data: list, api_key: str) ->
             # Сдвигаем запуск каждой следующей задачи на 4 секунды, чтобы не превысить RPM лимит
             delay_seconds = i * 4
             subtask = process_tender_positions.apply_async(
-                args=[tender_id, lot_id, positions_file, api_key],
-                countdown=delay_seconds
+                args=[tender_id, lot_id, positions_file, api_key], countdown=delay_seconds
             )
             subtask_ids.append(subtask.id)
 
@@ -330,4 +328,3 @@ def cleanup_old_results():
     except Exception as e:
         logger.error(f"❌ Cleanup error: {str(e)}")
         raise
-

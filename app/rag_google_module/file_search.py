@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from google import genai
 from google.api_core import exceptions as google_exceptions
-from google.genai import types, errors
+from google.genai import errors, types
 
 from .logger import get_rag_logger
 
@@ -249,7 +249,9 @@ class FileSearchClient:
 
             except json.JSONDecodeError:
                 # Пустой ответ от модели - нормальная ситуация, когда Store пустой или нет совпадений
-                self.logger.debug("RAG-поиск: пустой ответ от модели (Store может быть пустым). " f"Query: {query[:50]}...")
+                self.logger.debug(
+                    "RAG-поиск: пустой ответ от модели (Store может быть пустым). " f"Query: {query[:50]}..."
+                )
                 return []
             except Exception:
                 self.logger.exception("Ошибка RAG-поиска (corpus-based)")

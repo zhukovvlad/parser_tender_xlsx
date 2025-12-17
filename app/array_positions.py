@@ -124,7 +124,6 @@ def main():
             print(f"  - ⚠️ Не найдено позиций у подрядчика '{contractor_key_to_process}' в лоте '{lot_name}'.")
             continue
 
-        safe_lot_name = sanitize_filename(lot_name)
         output_filename = f"{input_file.stem}_positions.md"
 
         create_hierarchical_report(positions, output_filename, lot_name)

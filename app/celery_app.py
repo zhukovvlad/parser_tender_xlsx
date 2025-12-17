@@ -57,7 +57,6 @@ celery_app.conf.update(
     # Мониторинг
     worker_send_task_events=True,
     task_send_sent_event=True,
-    
     # --- RedBeat Configuration (Redis-backed Scheduler) ---
     beat_scheduler="redbeat.RedBeatScheduler",
     beat_max_loop_interval=5,  # Проверять расписание каждые 5 секунд
@@ -89,8 +88,6 @@ celery_app.conf.beat_schedule = {
     },
 }
 # --- Конец нового блока ---
-
-
 
 
 # Автоматическое обнаружение задач

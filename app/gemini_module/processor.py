@@ -2,9 +2,9 @@
 
 import json
 import os
+import random
 import re
 import time
-import random
 
 from google import genai
 
@@ -63,12 +63,14 @@ class TenderProcessor:
                     if attempt < max_retries - 1:
                         # Добавляем случайный Jitter (1-5 сек) к экспоненциальной задержке
                         jitter = random.uniform(1, 5)  # noqa: S311 (Jitter for backoff, not security)
-                        delay = (base_delay * (2 ** attempt)) + jitter
-                        
-                        self.logger.warning(f"Ошибка 429 (Resource Exhausted). Повторная попытка {attempt + 1}/{max_retries} через {delay:.2f} сек...")
+                        delay = (base_delay * (2**attempt)) + jitter
+
+                        self.logger.warning(
+                            f"Ошибка 429 (Resource Exhausted). Повторная попытка {attempt + 1}/{max_retries} через {delay:.2f} сек..."
+                        )
                         time.sleep(delay)
                         continue
-                
+
                 # Если ошибка не 429 или закончились попытки
                 self.logger.exception("Ошибка при запросе к Gemini")
                 raise

@@ -220,25 +220,6 @@ def test_read_executer_block_ignores_data_in_wrong_rows():
 
 def test_read_executer_block_handles_missing_colon_for_phone():
     """
-    НОВЫЙ ТЕСТ: Проверяет обработку `except IndexError` для телефона.
-    """
-    # Arrange
-    wb = Workbook()
-    ws = wb.active
-    set_max_row(ws, 20)
-    # Ключевое слово есть, а двоеточия нет
-    ws["B16"] = "Телефон 89991234567"
-
-    # Act
-    result = read_executer_block(ws)
-
-    # Assert
-    # Код должен обработать IndexError и оставить значение None
-    assert result[JSON_KEY_EXECUTOR_PHONE] is None
-
-
-def test_read_executer_block_handles_missing_colon_for_phone():
-    """
     Проверяет обработку `except IndexError` для телефона, если нет двоеточия.
     """
     # Arrange

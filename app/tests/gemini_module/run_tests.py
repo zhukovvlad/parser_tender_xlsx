@@ -42,7 +42,7 @@ def run_all_tests():
             print(f"❌ {test_name} - ОШИБКА: {e}\n")
             failed += 1
 
-    print(f"📊 Результаты:")
+    print("📊 Результаты:")
     print(f"   ✅ Успешно: {passed}")
     print(f"   ❌ Ошибок: {failed}")
     print(f"   📈 Всего: {passed + failed}")

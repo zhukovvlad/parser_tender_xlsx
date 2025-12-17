@@ -1,7 +1,7 @@
 # app/go_module/go_client.py
 
-import os
 import json
+import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -9,49 +9,48 @@ import httpx
 from .logger import get_go_logger
 
 
-
 class GoApiClient:
     """
     Асинхронный клиент для взаимодействия с API Go-бэкенда (tenders-go).
     Является единой точкой входа для ВСЕХ Python-воркеров.
-    
+
     Архитектура:
     -----------
     Клиент создает новый httpx.AsyncClient для каждого запроса через контекстный менеджер.
     Это решает проблему с Event Loop в многопроцессных Celery воркерах, где каждый процесс
     имеет свой Event Loop.
-    
+
     Управление соединениями:
     -----------------------
     - Каждый метод использует `async with self._get_client() as client:`
     - Соединения автоматически закрываются после завершения запроса
     - Нет утечек памяти и открытых соединений
     - Не требуется явный вызов .close()
-    
+
     Таймауты:
     ---------
     - Стандартные операции: 60 секунд (read)
     - Импорт тендера: 600 секунд (большие JSON, обработка в Go)
     - Connect: 10 секунд
     - Write: 30-60 секунд
-    
+
     Аутентификация:
     --------------
     Использует Bearer токен из переменной окружения GO_SERVER_API_KEY.
-    
+
     Обработка ошибок:
     ----------------
     - HTTPStatusError: логируется и пробрасывается для retry в Celery
     - JSONDecodeError: если Go вернул невалидный JSON
     - Все исключения логируются с полным контекстом
-    
+
     Переменные окружения:
     --------------------
     - GO_SERVER_API_ENDPOINT: базовый URL (обязательно)
     - GO_SERVER_API_KEY: токен авторизации (опционально)
     - GO_HTTP_TIMEOUT: таймаут для обычных запросов (по умолчанию 60)
     - GO_IMPORT_TENDER_TIMEOUT: таймаут для импорта (по умолчанию 600)
-    
+
     Примеры использования:
     ---------------------
     >>> client = GoApiClient()
@@ -64,7 +63,7 @@ class GoApiClient:
         self.base_url = os.getenv("GO_SERVER_API_ENDPOINT")
         if not self.base_url:
             raise ValueError("GO_SERVER_API_ENDPOINT не установлен в .env")
-        
+
         # Удаляем слеш в конце, чтобы базовая часть всегда была чистой (без /)
         self.base_url = self.base_url.rstrip("/")
 
@@ -76,18 +75,10 @@ class GoApiClient:
 
         self.api_key = os.getenv("GO_SERVER_API_KEY")
 
-        self.timeout = httpx.Timeout(
-            connect=10,
-            read=float(os.getenv("GO_HTTP_TIMEOUT", "60")),
-            write=30,
-            pool=10
-        )
+        self.timeout = httpx.Timeout(connect=10, read=float(os.getenv("GO_HTTP_TIMEOUT", "60")), write=30, pool=10)
 
         self.import_tender_timeout = httpx.Timeout(
-            connect=10,
-            read=float(os.getenv("GO_IMPORT_TENDER_TIMEOUT", "600")),
-            write=60,
-            pool=10
+            connect=10, read=float(os.getenv("GO_IMPORT_TENDER_TIMEOUT", "600")), write=60, pool=10
         )
 
         self.logger = get_go_logger()
@@ -100,16 +91,16 @@ class GoApiClient:
     def _get_client(self, timeout: Optional[httpx.Timeout] = None) -> httpx.AsyncClient:
         """
         Создает новый экземпляр httpx.AsyncClient для текущего Event Loop.
-        
+
         Каждый вызов создает отдельный клиент, что критично для работы в Celery,
         где воркеры работают в разных процессах с разными Event Loop.
-        
+
         Args:
             timeout: Кастомный таймаут для запроса. Если None, используется self.timeout.
-        
+
         Returns:
             httpx.AsyncClient: Настроенный async HTTP клиент
-            
+
         Note:
             Клиент должен использоваться через `async with` для автоматического закрытия.
         """
@@ -124,7 +115,7 @@ class GoApiClient:
     def _get_headers(self) -> Dict[str, str]:
         """
         Формирует HTTP заголовки для запросов к Go API.
-        
+
         Returns:
             Dict[str, str]: Словарь заголовков:
                 - Accept: application/json (всегда)
@@ -139,15 +130,15 @@ class GoApiClient:
     def _handle_response(self, response: httpx.Response) -> Any:
         """
         Централизованный обработчик ответов и ошибок от Go API.
-        
+
         Проверяет статус код, парсит JSON, обрабатывает ошибки.
-        
+
         Args:
             response: Объект ответа от httpx
-            
+
         Returns:
             Any: Распарсенный JSON ответ, или None для 204 статуса
-            
+
         Raises:
             httpx.HTTPStatusError: При 4xx/5xx ошибках (логируется и пробрасывается)
             ValueError: При невалидном JSON в теле ответа
@@ -156,10 +147,10 @@ class GoApiClient:
         try:
             # Проверка на 4xx и 5xx ошибки
             response.raise_for_status()
-            
+
             if response.status_code == 204:
                 return None
-            
+
             return response.json()
         except httpx.HTTPStatusError as e:
             error_body = e.response.text
@@ -175,7 +166,7 @@ class GoApiClient:
                 f"Body: {response.text[:200]}"
             )
             raise ValueError(f"Invalid JSON response from Go API: {response.text[:100]}") from err
-        
+
         except Exception as e:
             self.logger.exception(f"Критическая ошибка клиента Go API: {e}")
             raise
@@ -185,16 +176,16 @@ class GoApiClient:
     async def import_full_tender(self, tender_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Импортирует полный тендер в Go бэкенд (Процесс 1: Парсинг и импорт).
-        
+
         Отправляет полный JSON тендера со всеми лотами, позициями и метаданными.
         Go сервер создает записи в БД и возвращает их идентификаторы.
-        
+
         Args:
             tender_data: Полный JSON тендера, содержащий:
                 - tender_id: ID тендера в ETP
                 - lots: список лотов с позициями
                 - metadata: дополнительные данные
-                
+
         Returns:
             Dict[str, Any]: Ответ от Go сервера:
                 {
@@ -205,28 +196,24 @@ class GoApiClient:
                     },
                     "new_catalog_items_pending": bool  # Есть ли новые позиции для индексации
                 }
-                
+
         Raises:
             httpx.HTTPStatusError: При ошибках на стороне Go API
-            
+
         Note:
             Использует увеличенный таймаут (600s) для обработки больших тендеров.
         """
         self.logger.info(f"Отправка полного тендера в Go (ETP ID: {tender_data.get('tender_id')})...")
         async with self._get_client(timeout=self.import_tender_timeout) as client:
-            response = await client.post(
-                "/import-tender",
-                json=tender_data,
-                headers=self._get_headers()
-            )
+            response = await client.post("/import-tender", json=tender_data, headers=self._get_headers())
             return self._handle_response(response)
 
     async def update_lot_key_parameters(self, lot_db_id: str, ai_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Обновляет AI-результаты (ключевые параметры) для лота (Процесс 1: AI обработка).
-        
+
         Сохраняет результаты обработки Gemini AI: категорию, смету, таблицы работ и другие параметры.
-        
+
         Args:
             lot_db_id: Database ID лота (не external_id!)
             ai_data: AI результаты, содержащие:
@@ -235,10 +222,10 @@ class GoApiClient:
                 - smeta_summary: итоги по смете
                 - tender_id: (опционально) для совместимости
                 - lot_id: (добавляется автоматически)
-                
+
         Returns:
             Dict[str, Any]: Подтверждение от Go сервера
-            
+
         Raises:
             httpx.HTTPStatusError: При ошибках валидации или сохранения
         """
@@ -257,13 +244,13 @@ class GoApiClient:
     async def get_unmatched_positions(self, limit: int = 100) -> List[Dict[str, Any]]:
         """
         Получает несопоставленные позиции для RAG-матчинга (Процесс 2: Сопоставление).
-        
+
         Возвращает позиции из тендеров, для которых еще не найдена запись в каталоге.
         Используется RAG воркером для поиска совпадений через File Search.
-        
+
         Args:
             limit: Максимальное количество позиций (по умолчанию 100)
-            
+
         Returns:
             List[Dict[str, Any]]: Список позиций для обработки:
                 [
@@ -274,24 +261,26 @@ class GoApiClient:
                     },
                     ...
                 ]
-                
+
         Note:
             Позиции с catalog_position_id = NULL.
         """
         self.logger.debug(f"Запрос {limit} необработанных позиций...")
         async with self._get_client() as client:
             response = await client.get(
-                "/positions/unmatched", params={"limit": limit}, headers=self._get_headers()  # (Предполагаемый эндпоинт)
+                "/positions/unmatched",
+                params={"limit": limit},
+                headers=self._get_headers(),  # (Предполагаемый эндпоинт)
             )
             return self._handle_response(response)
 
     async def post_position_match(self, match_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Сохраняет результат успешного сопоставления позиции (Процесс 2: Сопоставление).
-        
+
         Обновляет position_items.catalog_position_id и добавляет запись в matching_cache
         для последующего переиспользования.
-        
+
         Args:
             match_data: Данные о сопоставлении:
                 {
@@ -299,10 +288,10 @@ class GoApiClient:
                     "catalog_position_id": int,   # ID найденной записи в каталоге
                     "hash": str                   # Хеш леммы для кеша
                 }
-                
+
         Returns:
             Dict[str, Any]: Подтверждение от Go сервера
-            
+
         Note:
             Go сервер атомарно обновляет position_items и matching_cache.
         """
@@ -316,14 +305,14 @@ class GoApiClient:
     async def get_unindexed_catalog_items(self, limit: int = 1000, offset: int = 0) -> List[Dict]:
         """
         Получает неиндексированные записи каталога для File Search (Процесс 3: Индексация).
-        
+
         Возвращает записи из catalog_positions, которые еще не добавлены в RAG.
         Поддерживает пагинацию для обработки больших объемов.
-        
+
         Args:
             limit: Максимальное количество записей за запрос (по умолчанию 1000)
             offset: Смещение для пагинации (по умолчанию 0)
-            
+
         Returns:
             List[Dict]: Список записей для индексации:
                 [
@@ -333,7 +322,7 @@ class GoApiClient:
                     },
                     ...
                 ]
-                
+
         Note:
             Записи с indexed = false или NULL.
         """
@@ -347,17 +336,17 @@ class GoApiClient:
     async def post_catalog_indexed(self, catalog_ids: List[int]) -> Dict[str, Any]:
         """
         Отмечает записи каталога как проиндексированные (Процесс 3: Индексация).
-        
+
         Обновляет флаг indexed = true для указанных catalog_ids после успешной
         индексации в Google File Search.
-        
+
         Args:
             catalog_ids: Список ID записей, успешно добавленных в File Search
-            
+
         Returns:
             Dict[str, Any]: Подтверждение с количеством обновленных записей:
                 {"updated_count": int}
-                
+
         Note:
             Отправляется батчами после успешной индексации чанков в RAG.
         """
@@ -373,19 +362,19 @@ class GoApiClient:
     async def post_suggest_merge(self, main_id: int, duplicate_id: int, score: float) -> Dict[str, Any]:
         """
         Создает предложение слияния дубликатов в каталоге (Процесс 3: Дедупликация).
-        
+
         Сохраняет найденный потенциальный дубликат для последующей ручной проверки
         или автоматического слияния.
-        
+
         Args:
             main_id: ID основной (оставляемой) записи в каталоге
             duplicate_id: ID дубликата (кандидата на слияние)
             score: Оценка схожести от 0.0 до 1.0 (порог обычно 0.95+)
-            
+
         Returns:
             Dict[str, Any]: Подтверждение создания предложения:
                 {"merge_suggestion_id": int}
-                
+
         Note:
             Go сервер проверяет, что записи существуют и не были объединены ранее.
         """
@@ -400,14 +389,14 @@ class GoApiClient:
     async def get_all_active_catalog_items(self, limit: int, offset: int) -> List[Dict]:
         """
         Получает активные записи каталога для поиска дубликатов (Процесс 3Б: Дедупликация).
-        
+
         Возвращает записи каталога с флагом is_active = true для анализа на дубликаты.
         Поддерживает пагинацию для обработки всего каталога.
-        
+
         Args:
             limit: Количество записей за запрос (рекомендуется 100-500)
             offset: Смещение для пагинации
-            
+
         Returns:
             List[Dict]: Список активных записей каталога:
                 [
@@ -418,7 +407,7 @@ class GoApiClient:
                     },
                     ...
                 ]
-                
+
         Note:
             Используется для попарного сравнения и поиска семантических дубликатов.
         """

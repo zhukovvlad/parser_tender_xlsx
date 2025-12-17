@@ -32,7 +32,7 @@ except ImportError:
                     os.environ[key] = value
 
 from app.gemini_module.logger import get_gemini_logger
-from app.workers.gemini import GeminiIntegration, GeminiManager
+from app.workers.gemini import GeminiManager
 
 
 def main():
@@ -142,7 +142,7 @@ def run_process(api_key: str, args):
     result = manager.process_sync(task)
 
     # Выводим результат
-    print(f"\n📊 Результат обработки:")
+    print("\n📊 Результат обработки:")
     print(f"   Тендер: {result.get('tender_id')}")
     print(f"   Лот: {result.get('lot_id')}")
     print(f"   Статус: {result.get('status')}")
