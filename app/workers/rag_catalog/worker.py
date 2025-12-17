@@ -69,7 +69,7 @@ class RagWorker:
                 # Проверка целостности данных
                 item_id = item.get("position_item_id")
                 context_str = item.get("rich_context_string")
-                
+
                 if not item_id or not context_str:
                     self.logger.warning(f"Пропуск некорректного item от Go: {item}")
                     continue

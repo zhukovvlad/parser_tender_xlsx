@@ -6,14 +6,14 @@ from datetime import datetime
 from typing import Any, Optional
 
 try:
-    import redis
+    import redis  # noqa: F401
 
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False
 
-from ...gemini_module.logger import get_gemini_logger
-from .worker import GeminiWorker
+from ...gemini_module.logger import get_gemini_logger  # noqa: E402
+from .worker import GeminiWorker  # noqa: E402
 
 
 class GeminiManager:

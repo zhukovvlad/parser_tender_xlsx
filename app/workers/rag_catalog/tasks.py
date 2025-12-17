@@ -48,10 +48,10 @@ logger = get_rag_logger("tasks")
 def get_celery_app():
     """
     Ленивый импорт Celery приложения.
-    
+
     Избегает циклических зависимостей при импорте модуля.
     Celery app импортируется только когда он действительно нужен.
-    
+
     Returns:
         Celery: Инстанс Celery приложения
     """
@@ -64,16 +64,16 @@ def get_celery_app():
 def _parse_timeout_env(var_name: str, default: int) -> int:
     """
     Безопасно парсит timeout из переменной окружения.
-    
+
     Валидирует значение и возвращает default при ошибках.
-    
+
     Args:
         var_name: Имя переменной окружения
         default: Значение по умолчанию (секунды)
-        
+
     Returns:
         int: Таймаут в секундах (валидированный положительный int)
-        
+
     Note:
         Логирует предупреждения при невалидных значениях.
     """
@@ -160,15 +160,15 @@ async def get_worker_instance_async():
 def setup_rag_store(sender, **kwargs):
     """
     Signal handler для инициализации RAG Store при старте Celery воркера.
-    
+
     Вызывается автоматически когда воркер готов принимать задачи.
     Инициализирует Google File Search Store через run_async() для безопасного
     запуска async кода в Celery контексте.
-    
+
     Args:
         sender: Celery worker instance (автоматически)
         **kwargs: Дополнительные параметры signal (автоматически)
-        
+
     Note:
         - Запускается ОДИН раз при старте главного процесса воркера
         - Дочерние процессы создают свои Store в get_worker_instance_async()
@@ -226,16 +226,16 @@ async def run_matching_task_async():
 def run_matching_task():
     """
     Синхронная обертка для Celery задачи сопоставления позиций.
-    
+
     Запускает run_matching_task_async() через run_async() для безопасного
     выполнения async кода в Celery воркере.
-    
+
     Returns:
         dict: Результат выполнения задачи:
             - status: "success" | "error"
             - matched_count: количество сопоставленных позиций
             - message: описание ошибки (если есть)
-            
+
     Note:
         Зарегистрирована в Celery как периодическая задача (каждые 10 минут).
     """
@@ -269,16 +269,16 @@ async def run_indexing_task_async():
 def run_indexing_task():
     """
     Синхронная обертка для Celery задачи индексации позиций.
-    
+
     Запускается по событию (через .delay()) когда появляются новые позиции
     после импорта тендера. Использует run_async() для выполнения async кода.
-    
+
     Returns:
         dict: Результат выполнения задачи:
             - status: "success" | "error"
             - indexed_count: количество проиндексированных записей
             - message: описание ошибки (если есть)
-            
+
     Note:
         Триггерится автоматически из import_tender_sync() при новых позициях.
     """
@@ -313,17 +313,17 @@ async def run_deduplication_task_async():
 def run_deduplication_task():
     """
     Синхронная обертка для Celery задачи дедупликации каталога.
-    
+
     Запускается по расписанию (раз в сутки в 3:00 ночи) для поиска
     семантических дубликатов в активном каталоге.
-    
+
     Returns:
         dict: Результат выполнения задачи:
             - status: "success" | "error"
             - duplicates_found: количество найденных дубликатов
             - suggestions_created: количество созданных предложений слияния
             - message: описание ошибки (если есть)
-            
+
     Note:
         Использует run_async() для выполнения долгой async операции.
     """

@@ -29,7 +29,7 @@ from .get_summary import get_summary
 
 # Utility functions
 from .parse_contractor_row import parse_contractor_row
-from .postprocess import _is_value_zero, normalize_lots_json_structure, replace_div0_with_null
+from .postprocess import normalize_lots_json_structure, replace_div0_with_null
 from .read_contractors import read_contractors
 from .read_executer_block import read_executer_block
 

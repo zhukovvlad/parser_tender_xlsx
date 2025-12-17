@@ -27,8 +27,6 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import requests
-
 from app.gemini_module.logger import get_gemini_logger
 from app.workers.gemini.integration import GeminiIntegration
 
@@ -184,8 +182,9 @@ def parse_with_ids(
         # чтобы он начал искать совпадения для новых позиций параллельно с остальной обработкой.
         try:
             from app.celery_app import celery_app
+
             log.info("🚀 Тендер зарегистрирован. Запускаю фоновый Matcher (run_matching_task)...")
-            celery_app.send_task('app.workers.rag_catalog.tasks.run_matching_task')
+            celery_app.send_task("app.workers.rag_catalog.tasks.run_matching_task")
         except Exception:
             log.warning("⚠️ Не удалось запустить Matcher задачу (не критично)", exc_info=True)
         # ----------------------------

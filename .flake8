@@ -1,6 +1,12 @@
 [flake8]
 max-line-length = 120
-extend-ignore = E203, W503
+extend-ignore = 
+    # E203: whitespace before ':' (конфликт с black)
+    E203,
+    # W503: line break before binary operator (конфликт с black)
+    W503,
+    # E501: line too long - игнорируем для промптов и длинных строк
+    E501
 exclude = 
     .git,
     __pycache__,
@@ -9,4 +15,20 @@ exclude =
     *.egg,
     build,
     dist,
-    htmlcov
+    htmlcov,
+    temp_*,
+    tenders_*,
+    pending_sync_json,
+    logs,
+    positions,
+    docs
+per-file-ignores =
+    # Тестовые файлы - разрешаем импорты не в начале (sys.path.insert)
+    **/tests/**/*.py:E402,F401
+    _test_*.py:E402,F401
+    test_*.py:E402,F401,F541
+    *_test.py:E402,F401
+    # __init__.py - разрешаем неиспользуемые импорты (реэкспорт)
+    **/__init__.py:F401
+    # CLI файлы могут иметь импорты после argparse
+    **/cli.py:E402
