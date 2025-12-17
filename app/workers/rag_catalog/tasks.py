@@ -1,11 +1,41 @@
 # -*- coding: utf-8 -*-
 # app/workers/rag_catalog/tasks.py
 
+"""
+Celery задачи для RAG Worker (Процессы 2 и 3).
+
+Архитектура:
+------------
+- Использует run_async() для безопасного запуска async кода в Celery
+- Поддерживает многопроцессную модель Celery (каждый процесс создает свой RagWorker)
+- Ленивая инициализация File Search Store через worker_ready signal
+
+Задачи:
+-------
+1. run_matching_task - Сопоставление позиций с каталогом (каждые 10 минут)
+2. run_indexing_task - Индексация новых позиций в RAG (по событию)
+3. run_deduplication_task - Поиск дубликатов в каталоге (ночная задача)
+
+Управление Event Loop:
+---------------------
+Все async функции оборачиваются через run_async(), который:
+- Создает новый event loop если его нет
+- Запускает в отдельном потоке если loop уже активен
+- Избегает конфликтов с Celery event loop
+
+Инициализация:
+-------------
+- Главный процесс: создает RagWorker без инициализации Store
+- worker_ready signal: инициализирует Store через run_async()
+- Дочерние процессы: создают свой RagWorker и Store по требованию
+"""
+
 import asyncio
-import logging
 import os
 
 from celery import signals
+
+from app.utils.async_runner import run_async
 
 from .logger import get_rag_logger
 from .worker import RagWorker
@@ -16,7 +46,15 @@ logger = get_rag_logger("tasks")
 # Ленивый импорт celery_app для избежания круговой зависимости
 # Импортируем здесь, чтобы он был доступен для декораторов задач
 def get_celery_app():
-    """Ленивый импорт celery app"""
+    """
+    Ленивый импорт Celery приложения.
+    
+    Избегает циклических зависимостей при импорте модуля.
+    Celery app импортируется только когда он действительно нужен.
+    
+    Returns:
+        Celery: Инстанс Celery приложения
+    """
     from app.celery_app import celery_app
 
     return celery_app
@@ -25,7 +63,19 @@ def get_celery_app():
 # --- (Эта функция остается на месте) ---
 def _parse_timeout_env(var_name: str, default: int) -> int:
     """
-    Безопасно парсит timeout из environment variable.
+    Безопасно парсит timeout из переменной окружения.
+    
+    Валидирует значение и возвращает default при ошибках.
+    
+    Args:
+        var_name: Имя переменной окружения
+        default: Значение по умолчанию (секунды)
+        
+    Returns:
+        int: Таймаут в секундах (валидированный положительный int)
+        
+    Note:
+        Логирует предупреждения при невалидных значениях.
     """
     raw_value = os.getenv(var_name, "").strip()
 
@@ -57,7 +107,8 @@ INDEXER_TIMEOUT = _parse_timeout_env("RAG_INDEXER_TIMEOUT", 1800)  # 30 мину
 DEDUPLICATOR_TIMEOUT = _parse_timeout_env("RAG_DEDUPLICATOR_TIMEOUT", 3600)  # 60 минут
 
 # --- (ИЗМЕНЕНИЕ 1) ---
-# Просто инициализируем. БЕЗ `asyncio.run()`.
+# Создаем RagWorker в главном процессе БЕЗ инициализации Store.
+# Store будет инициализирован позже через run_async() в worker_ready signal.
 try:
     worker_instance = RagWorker()
     worker_instance_pid = os.getpid()  # Запоминаем PID главного процесса
@@ -92,7 +143,7 @@ async def get_worker_instance_async():
             logger.info("Создаем новый RAG Worker instance для процесса %s...", current_pid)
             worker_instance = RagWorker()
             worker_instance_pid = current_pid
-            # Асинхронно инициализируем store (БЕЗ asyncio.run!)
+            # Асинхронно инициализируем store через await (НЕ через run_async - мы уже внутри async!)
             await worker_instance.initialize_store()
             logger.info("RAG Worker успешно инициализирован в процессе %s.", current_pid)
             return worker_instance
@@ -108,14 +159,26 @@ async def get_worker_instance_async():
 @signals.worker_ready.connect
 def setup_rag_store(sender, **kwargs):
     """
-    Вызывается при старте воркера (когда воркер готов принимать задачи).
-    Инициализирует File Search Store и запускает первый matcher.
+    Signal handler для инициализации RAG Store при старте Celery воркера.
+    
+    Вызывается автоматически когда воркер готов принимать задачи.
+    Инициализирует Google File Search Store через run_async() для безопасного
+    запуска async кода в Celery контексте.
+    
+    Args:
+        sender: Celery worker instance (автоматически)
+        **kwargs: Дополнительные параметры signal (автоматически)
+        
+    Note:
+        - Запускается ОДИН раз при старте главного процесса воркера
+        - Дочерние процессы создают свои Store в get_worker_instance_async()
+        - При ошибке помечает worker как неинициализированный
     """
     logger.info("Сигнал 'worker_ready' получен. Запуск инициализации File Search Store...")
     if worker_instance:
         try:
-            # Используем asyncio.run() ЗДЕСЬ.
-            asyncio.run(worker_instance.initialize_store())
+            # Используем run_async() для безопасного запуска async кода в Celery контексте.
+            run_async(worker_instance.initialize_store())
             logger.info("Инициализация File Search Store завершена успешно.")
 
             # Запускаем первый matcher сразу после инициализации
@@ -161,8 +224,22 @@ async def run_matching_task_async():
 
 
 def run_matching_task():
-    """Синхронная обертка для асинхронной задачи"""
-    return asyncio.run(run_matching_task_async())
+    """
+    Синхронная обертка для Celery задачи сопоставления позиций.
+    
+    Запускает run_matching_task_async() через run_async() для безопасного
+    выполнения async кода в Celery воркере.
+    
+    Returns:
+        dict: Результат выполнения задачи:
+            - status: "success" | "error"
+            - matched_count: количество сопоставленных позиций
+            - message: описание ошибки (если есть)
+            
+    Note:
+        Зарегистрирована в Celery как периодическая задача (каждые 10 минут).
+    """
+    return run_async(run_matching_task_async())
 
 
 # --- ЗАДАЧА 2: Индексация (Event-Driven) ---
@@ -190,8 +267,22 @@ async def run_indexing_task_async():
 
 
 def run_indexing_task():
-    """Синхронная обертка для асинхронной задачи индексации"""
-    return asyncio.run(run_indexing_task_async())
+    """
+    Синхронная обертка для Celery задачи индексации позиций.
+    
+    Запускается по событию (через .delay()) когда появляются новые позиции
+    после импорта тендера. Использует run_async() для выполнения async кода.
+    
+    Returns:
+        dict: Результат выполнения задачи:
+            - status: "success" | "error"
+            - indexed_count: количество проиндексированных записей
+            - message: описание ошибки (если есть)
+            
+    Note:
+        Триггерится автоматически из import_tender_sync() при новых позициях.
+    """
+    return run_async(run_indexing_task_async())
 
 
 # --- ЗАДАЧА 3: Дедупликация (По расписанию) ---
@@ -220,8 +311,23 @@ async def run_deduplication_task_async():
 
 
 def run_deduplication_task():
-    """Синхронная обертка для асинхронной задачи дедупликации"""
-    return asyncio.run(run_deduplication_task_async())
+    """
+    Синхронная обертка для Celery задачи дедупликации каталога.
+    
+    Запускается по расписанию (раз в сутки в 3:00 ночи) для поиска
+    семантических дубликатов в активном каталоге.
+    
+    Returns:
+        dict: Результат выполнения задачи:
+            - status: "success" | "error"
+            - duplicates_found: количество найденных дубликатов
+            - suggestions_created: количество созданных предложений слияния
+            - message: описание ошибки (если есть)
+            
+    Note:
+        Использует run_async() для выполнения долгой async операции.
+    """
+    return run_async(run_deduplication_task_async())
 
 
 # Регистрируем задачи в Celery
