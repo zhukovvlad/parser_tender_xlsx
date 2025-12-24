@@ -176,7 +176,7 @@ start-all:
 start-no-rag:
 	@echo "🚀 Запускаю сервисы БЕЗ RAG расписания..."
 	@echo "💰 Экономия средств: RAG задачи отключены"
-	@ENABLE_RAG_SCHEDULE=false ./scripts/start_services.sh
+	@./scripts/start_services_no_rag.sh
 
 start-with-rag:
 	@echo "🚀 Запускаю сервисы С RAG расписанием..."

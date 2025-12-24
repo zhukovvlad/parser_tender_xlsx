@@ -47,10 +47,10 @@ stop_by_pattern() {
 }
 
 # Останавливаем конкретные сервисы
-stop_by_pattern "Celery Workers" "celery -A app.celery_app worker"
-stop_by_pattern "Celery Beat" "celery -A app.celery_app beat"
-stop_by_pattern "Flower" "celery -A app.celery_app flower"
-stop_by_pattern "FastAPI (Uvicorn)" "uvicorn main:app"
+stop_by_pattern "Celery Workers" "celery -A app.celery_app worker" || true
+stop_by_pattern "Celery Beat" "celery -A app.celery_app beat" || true
+stop_by_pattern "Flower" "celery -A app.celery_app flower" || true
+stop_by_pattern "FastAPI (Uvicorn)" "uvicorn main:app" || true
 
 # Финальная зачистка (на всякий случай)
 echo -e "${BLUE}🧹 Проверяю оставшиеся процессы...${NC}"
