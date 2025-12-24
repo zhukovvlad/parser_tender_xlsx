@@ -11,12 +11,9 @@
 
 set -e
 
-# Цвета для вывода
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# Подключаем общие функции
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/common.sh"
 
 echo -e "${BLUE}🚀 Starting Tender Parser Services${NC}"
 
@@ -42,6 +39,19 @@ if [ -f ".env" ]; then
 else
     echo -e "${YELLOW}⚠️ Файл .env не найден${NC}"
 fi
+
+# Показываем текущий режим RAG
+ENABLE_RAG_SCHEDULE=${ENABLE_RAG_SCHEDULE:-false}
+echo -e "${BLUE}📊 Режим RAG расписания: ${ENABLE_RAG_SCHEDULE}${NC}"
+if [ "$ENABLE_RAG_SCHEDULE" = "true" ]; then
+    echo -e "${YELLOW}💸 ВНИМАНИЕ: RAG задачи будут запускаться автоматически и тратить деньги на Google API!${NC}"
+    echo -e "${YELLOW}   - Matcher: каждые ${RAG_MATCHER_INTERVAL_MINUTES:-360} минут${NC}"
+    echo -e "${YELLOW}   - Deduplicator: ежедневно в ${RAG_DEDUP_HOUR:-3}:00${NC}"
+else
+    echo -e "${GREEN}💰 RAG задачи отключены. Деньги на Google API НЕ тратятся.${NC}"
+    echo -e "${GREEN}   Для включения установите ENABLE_RAG_SCHEDULE=true в .env${NC}"
+fi
+echo ""
 
 # Проверяем Redis
 echo -e "${BLUE}🔍 Проверяю Redis...${NC}"
@@ -92,18 +102,6 @@ if [ "$REQUIREMENTS_HASH" != "$STORED_HASH" ]; then
     echo "$REQUIREMENTS_HASH" > .dependencies_installed
     echo -e "${GREEN}✅ Зависимости установлены${NC}"
 fi
-
-# Функция для запуска сервиса в фоне
-start_service() {
-    local name=$1
-    local command=$2
-    local logfile=$3
-    
-    echo -e "${BLUE}🚀 Запускаю $name...${NC}"
-    nohup $command > $logfile 2>&1 &
-    local pid=$!
-    echo -e "${GREEN}✅ $name запущен (PID: $pid)${NC}"
-}
 
 # 1. Запускаем "Медленный" воркер для AI (Gemini)
 # Он слушает ТОЛЬКО очередь ai_queue и работает в 1 поток
