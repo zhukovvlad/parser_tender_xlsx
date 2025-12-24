@@ -16,7 +16,7 @@ start_service() {
     local logfile=$3
     
     echo -e "${BLUE}🚀 Запускаю $name...${NC}"
-    nohup $command > $logfile 2>&1 &
+    nohup $command > "$logfile" 2>&1 &
     local pid=$!
     echo -e "${GREEN}✅ $name запущен (PID: $pid)${NC}"
 }
