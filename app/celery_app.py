@@ -80,8 +80,15 @@ def _parse_int_env(key: str, default: int) -> int:
     except (ValueError, TypeError):
         return default
 
+def _parse_hour_env(key: str, default: int) -> int:
+    """Безопасный парсинг часа (0-23) из переменных окружения."""
+    value = _parse_int_env(key, default)
+    if 0 <= value <= 23:
+        return value
+    return default
+
 RAG_MATCHER_INTERVAL_MINUTES = _parse_int_env("RAG_MATCHER_INTERVAL_MINUTES", 360)  # По умолчанию 6 часов
-RAG_DEDUP_HOUR = _parse_int_env("RAG_DEDUP_HOUR", 3)  # По умолчанию 3:00 ночи
+RAG_DEDUP_HOUR = _parse_hour_env("RAG_DEDUP_HOUR", 3)  # По умолчанию 3:00 ночи
 
 beat_schedule_config = {}
 

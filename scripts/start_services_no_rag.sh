@@ -27,10 +27,17 @@ fi
 # Проверяем Redis
 echo -e "${BLUE}🔍 Проверяю Redis...${NC}"
 if redis-cli ping > /dev/null 2>&1; then
-    echo -e "${GREEN}✅ Redis доступен${NC}"
+    echo -e "${GREEN}✅ Redis запущен${NC}"
 else
-    echo -e "${RED}❌ Redis недоступен. Запустите Redis сервер${NC}"
-    exit 1
+    echo -e "${YELLOW}⚠️ Redis не запущен. Запускаю...${NC}"
+    redis-server --daemonize yes
+    sleep 2
+    if redis-cli ping > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ Redis запущен успешно${NC}"
+    else
+        echo -e "${RED}❌ Не удалось запустить Redis${NC}"
+        exit 1
+    fi
 fi
 
 # Создаем директорию для логов если её нет
