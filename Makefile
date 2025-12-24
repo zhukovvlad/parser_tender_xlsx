@@ -163,25 +163,8 @@ celery-purge:
 
 start-all:
 	@echo "🚀 Запускаю все сервисы..."
-	@if [ "$${ENABLE_RAG_SCHEDULE:-false}" = "true" ]; then \
-		echo "⚙️  RAG расписание ВКЛЮЧЕНО (ENABLE_RAG_SCHEDULE=true)"; \
-		echo "💸 RAG задачи будут запускаться автоматически и тратить Google API"; \
-		./scripts/start_services.sh; \
-	else \
-		echo "⚙️  RAG расписание ОТКЛЮЧЕНО (ENABLE_RAG_SCHEDULE=false)"; \
-		echo "💰 RAG задачи НЕ будут запускаться автоматически"; \
-		./scripts/start_services.sh; \
-	fi
-
-start-no-rag:
-	@echo "🚀 Запускаю сервисы БЕЗ RAG расписания..."
-	@echo "💰 Экономия средств: RAG задачи отключены"
-	@./scripts/start_services_no_rag.sh
-
-start-with-rag:
-	@echo "🚀 Запускаю сервисы С RAG расписанием..."
-	@echo "💸 ВНИМАНИЕ: RAG задачи будут тратить деньги на Google API!"
-	@ENABLE_RAG_SCHEDULE=true ./scripts/start_services.sh
+	@echo "⚙️  Конфигурация определяется из .env (ENABLE_RAG_SCHEDULE)"
+	@./scripts/start_services.sh
 
 stop-all:
 	@echo "🛑 Останавливаю все сервисы..."
