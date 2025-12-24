@@ -43,6 +43,19 @@ else
     echo -e "${YELLOW}⚠️ Файл .env не найден${NC}"
 fi
 
+# Показываем текущий режим RAG
+ENABLE_RAG_SCHEDULE=${ENABLE_RAG_SCHEDULE:-false}
+echo -e "${BLUE}📊 Режим RAG расписания: ${ENABLE_RAG_SCHEDULE}${NC}"
+if [ "$ENABLE_RAG_SCHEDULE" = "true" ]; then
+    echo -e "${YELLOW}💸 ВНИМАНИЕ: RAG задачи будут запускаться автоматически и тратить деньги на Google API!${NC}"
+    echo -e "${YELLOW}   - Matcher: каждые ${RAG_MATCHER_INTERVAL_MINUTES:-360} минут${NC}"
+    echo -e "${YELLOW}   - Deduplicator: ежедневно в ${RAG_DEDUP_HOUR:-3}:00${NC}"
+else
+    echo -e "${GREEN}💰 RAG задачи отключены. Деньги на Google API НЕ тратятся.${NC}"
+    echo -e "${GREEN}   Для включения установите ENABLE_RAG_SCHEDULE=true в .env${NC}"
+fi
+echo ""
+
 # Проверяем Redis
 echo -e "${BLUE}🔍 Проверяю Redis...${NC}"
 if redis-cli ping > /dev/null 2>&1; then
