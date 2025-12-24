@@ -65,28 +65,45 @@ celery_app.conf.update(
 )
 
 # --- (ИЗМЕНЕНИЕ 4: Добавлено расписание Celery Beat) ---
-celery_app.conf.beat_schedule = {
-    # Задача 1: Сопоставление (часто)
-    "run-rag-matcher": {
-        "task": "app.workers.rag_catalog.tasks.run_matching_task",
-        # Запускать каждые 10 минут
-        "schedule": crontab(minute="*/10"),
-    },
-    # Задача 2: Дедупликация (редко, ночная задача)
-    "run-rag-deduplicator": {
-        "task": "app.workers.rag_catalog.tasks.run_deduplication_task",
-        # Запускать раз в сутки в 3:00 ночи
-        "schedule": crontab(minute="0", hour="3"),
-    },
-    # Задача 3: Очистка старых результатов (Gemini)
-    "cleanup-old-results": {
-        "task": "app.workers.gemini.tasks.cleanup_old_results",
-        # Запускать раз в сутки в 2:00 ночи
-        "schedule": crontab(minute="0", hour="2"),
-        # Явно указываем очередь default, чтобы не занимать AI-воркер
-        "options": {"queue": "default"},
-    },
+# ⚠️ RAG задачи ОТКЛЮЧЕНЫ для экономии Google API
+# Раскомментируйте блок ниже когда RAG воркеры понадобятся
+
+# Включить расписание RAG задач (по умолчанию выключено)
+ENABLE_RAG_SCHEDULE = os.getenv("ENABLE_RAG_SCHEDULE", "false").lower() == "true"
+
+# Интервалы запуска RAG задач (в минутах для matcher, час для deduplicator)
+RAG_MATCHER_INTERVAL_MINUTES = int(os.getenv("RAG_MATCHER_INTERVAL_MINUTES", "360"))  # По умолчанию 6 часов
+RAG_DEDUP_HOUR = int(os.getenv("RAG_DEDUP_HOUR", "3"))  # По умолчанию 3:00 ночи
+
+beat_schedule_config = {}
+
+if ENABLE_RAG_SCHEDULE:
+    # RAG задачи (требуют Google API и тратят деньги!)
+    beat_schedule_config.update({
+        # Задача 1: Сопоставление (регулируемый интервал)
+        "run-rag-matcher": {
+            "task": "app.workers.rag_catalog.tasks.run_matching_task",
+            # Запускать каждые N минут (настраивается через RAG_MATCHER_INTERVAL_MINUTES)
+            "schedule": crontab(minute=f"*/{RAG_MATCHER_INTERVAL_MINUTES}"),
+        },
+        # Задача 2: Дедупликация (редко, ночная задача)
+        "run-rag-deduplicator": {
+            "task": "app.workers.rag_catalog.tasks.run_deduplication_task",
+            # Запускать раз в сутки в указанный час (настраивается через RAG_DEDUP_HOUR)
+            "schedule": crontab(minute="0", hour=str(RAG_DEDUP_HOUR)),
+        },
+    })
+
+# Задача 3: Очистка старых результатов (Gemini) - безопасная, не требует Google API
+beat_schedule_config["cleanup-old-results"] = {
+    "task": "app.workers.gemini.tasks.cleanup_old_results",
+    # Запускать раз в сутки в 2:00 ночи
+    "schedule": crontab(minute="0", hour="2"),
+    # Явно указываем очередь default, чтобы не занимать AI-воркер
+    "options": {"queue": "default"},
 }
+
+celery_app.conf.beat_schedule = beat_schedule_config
 # --- Конец нового блока ---
 
 
