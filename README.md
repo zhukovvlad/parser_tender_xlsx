@@ -249,6 +249,12 @@ RAG_MATCHER_INTERVAL_MINUTES=360  # По умолчанию 6 часов
 RAG_DEDUP_HOUR=3                  # По умолчанию 3:00 ночи
 ```
 
+**Неинтерактивный режим (для CI/CD):**
+```bash
+NO_PROMPT=true ./scripts/start_services_no_rag.sh
+```
+В этом режиме не запускаются Flower и FastAPI (только Celery AI worker).
+
 #### Способ 2: Ручной запуск компонентов
 
 ```bash

@@ -9,12 +9,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_ROOT" || { echo "Ошибка: не удалось перейти в директорию $PROJECT_ROOT"; exit 1; }
 
-# Цвета для вывода
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
+# Подключаем общие функции
+source "$SCRIPT_DIR/common.sh"
 
 echo -e "${GREEN}================================${NC}"
 echo -e "${GREEN}🚀 Запуск сервисов (БЕЗ RAG)${NC}"
@@ -40,16 +36,18 @@ fi
 # Создаем директорию для логов если её нет
 mkdir -p logs
 
-# Функция для запуска сервиса в фоне
-start_service() {
-    local name=$1
-    local command=$2
-    local logfile=$3
-    
-    echo -e "${BLUE}🚀 Запускаю $name...${NC}"
-    nohup $command > $logfile 2>&1 &
-    local pid=$!
-    echo -e "${GREEN}✅ $name запущен (PID: $pid)${NC}"
+# Поддержка неинтерактивного режима
+NO_PROMPT=${NO_PROMPT:-false}
+
+# Функция для опциональных сервисов
+ask_to_start() {
+    local prompt_message=$1
+    if [ "$NO_PROMPT" = "true" ]; then
+        return 1  # Не запускать в неинтерактивном режиме
+    fi
+    read -p "$(echo -e ${BLUE}${prompt_message} [y/N]: ${NC})" -n 1 -r REPLY_VAR
+    echo
+    [[ $REPLY_VAR =~ ^[Yy]$ ]]
 }
 
 # 1. Запускаем ТОЛЬКО AI воркер для Gemini (парсинг тендеров)
@@ -65,13 +63,14 @@ echo -e "${YELLOW}⚠️ Default воркер не запущен (RAG зада�
 echo -e "${YELLOW}⚠️ Celery Beat не запущен (расписание отключено)${NC}"
 
 # 4. Запускаем Flower для мониторинга (опционально)
-read -p "$(echo -e ${BLUE}Запустить Flower для мониторинга? [y/N]: ${NC})" -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
+if ask_to_start "Запустить Flower для мониторинга?"; then
     start_service "flower" \
         "celery -A app.celery_app flower --port=5555" \
         "logs/flower.log"
     echo -e "${GREEN}🌸 Flower доступен на http://localhost:5555${NC}"
+    FLOWER_STARTED=true
+else
+    FLOWER_STARTED=false
 fi
 
 # Ждем немного, чтобы сервисы запустились
@@ -88,14 +87,15 @@ else
 fi
 
 # Запускаем FastAPI приложение (если нужно)
-read -p "$(echo -e ${BLUE}Запустить FastAPI сервер? [y/N]: ${NC})" -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
+if ask_to_start "Запустить FastAPI сервер?"; then
     echo -e "${BLUE}🌐 Запускаю FastAPI приложение...${NC}"
     start_service "fastapi" \
         "uvicorn main:app --host 0.0.0.0 --port 8000 --reload" \
         "logs/fastapi.log"
     echo -e "${GREEN}✅ FastAPI доступен на http://localhost:8000${NC}"
+    FASTAPI_STARTED=true
+else
+    FASTAPI_STARTED=false
 fi
 
 echo ""
@@ -105,7 +105,10 @@ echo -e "${GREEN}================================${NC}"
 echo ""
 echo -e "${GREEN}📝 Логи сервисов:${NC}"
 echo -e "  - Celery AI Worker: logs/celery_ai.log"
-if [[ $REPLY =~ ^[Yy]$ ]]; then
+if [ "$FLOWER_STARTED" = "true" ]; then
+    echo -e "  - Flower: logs/flower.log"
+fi
+if [ "$FASTAPI_STARTED" = "true" ]; then
     echo -e "  - FastAPI: logs/fastapi.log"
 fi
 echo ""

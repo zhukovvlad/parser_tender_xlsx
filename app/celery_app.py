@@ -6,6 +6,7 @@
 """
 
 import os
+from datetime import timedelta
 
 from celery import Celery
 from celery.schedules import crontab  # <-- (ИЗМЕНЕНИЕ 1: Импорт для расписания)
@@ -72,8 +73,15 @@ celery_app.conf.update(
 ENABLE_RAG_SCHEDULE = os.getenv("ENABLE_RAG_SCHEDULE", "false").lower() == "true"
 
 # Интервалы запуска RAG задач (в минутах для matcher, час для deduplicator)
-RAG_MATCHER_INTERVAL_MINUTES = int(os.getenv("RAG_MATCHER_INTERVAL_MINUTES", "360"))  # По умолчанию 6 часов
-RAG_DEDUP_HOUR = int(os.getenv("RAG_DEDUP_HOUR", "3"))  # По умолчанию 3:00 ночи
+def _parse_int_env(key: str, default: int) -> int:
+    """Безопасный парсинг целочисленных переменных окружения."""
+    try:
+        return int(os.getenv(key, str(default)))
+    except (ValueError, TypeError):
+        return default
+
+RAG_MATCHER_INTERVAL_MINUTES = _parse_int_env("RAG_MATCHER_INTERVAL_MINUTES", 360)  # По умолчанию 6 часов
+RAG_DEDUP_HOUR = _parse_int_env("RAG_DEDUP_HOUR", 3)  # По умолчанию 3:00 ночи
 
 beat_schedule_config = {}
 
@@ -84,7 +92,8 @@ if ENABLE_RAG_SCHEDULE:
         "run-rag-matcher": {
             "task": "app.workers.rag_catalog.tasks.run_matching_task",
             # Запускать каждые N минут (настраивается через RAG_MATCHER_INTERVAL_MINUTES)
-            "schedule": crontab(minute=f"*/{RAG_MATCHER_INTERVAL_MINUTES}"),
+            # Используем timedelta для поддержки интервалов > 60 минут
+            "schedule": timedelta(minutes=RAG_MATCHER_INTERVAL_MINUTES),
         },
         # Задача 2: Дедупликация (редко, ночная задача)
         "run-rag-deduplicator": {
