@@ -127,7 +127,6 @@ parse-gemini-async:
 
 # Запуск воркера очереди Redis
 worker-start:
-	worker-start:
 	@echo "🚀 Запускаю Gemini воркер очереди..."
 	.venv/bin/python -m app.workers.gemini.cli worker
 

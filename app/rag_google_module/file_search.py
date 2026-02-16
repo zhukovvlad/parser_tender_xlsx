@@ -58,7 +58,7 @@ class FileSearchClient:
     async def _find_or_create_store(self, client):
         """Find existing store or create new one."""
         self.logger.debug("Проверяем существующие Store...")
-        stores_pager = await client.aio.file_search_stores.list()
+        stores_pager = await client.file_search_stores.list()
 
         async for store in stores_pager:
             if store.display_name == self.config.store_display_name:
@@ -67,25 +67,25 @@ class FileSearchClient:
                 return
 
         self.logger.info("Создаем новый Store...")
-        store = await client.aio.file_search_stores.create(
+        store = await client.file_search_stores.create(
             config={"display_name": self.config.store_display_name},
         )
         self.logger.info(f"✓ Store создан: '{store.display_name}' ({store.name})")
         self._store_name = store.name
 
-    async def add_batch_to_store(self, jsonl_data: List[Dict]):
+    async def add_batch_to_store(self, records: List[Dict]):
         """Загружает батч в File Search Store."""
         if not self._store_name:
             raise RuntimeError("Store не инициализирован. Вызовите initialize_store().")
-        if not jsonl_data:
+        if not records:
             self.logger.warning("Пустой батч.")
             return
 
-        temp_file_path = self._create_temp_json_file(jsonl_data)
+        temp_file_path = self._create_temp_json_file(records)
         
         async with self.client_manager.get_client() as client:
             try:
-                await self._upload_and_wait(client, temp_file_path, len(jsonl_data))
+                await self._upload_and_wait(client, temp_file_path, len(records))
             finally:
                 self._cleanup_temp_file(temp_file_path)
 
@@ -101,7 +101,7 @@ class FileSearchClient:
         """Upload file and wait for indexing."""
         self.logger.debug(f"Загрузка {count} записей в Store...")
         
-        operation = await client.aio.file_search_stores.upload_to_file_search_store(
+        operation = await client.file_search_stores.upload_to_file_search_store(
             file=file_path,
             file_search_store_name=self._store_name,
             config={
@@ -125,10 +125,10 @@ class FileSearchClient:
 
     async def _wait_for_operation(self, operation, client):
         """Ожидает завершения LRO."""
-        timeout_iterations = self.config.operation_timeout // 5
+        timeout_iterations = max(1, self.config.operation_timeout // 5)
         
         for _ in range(timeout_iterations):
-            updated_operation = await client.aio.operations.get(operation)
+            updated_operation = await client.operations.get(operation)
             if updated_operation.done:
                 if updated_operation.error:
                     raise RuntimeError(f"Operation failed: {updated_operation.error}")
@@ -148,7 +148,7 @@ class FileSearchClient:
         system_prompt = self._build_search_prompt(query)
 
         async with self.client_manager.get_client() as client:
-            response = await client.aio.models.generate_content(
+            response = await client.models.generate_content(
                 model=self.config.model_name,
                 contents=[system_prompt],
                 config=types.GenerateContentConfig(

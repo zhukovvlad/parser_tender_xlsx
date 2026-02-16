@@ -12,9 +12,10 @@ class ClientManager:
     
     @asynccontextmanager
     async def get_client(self):
-        """Create and properly close client."""
+        """Create and properly close async client."""
         client = genai.Client(api_key=self.api_key)
+        aclient = client.aio
         try:
-            yield client
+            yield aclient
         finally:
-            client.close()
+            await aclient.aclose()
