@@ -23,7 +23,7 @@ celery_app = Celery(
     include=[
         "app.workers.gemini.tasks",
         "app.workers.parser.tasks",
-        "app.workers.rag_catalog.tasks",  # <-- (ИЗМЕНЕНИЕ 2: Добавлен RAG воркер)
+        # "app.workers.rag_catalog.tasks",  # <-- (ОТКЛЮЧЕНО: RAG воркер)
     ],
 )
 
@@ -48,7 +48,7 @@ celery_app.conf.update(
     task_routes={
         "app.workers.gemini.tasks.*": {"queue": "default"},
         "app.workers.parser.tasks.*": {"queue": "default"},
-        "app.workers.rag_catalog.tasks.*": {"queue": "default"},  # <-- (ИЗМЕНЕНИЕ 3: Маршрут для RAG)
+        # "app.workers.rag_catalog.tasks.*": {"queue": "default"},  # <-- (ОТКЛЮЧЕНО: Маршрут для RAG)
     },
     # Очередь по умолчанию
     task_default_queue="default",
@@ -128,7 +128,7 @@ celery_app.autodiscover_tasks(
     [
         "app.workers.gemini",
         "app.workers.parser",
-        "app.workers.rag_catalog",  # <-- (ИЗМЕНЕНИЕ 5: Добавлен RAG воркер)
+        # "app.workers.rag_catalog",  # <-- (ОТКЛЮЧЕНО: RAG воркер)
     ]
 )
 
