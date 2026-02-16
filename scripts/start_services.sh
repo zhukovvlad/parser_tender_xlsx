@@ -40,6 +40,12 @@ else
     echo -e "${YELLOW}⚠️ Файл .env не найден${NC}"
 fi
 
+# Устанавливаем NO_PROXY для обхода прокси при запросах к localhost
+# ВАЖНО: НЕ удаляем http_proxy, только добавляем no_proxy!
+export no_proxy="localhost,127.0.0.1"
+export NO_PROXY="localhost,127.0.0.1"
+echo -e "${GREEN}✅ Установлен NO_PROXY=localhost,127.0.0.1 (обход прокси для локальных запросов)${NC}"
+
 # Показываем текущий режим RAG
 ENABLE_RAG_SCHEDULE=${ENABLE_RAG_SCHEDULE:-false}
 echo -e "${BLUE}📊 Режим RAG расписания: ${ENABLE_RAG_SCHEDULE}${NC}"

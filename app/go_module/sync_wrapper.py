@@ -133,19 +133,20 @@ def import_tender_sync(tender_data: Dict[str, Any]) -> Tuple[str, Dict[str, int]
 
         log.info(f"✅ Тендер импортирован: db_id={tender_db_id}, лотов={len(lot_ids_map)}")
 
-        # (НОВОЕ) Если есть новые pending позиции, запускаем индексацию
-        if new_catalog_items:
-            log.info("🔔 Обнаружены новые 'pending' позиции, запускаем индексацию...")
-            try:
-                # Ленивый импорт чтобы избежать циклических зависимостей
-                from app.workers.rag_catalog.tasks import run_indexing_task
-
-                # Запускаем задачу асинхронно
-                run_indexing_task.delay()
-                log.info("✅ Задача индексации отправлена в очередь Celery")
-            except Exception as e:
-                log.warning(f"⚠️ Не удалось запустить задачу индексации: {e}", exc_info=True)
-                # Не прерываем импорт из-за ошибки индексации
+        # RAG индексация отключена (можно включить обратно, раскомментировав блок ниже)
+        # # (НОВОЕ) Если есть новые pending позиции, запускаем индексацию
+        # if new_catalog_items:
+        #     log.info("🔔 Обнаружены новые 'pending' позиции, запускаем индексацию...")
+        #     try:
+        #         # Ленивый импорт чтобы избежать циклических зависимостей
+        #         from app.workers.rag_catalog.tasks import run_indexing_task
+        #
+        #         # Запускаем задачу асинхронно
+        #         run_indexing_task.delay()
+        #         log.info("✅ Задача индексации отправлена в очередь Celery")
+        #     except Exception as e:
+        #         log.warning(f"⚠️ Не удалось запустить задачу индексации: {e}", exc_info=True)
+        #         # Не прерываем импорт из-за ошибки индексации
 
         return str(tender_db_id), lot_ids_map
 

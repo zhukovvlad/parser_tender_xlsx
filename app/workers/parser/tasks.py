@@ -98,8 +98,8 @@ def _bump_ttl(task_id: str):
     retry_backoff=True,
     retry_backoff_max=300,
     retry_jitter=True,
-    soft_time_limit=1800,  # мягкий лимит, напр. 30 минут
-    time_limit=2100,  # жёсткий лимит — чуть больше
+    soft_time_limit=3600,  # мягкий лимит, 60 минут (1 час)
+    time_limit=3900,  # жёсткий лимит, 65 минут
 )
 def run_parsing_in_background(self, task_id: str, file_path: str, enable_ai: bool = False):
     """Фоновая обработка XLSX-файла с опциональным AI.

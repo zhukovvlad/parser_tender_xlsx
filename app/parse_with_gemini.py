@@ -177,20 +177,23 @@ def parse_with_ids(
     try:
         db_id, lot_ids_map = _import_full_tender_via_go(processed_data)
 
-        # --- Trigger Matcher Task ---
-        # Запускаем Matcher сразу после успешной регистрации тендера,
-        # чтобы он начал искать совпадения для новых позиций параллельно с остальной обработкой.
-        try:
-            from app.celery_app import celery_app
-
-            log.info("🚀 Тендер зарегистрирован. Запускаю фоновый Matcher (run_matching_task)...")
-            celery_app.send_task("app.workers.rag_catalog.tasks.run_matching_task")
-        except Exception:
-            log.warning("⚠️ Не удалось запустить Matcher задачу (не критично)", exc_info=True)
-        # ----------------------------
-
     except Exception as e:
         log.error(f"❌ Ошибка регистрации тендера на Go-сервере: {e}")
+
+        # Сохраняем распарсенный JSON, чтобы не потерять данные при ошибке импорта
+        try:
+            failed_dir = Path("temp_tender_data") / "failed_imports"
+            failed_dir.mkdir(parents=True, exist_ok=True)
+            tender_id = processed_data.get("tender_id", "unknown")
+            import time as _time
+            ts = _time.strftime("%Y%m%d_%H%M%S")
+            failed_path = failed_dir / f"{tender_id}_{ts}.json"
+            with open(failed_path, "w", encoding="utf-8") as f:
+                json.dump(processed_data, f, ensure_ascii=False, indent=2)
+            log.info(f"💾 Распарсенный JSON сохранён для повторной отправки: {failed_path}")
+        except Exception:
+            log.warning("⚠️ Не удалось сохранить JSON после ошибки импорта", exc_info=True)
+
         return None, None, None
 
     # (опционально) сохраняем базовый JSON локально, если включён SAVE_DEBUG_FILES
