@@ -15,7 +15,6 @@ from ..constants import (
     JSON_KEY_CHAPTER_NUMBER,
     JSON_KEY_COMMENT_CONTRACTOR,
     JSON_KEY_COMMENT_ORGANIZER,
-    JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
     JSON_KEY_INDIRECT_COSTS,
     JSON_KEY_JOB_TITLE,
     JSON_KEY_MATERIALS,
@@ -49,7 +48,7 @@ def get_items_dict(contractor_colspan: int) -> Dict[str, Any]:
         contractor_colspan (int): Количество столбцов (colspan), которое занимают
             данные конкретного подрядчика на листе Excel. Это значение определяет
             набор полей, относящихся к подрядчику, которые будут включены
-            в результирующий словарь. Поддерживаемые значения: 12, 11, 10, 9, 8.
+            в результирующий словарь. Поддерживаемые значения: 11, 10, 9, 8.
 
     Returns:
         Dict[str, Any]: Словарь-шаблон, представляющий одну позицию. Содержит общие
@@ -70,7 +69,7 @@ def get_items_dict(contractor_colspan: int) -> Dict[str, Any]:
 
     Поля, зависящие от `contractor_colspan` (добавляются к общим полям):
 
-    Если `contractor_colspan` == 12:
+    Если `contractor_colspan` == 11:
         - `JSON_KEY_SUGGESTED_QUANTITY`: None (Предлагаемое количество подрядчиком)
         - `JSON_KEY_UNIT_COST`: {
             `JSON_KEY_MATERIALS`: None, `JSON_KEY_WORKS`: None,
@@ -82,30 +81,21 @@ def get_items_dict(contractor_colspan: int) -> Dict[str, Any]:
           } (Стоимость всего по предложению подрядчика)
         - `JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST`: None (Стоимость всего за объемы заказчика)
         - `JSON_KEY_COMMENT_CONTRACTOR`: None (Комментарий участника)
-        - `JSON_KEY_DEVIATION_FROM_CALCULATED_COST`: None (Отклонение от расчетной стоимости)
 
-    Если `contractor_colspan` == 11:
+    Если `contractor_colspan` == 10:
         - `JSON_KEY_SUGGESTED_QUANTITY`: None
         - `JSON_KEY_UNIT_COST`: (аналогично colspan 12)
         - `JSON_KEY_TOTAL_COST`: (аналогично colspan 12)
         - `JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST`: None
-        - `JSON_KEY_COMMENT_CONTRACTOR`: None  (Примечание: соответствует коду, ранее в докстринге отсутствовало)
-        - `JSON_KEY_DEVIATION_FROM_CALCULATED_COST`: None
-
-    Если `contractor_colspan` == 10:
-        - `JSON_KEY_UNIT_COST`: (аналогично colspan 12)
-        - `JSON_KEY_TOTAL_COST`: (аналогично colspan 12)
-        - `JSON_KEY_COMMENT_CONTRACTOR`: None
-        - `JSON_KEY_DEVIATION_FROM_CALCULATED_COST`: None
 
     Если `contractor_colspan` == 9:
         - `JSON_KEY_UNIT_COST`: (аналогично colspan 12)
         - `JSON_KEY_TOTAL_COST`: (аналогично colspan 12)
-        - `JSON_KEY_DEVIATION_FROM_CALCULATED_COST`: None
+        - `JSON_KEY_COMMENT_CONTRACTOR`: None
 
     Если `contractor_colspan` == 8:
-        - `JSON_KEY_UNIT_COST`: (аналогично colspan 12)
-        - `JSON_KEY_TOTAL_COST`: (аналогично colspan 12)
+        - `JSON_KEY_UNIT_COST`: (аналогично)
+        - `JSON_KEY_TOTAL_COST`: (аналогично)
 
     Если `contractor_colspan` имеет другое (неподдерживаемое) значение:
         - "error": "Unknown contractor_colspan: {значение contractor_colspan}"
@@ -133,36 +123,26 @@ def get_items_dict(contractor_colspan: int) -> Dict[str, Any]:
     contractor_specific_data: Dict[str, Any] = {}
 
     # Определение специфичных для подрядчика полей на основе colspan
-    if contractor_colspan == 12:
+    if contractor_colspan == 11:
         contractor_specific_data = {
             JSON_KEY_SUGGESTED_QUANTITY: None,
             JSON_KEY_UNIT_COST: cost_block_template.copy(),
             JSON_KEY_TOTAL_COST: cost_block_template.copy(),
             JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST: None,
             JSON_KEY_COMMENT_CONTRACTOR: None,
-            JSON_KEY_DEVIATION_FROM_CALCULATED_COST: None,
-        }
-    elif contractor_colspan == 11:
-        contractor_specific_data = {
-            JSON_KEY_SUGGESTED_QUANTITY: None,
-            JSON_KEY_UNIT_COST: cost_block_template.copy(),
-            JSON_KEY_TOTAL_COST: cost_block_template.copy(),
-            JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST: None,
-            JSON_KEY_COMMENT_CONTRACTOR: None,  # Присутствует в коде, отражено в докстринге
-            JSON_KEY_DEVIATION_FROM_CALCULATED_COST: None,
         }
     elif contractor_colspan == 10:
         contractor_specific_data = {
+            JSON_KEY_SUGGESTED_QUANTITY: None,
             JSON_KEY_UNIT_COST: cost_block_template.copy(),
             JSON_KEY_TOTAL_COST: cost_block_template.copy(),
-            JSON_KEY_COMMENT_CONTRACTOR: None,
-            JSON_KEY_DEVIATION_FROM_CALCULATED_COST: None,
+            JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST: None,
         }
     elif contractor_colspan == 9:
         contractor_specific_data = {
             JSON_KEY_UNIT_COST: cost_block_template.copy(),
             JSON_KEY_TOTAL_COST: cost_block_template.copy(),
-            JSON_KEY_DEVIATION_FROM_CALCULATED_COST: None,
+            JSON_KEY_COMMENT_CONTRACTOR: None,
         }
     elif contractor_colspan == 8:
         contractor_specific_data = {
