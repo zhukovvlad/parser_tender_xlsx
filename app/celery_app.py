@@ -5,6 +5,7 @@
 Интегрируется с существующей Redis инфраструктурой.
 """
 
+import logging as _logging
 import os
 from datetime import timedelta
 
@@ -93,6 +94,11 @@ RAG_DEDUP_HOUR = _parse_hour_env("RAG_DEDUP_HOUR", 3)  # По умолчанию
 beat_schedule_config = {}
 
 if ENABLE_RAG_SCHEDULE:
+    # ⚠️ RAG воркеры отключены в include/autodiscover — задачи не будут зарегистрированы!
+    _logging.getLogger(__name__).warning(
+        "ENABLE_RAG_SCHEDULE=true, но RAG воркеры отключены в include/autodiscover. "
+        "RAG beat-задачи НЕ будут зарегистрированы. Раскомментируйте RAG в include/autodiscover."
+    )
     # RAG задачи (требуют Google API и тратят деньги!)
     beat_schedule_config.update({
         # Задача 1: Сопоставление (регулируемый интервал)

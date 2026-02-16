@@ -84,13 +84,13 @@ def get_items_dict(contractor_colspan: int) -> Dict[str, Any]:
 
     Если `contractor_colspan` == 10:
         - `JSON_KEY_SUGGESTED_QUANTITY`: None
-        - `JSON_KEY_UNIT_COST`: (аналогично colspan 12)
-        - `JSON_KEY_TOTAL_COST`: (аналогично colspan 12)
+        - `JSON_KEY_UNIT_COST`: (аналогично colspan 11)
+        - `JSON_KEY_TOTAL_COST`: (аналогично colspan 11)
         - `JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST`: None
 
     Если `contractor_colspan` == 9:
-        - `JSON_KEY_UNIT_COST`: (аналогично colspan 12)
-        - `JSON_KEY_TOTAL_COST`: (аналогично colspan 12)
+        - `JSON_KEY_UNIT_COST`: (аналогично colspan 11)
+        - `JSON_KEY_TOTAL_COST`: (аналогично colspan 11)
         - `JSON_KEY_COMMENT_CONTRACTOR`: None
 
     Если `contractor_colspan` == 8:

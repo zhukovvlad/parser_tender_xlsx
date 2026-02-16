@@ -60,7 +60,7 @@ def parse_contractor_row(ws: Worksheet, row_index: int, contractor: Dict[str, An
 
     Raises:
         ValueError: Если значение `contractor["merged_shape"]["colspan"]`
-            не поддерживается (не равно 8, 9, 10, 11 или 12), исключение
+            не поддерживается (не равно 8, 9, 10 или 11), исключение
             будет возбуждено из вложенной функции `get_column_keys`.
     """
 
@@ -82,7 +82,7 @@ def parse_contractor_row(ws: Worksheet, row_index: int, contractor: Dict[str, An
 
         Raises:
             ValueError: Если переданное значение `colspan` не поддерживается
-                (не входит в диапазон 8-12).
+                (не входит в набор {8, 9, 10, 11}).
         """
         # Ключи формируются с использованием f-строк для создания вложенной структуры
         # там, где это необходимо (например, для unit_cost и total_cost).

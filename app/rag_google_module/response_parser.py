@@ -21,10 +21,14 @@ class SearchResponseParser:
         # Normalize to list
         if isinstance(result_json, dict):
             result_json = [result_json]
+        elif not isinstance(result_json, list):
+            return []
         
         # Validate and normalize results
         valid_results = []
         for item in result_json:
+            if not isinstance(item, dict):
+                continue
             if "catalog_id" in item:
                 if "score" not in item:
                     item["score"] = 0.0

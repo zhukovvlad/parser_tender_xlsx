@@ -116,6 +116,24 @@ def parse_file_with_gemini(
     )
 
 
+# Максимальное количество файлов в failed_imports (настраивается через env)
+_MAX_FAILED_IMPORTS = int(os.getenv("MAX_FAILED_IMPORTS", "50"))
+
+
+def _cleanup_failed_imports(failed_dir: Path) -> None:
+    """Удаляет самые старые файлы, если их больше _MAX_FAILED_IMPORTS."""
+    try:
+        files = sorted(failed_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        to_delete = files[:-_MAX_FAILED_IMPORTS] if len(files) > _MAX_FAILED_IMPORTS else []
+        for f in to_delete:
+            f.unlink()
+            log.debug("🗑 Удалён старый failed_import: %s", f.name)
+        if to_delete:
+            log.info("🧹 Очищено %d старых файлов из failed_imports", len(to_delete))
+    except Exception:
+        log.debug("Не удалось очистить failed_imports", exc_info=True)
+
+
 def parse_with_ids(
     xlsx_path: str, create_reports: bool = True, will_use_ai: bool = False
 ) -> tuple[Optional[str], Optional[Dict[str, int]], Optional[Dict]]:
@@ -178,7 +196,7 @@ def parse_with_ids(
         db_id, lot_ids_map = _import_full_tender_via_go(processed_data)
 
     except Exception as e:
-        log.error(f"❌ Ошибка регистрации тендера на Go-сервере: {e}")
+        log.exception("❌ Ошибка регистрации тендера на Go-сервере: %s", e)
 
         # Сохраняем распарсенный JSON, чтобы не потерять данные при ошибке импорта
         try:
@@ -191,6 +209,7 @@ def parse_with_ids(
             with open(failed_path, "w", encoding="utf-8") as f:
                 json.dump(processed_data, f, ensure_ascii=False, indent=2)
             log.info(f"💾 Распарсенный JSON сохранён для повторной отправки: {failed_path}")
+            _cleanup_failed_imports(failed_dir)
         except Exception:
             log.warning("⚠️ Не удалось сохранить JSON после ошибки импорта", exc_info=True)
 

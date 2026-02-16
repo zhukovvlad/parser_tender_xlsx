@@ -91,10 +91,12 @@ def _bump_ttl(task_id: str):
         pass
 
 
+# Большие XLSX-файлы с AI-обработкой могут занимать до 60 минут.
+# max_retries=3 × time_limit=3900s ≈ до ~3.25 часов в худшем случае.
 @shared_task(
     bind=True,
     autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 5, "countdown": 60},
+    retry_kwargs={"max_retries": 3, "countdown": 60},
     retry_backoff=True,
     retry_backoff_max=300,
     retry_jitter=True,
