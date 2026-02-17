@@ -23,6 +23,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -211,12 +212,13 @@ def parse_with_ids(
         try:
             failed_dir = Path("temp_tender_data") / "failed_imports"
             failed_dir.mkdir(parents=True, exist_ok=True)
-            tender_id = processed_data.get("tender_id", "unknown")
+            raw_tender_id = processed_data.get("tender_id") or "unknown"
+            tender_id = re.sub(r'[^A-Za-z0-9._-]', '_', raw_tender_id)[:200] or "unknown"
             ts = time.strftime("%Y%m%d_%H%M%S")
             failed_path = failed_dir / f"{tender_id}_{ts}.json"
             with open(failed_path, "w", encoding="utf-8") as f:
                 json.dump(processed_data, f, ensure_ascii=False, indent=2)
-            log.info(f"💾 Распарсенный JSON сохранён для повторной отправки: {failed_path}")
+            log.info("💾 Распарсенный JSON сохранён для повторной отправки: %s", failed_path)
             _cleanup_failed_imports(failed_dir)
         except Exception:
             log.warning("⚠️ Не удалось сохранить JSON после ошибки импорта", exc_info=True)

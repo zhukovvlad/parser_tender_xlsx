@@ -73,7 +73,10 @@ celery_app.conf.update(
 # Включить расписание RAG задач (по умолчанию выключено)
 ENABLE_RAG_SCHEDULE = os.getenv("ENABLE_RAG_SCHEDULE", "false").lower() == "true"
 
-# Интервалы запуска RAG задач (в минутах для matcher, час для deduplicator)
+# Интервалы запуска RAG задач (в минутах для matcher, час для deduplicator).
+# NOTE: _parse_int_env, _parse_hour_env, RAG_MATCHER_INTERVAL_MINUTES и RAG_DEDUP_HOUR
+# намеренно определены вне блока ENABLE_RAG_SCHEDULE — они понадобятся при
+# повторном включении RAG-расписания (см. beat_schedule_config ниже).
 def _parse_int_env(key: str, default: int) -> int:
     """Безопасный парсинг целочисленных переменных окружения."""
     try:

@@ -16,6 +16,7 @@ class RagConfig:
     max_overlap_tokens: int = 0
     operation_timeout: int = 600
     max_retries: int = 3
+    max_search_results: int = 3
     
     @classmethod
     def from_env(cls) -> "RagConfig":
