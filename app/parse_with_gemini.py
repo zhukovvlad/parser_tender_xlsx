@@ -117,14 +117,22 @@ def parse_file_with_gemini(
 
 
 # Максимальное количество файлов в failed_imports (настраивается через env)
-_MAX_FAILED_IMPORTS = int(os.getenv("MAX_FAILED_IMPORTS", "50"))
+try:
+    _MAX_FAILED_IMPORTS = int(os.getenv("MAX_FAILED_IMPORTS", "50"))
+except (ValueError, TypeError):
+    _MAX_FAILED_IMPORTS = 50
 
 
 def _cleanup_failed_imports(failed_dir: Path) -> None:
     """Удаляет самые старые файлы, если их больше _MAX_FAILED_IMPORTS."""
     try:
         files = sorted(failed_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
-        to_delete = files[:-_MAX_FAILED_IMPORTS] if len(files) > _MAX_FAILED_IMPORTS else []
+        if _MAX_FAILED_IMPORTS <= 0:
+            to_delete = files
+        elif len(files) > _MAX_FAILED_IMPORTS:
+            to_delete = files[:-_MAX_FAILED_IMPORTS]
+        else:
+            to_delete = []
         for f in to_delete:
             f.unlink()
             log.debug("🗑 Удалён старый failed_import: %s", f.name)

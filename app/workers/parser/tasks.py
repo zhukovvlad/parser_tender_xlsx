@@ -96,6 +96,7 @@ def _bump_ttl(task_id: str):
 @shared_task(
     bind=True,
     autoretry_for=(Exception,),
+    dont_autoretry_for=(SoftTimeLimitExceeded,),
     retry_kwargs={"max_retries": 3, "countdown": 60},
     retry_backoff=True,
     retry_backoff_max=300,
@@ -157,7 +158,7 @@ def run_parsing_in_background(self, task_id: str, file_path: str, enable_ai: boo
         )
         _cleanup_file(file_path)
         logger.exception("Task %s: soft time limit exceeded", task_id)
-        raise
+        raise  # SoftTimeLimitExceeded excluded from autoretry_for — won't retry
     except Exception as e:
         will_retry = self.request.retries < self.max_retries
         _safe_set_status(

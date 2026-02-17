@@ -162,7 +162,13 @@ class FileSearchClient:
                 ),
             )
 
-            results = self.response_parser.parse_search_results(response.text)
+            try:
+                response_text = response.text or ""
+            except (ValueError, AttributeError):
+                self.logger.warning("Модель не вернула текст для запроса: %s", query[:50])
+                response_text = ""
+
+            results = self.response_parser.parse_search_results(response_text)
             
             if not results:
                 self.logger.warning(f"Нет результатов для: {query[:50]}...")
