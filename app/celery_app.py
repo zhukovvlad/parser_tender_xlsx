@@ -99,22 +99,6 @@ if ENABLE_RAG_SCHEDULE:
         "ENABLE_RAG_SCHEDULE=true, но RAG воркеры отключены в include/autodiscover. "
         "RAG beat-задачи НЕ будут зарегистрированы. Раскомментируйте RAG в include/autodiscover."
     )
-    # RAG задачи (требуют Google API и тратят деньги!)
-    beat_schedule_config.update({
-        # Задача 1: Сопоставление (регулируемый интервал)
-        "run-rag-matcher": {
-            "task": "app.workers.rag_catalog.tasks.run_matching_task",
-            # Запускать каждые N минут (настраивается через RAG_MATCHER_INTERVAL_MINUTES)
-            # Используем timedelta для поддержки интервалов > 60 минут
-            "schedule": timedelta(minutes=RAG_MATCHER_INTERVAL_MINUTES),
-        },
-        # Задача 2: Дедупликация (редко, ночная задача)
-        "run-rag-deduplicator": {
-            "task": "app.workers.rag_catalog.tasks.run_deduplication_task",
-            # Запускать раз в сутки в указанный час (настраивается через RAG_DEDUP_HOUR)
-            "schedule": crontab(minute="0", hour=str(RAG_DEDUP_HOUR)),
-        },
-    })
 
 # Задача 3: Очистка старых результатов (Gemini) - безопасная, не требует Google API
 beat_schedule_config["cleanup-old-results"] = {
