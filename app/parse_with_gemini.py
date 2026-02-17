@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -203,16 +204,15 @@ def parse_with_ids(
     try:
         db_id, lot_ids_map = _import_full_tender_via_go(processed_data)
 
-    except Exception as e:
-        log.exception("❌ Ошибка регистрации тендера на Go-сервере: %s", e)
+    except Exception:
+        log.exception("❌ Ошибка регистрации тендера на Go-сервере")
 
         # Сохраняем распарсенный JSON, чтобы не потерять данные при ошибке импорта
         try:
             failed_dir = Path("temp_tender_data") / "failed_imports"
             failed_dir.mkdir(parents=True, exist_ok=True)
             tender_id = processed_data.get("tender_id", "unknown")
-            import time as _time
-            ts = _time.strftime("%Y%m%d_%H%M%S")
+            ts = time.strftime("%Y%m%d_%H%M%S")
             failed_path = failed_dir / f"{tender_id}_{ts}.json"
             with open(failed_path, "w", encoding="utf-8") as f:
                 json.dump(processed_data, f, ensure_ascii=False, indent=2)

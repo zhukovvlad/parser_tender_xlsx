@@ -94,10 +94,14 @@ RAG_DEDUP_HOUR = _parse_hour_env("RAG_DEDUP_HOUR", 3)  # По умолчанию
 beat_schedule_config = {}
 
 if ENABLE_RAG_SCHEDULE:
-    # ⚠️ RAG воркеры отключены в include/autodiscover — задачи не будут зарегистрированы!
-    _logging.getLogger(__name__).warning(
+    # RAG воркеры отключены в include/autodiscover — конфигурация некорректна
+    _logging.getLogger(__name__).error(
         "ENABLE_RAG_SCHEDULE=true, но RAG воркеры отключены в include/autodiscover. "
-        "RAG beat-задачи НЕ будут зарегистрированы. Раскомментируйте RAG в include/autodiscover."
+        "Раскомментируйте RAG в include/autodiscover или установите ENABLE_RAG_SCHEDULE=false."
+    )
+    raise RuntimeError(
+        "ENABLE_RAG_SCHEDULE=true, но RAG воркеры отключены в include/autodiscover. "
+        "Невозможно зарегистрировать RAG beat-задачи."
     )
 
 # Задача 3: Очистка старых результатов (Gemini) - безопасная, не требует Google API
