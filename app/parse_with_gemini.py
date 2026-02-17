@@ -23,7 +23,9 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -116,6 +118,32 @@ def parse_file_with_gemini(
     )
 
 
+# Максимальное количество файлов в failed_imports (настраивается через env)
+try:
+    _MAX_FAILED_IMPORTS = int(os.getenv("MAX_FAILED_IMPORTS", "50"))
+except (ValueError, TypeError):
+    _MAX_FAILED_IMPORTS = 50
+
+
+def _cleanup_failed_imports(failed_dir: Path) -> None:
+    """Удаляет самые старые файлы, если их больше _MAX_FAILED_IMPORTS."""
+    try:
+        files = sorted(failed_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        if _MAX_FAILED_IMPORTS <= 0:
+            to_delete = files
+        elif len(files) > _MAX_FAILED_IMPORTS:
+            to_delete = files[:-_MAX_FAILED_IMPORTS]
+        else:
+            to_delete = []
+        for f in to_delete:
+            f.unlink()
+            log.debug("🗑 Удалён старый failed_import: %s", f.name)
+        if to_delete:
+            log.info("🧹 Очищено %d старых файлов из failed_imports", len(to_delete))
+    except Exception:
+        log.debug("Не удалось очистить failed_imports", exc_info=True)
+
+
 def parse_with_ids(
     xlsx_path: str, create_reports: bool = True, will_use_ai: bool = False
 ) -> tuple[Optional[str], Optional[Dict[str, int]], Optional[Dict]]:
@@ -177,20 +205,24 @@ def parse_with_ids(
     try:
         db_id, lot_ids_map = _import_full_tender_via_go(processed_data)
 
-        # --- Trigger Matcher Task ---
-        # Запускаем Matcher сразу после успешной регистрации тендера,
-        # чтобы он начал искать совпадения для новых позиций параллельно с остальной обработкой.
+    except Exception:
+        log.exception("❌ Ошибка регистрации тендера на Go-сервере")
+
+        # Сохраняем распарсенный JSON, чтобы не потерять данные при ошибке импорта
         try:
-            from app.celery_app import celery_app
-
-            log.info("🚀 Тендер зарегистрирован. Запускаю фоновый Matcher (run_matching_task)...")
-            celery_app.send_task("app.workers.rag_catalog.tasks.run_matching_task")
+            failed_dir = Path("temp_tender_data") / "failed_imports"
+            failed_dir.mkdir(parents=True, exist_ok=True)
+            raw_tender_id = processed_data.get("tender_id") or "unknown"
+            tender_id = re.sub(r'[^A-Za-z0-9._-]', '_', raw_tender_id)[:200] or "unknown"
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            failed_path = failed_dir / f"{tender_id}_{ts}.json"
+            with open(failed_path, "w", encoding="utf-8") as f:
+                json.dump(processed_data, f, ensure_ascii=False, indent=2)
+            log.info("💾 Распарсенный JSON сохранён для повторной отправки: %s", failed_path)
+            _cleanup_failed_imports(failed_dir)
         except Exception:
-            log.warning("⚠️ Не удалось запустить Matcher задачу (не критично)", exc_info=True)
-        # ----------------------------
+            log.warning("⚠️ Не удалось сохранить JSON после ошибки импорта", exc_info=True)
 
-    except Exception as e:
-        log.error(f"❌ Ошибка регистрации тендера на Go-сервере: {e}")
         return None, None, None
 
     # (опционально) сохраняем базовый JSON локально, если включён SAVE_DEBUG_FILES

@@ -8,7 +8,7 @@
 # Эти значения можно переопределить в Makefile.local
 APP_MODULE = main:app
 HOST = 0.0.0.0
-PORT = 9000
+PORT = 8000
 RELOAD = --reload
 
 # Подключаем локальные настройки, если файл существует
@@ -20,12 +20,12 @@ default: help
 # Основная команда для запуска сервера в режиме разработки
 run:
 	@echo "Запуск Uvicorn сервера на http://$(HOST):$(PORT)"
-	@uvicorn $(APP_MODULE) --host $(HOST) --port $(PORT) $(RELOAD)
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && uvicorn $(APP_MODULE) --host $(HOST) --port $(PORT) $(RELOAD)
 
 # Запуск в продакшн режиме (без автоперезагрузки)
 prod:
 	@echo "Запуск Uvicorn сервера в продакшн режиме на http://$(HOST):$(PORT)"
-	@uvicorn $(APP_MODULE) --host $(HOST) --port $(PORT)
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && uvicorn $(APP_MODULE) --host $(HOST) --port $(PORT)
 
 # Установка зависимостей
 install:
@@ -127,7 +127,6 @@ parse-gemini-async:
 
 # Запуск воркера очереди Redis
 worker-start:
-	worker-start:
 	@echo "🚀 Запускаю Gemini воркер очереди..."
 	.venv/bin/python -m app.workers.gemini.cli worker
 
@@ -135,19 +134,19 @@ worker-start:
 
 celery-worker-ai:
 	@echo "🚀 Запускаю Celery воркер для AI (ai_queue)..."
-	.venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=ai_queue --concurrency=1 --hostname=ai@%h
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=ai_queue --concurrency=1 --hostname=ai@%h
 
 celery-worker-default:
 	@echo "🚀 Запускаю Celery воркер для общих задач (default)..."
-	.venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=default --concurrency=4 --hostname=default@%h
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=default --concurrency=4 --hostname=default@%h
 
 celery-beat:
 	@echo "⏰ Запускаю Celery Beat планировщик..."
-	.venv/bin/celery -A app.celery_app beat --loglevel=INFO
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app beat --loglevel=INFO
 
 celery-flower:
 	@echo "🌸 Запускаю Flower мониторинг на http://localhost:5555..."
-	.venv/bin/celery -A app.celery_app flower --port=5555
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app flower --port=5555
 
 celery-status:
 	@echo "📊 Статус Celery воркеров:"

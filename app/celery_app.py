@@ -5,6 +5,7 @@
 Интегрируется с существующей Redis инфраструктурой.
 """
 
+import logging as _logging
 import os
 from datetime import timedelta
 
@@ -23,7 +24,7 @@ celery_app = Celery(
     include=[
         "app.workers.gemini.tasks",
         "app.workers.parser.tasks",
-        "app.workers.rag_catalog.tasks",  # <-- (ИЗМЕНЕНИЕ 2: Добавлен RAG воркер)
+        # "app.workers.rag_catalog.tasks",  # <-- (ОТКЛЮЧЕНО: RAG воркер)
     ],
 )
 
@@ -48,7 +49,7 @@ celery_app.conf.update(
     task_routes={
         "app.workers.gemini.tasks.*": {"queue": "default"},
         "app.workers.parser.tasks.*": {"queue": "default"},
-        "app.workers.rag_catalog.tasks.*": {"queue": "default"},  # <-- (ИЗМЕНЕНИЕ 3: Маршрут для RAG)
+        # "app.workers.rag_catalog.tasks.*": {"queue": "default"},  # <-- (ОТКЛЮЧЕНО: Маршрут для RAG)
     },
     # Очередь по умолчанию
     task_default_queue="default",
@@ -72,7 +73,10 @@ celery_app.conf.update(
 # Включить расписание RAG задач (по умолчанию выключено)
 ENABLE_RAG_SCHEDULE = os.getenv("ENABLE_RAG_SCHEDULE", "false").lower() == "true"
 
-# Интервалы запуска RAG задач (в минутах для matcher, час для deduplicator)
+# Интервалы запуска RAG задач (в минутах для matcher, час для deduplicator).
+# NOTE: _parse_int_env, _parse_hour_env, RAG_MATCHER_INTERVAL_MINUTES и RAG_DEDUP_HOUR
+# намеренно определены вне блока ENABLE_RAG_SCHEDULE — они понадобятся при
+# повторном включении RAG-расписания (см. beat_schedule_config ниже).
 def _parse_int_env(key: str, default: int) -> int:
     """Безопасный парсинг целочисленных переменных окружения."""
     try:
@@ -93,22 +97,15 @@ RAG_DEDUP_HOUR = _parse_hour_env("RAG_DEDUP_HOUR", 3)  # По умолчанию
 beat_schedule_config = {}
 
 if ENABLE_RAG_SCHEDULE:
-    # RAG задачи (требуют Google API и тратят деньги!)
-    beat_schedule_config.update({
-        # Задача 1: Сопоставление (регулируемый интервал)
-        "run-rag-matcher": {
-            "task": "app.workers.rag_catalog.tasks.run_matching_task",
-            # Запускать каждые N минут (настраивается через RAG_MATCHER_INTERVAL_MINUTES)
-            # Используем timedelta для поддержки интервалов > 60 минут
-            "schedule": timedelta(minutes=RAG_MATCHER_INTERVAL_MINUTES),
-        },
-        # Задача 2: Дедупликация (редко, ночная задача)
-        "run-rag-deduplicator": {
-            "task": "app.workers.rag_catalog.tasks.run_deduplication_task",
-            # Запускать раз в сутки в указанный час (настраивается через RAG_DEDUP_HOUR)
-            "schedule": crontab(minute="0", hour=str(RAG_DEDUP_HOUR)),
-        },
-    })
+    # RAG воркеры отключены в include/autodiscover — конфигурация некорректна
+    _logging.getLogger(__name__).error(
+        "ENABLE_RAG_SCHEDULE=true, но RAG воркеры отключены в include/autodiscover. "
+        "Раскомментируйте RAG в include/autodiscover или установите ENABLE_RAG_SCHEDULE=false."
+    )
+    raise RuntimeError(
+        "ENABLE_RAG_SCHEDULE=true, но RAG воркеры отключены в include/autodiscover. "
+        "Невозможно зарегистрировать RAG beat-задачи."
+    )
 
 # Задача 3: Очистка старых результатов (Gemini) - безопасная, не требует Google API
 beat_schedule_config["cleanup-old-results"] = {
@@ -128,7 +125,7 @@ celery_app.autodiscover_tasks(
     [
         "app.workers.gemini",
         "app.workers.parser",
-        "app.workers.rag_catalog",  # <-- (ИЗМЕНЕНИЕ 5: Добавлен RAG воркер)
+        # "app.workers.rag_catalog",  # <-- (ОТКЛЮЧЕНО: RAG воркер)
     ]
 )
 

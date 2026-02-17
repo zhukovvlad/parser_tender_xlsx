@@ -16,7 +16,6 @@ from openpyxl.worksheet.worksheet import Worksheet
 # Импорт необходимых констант для ключей JSON
 from ..constants import (
     JSON_KEY_COMMENT_CONTRACTOR,
-    JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
     JSON_KEY_INDIRECT_COSTS,
     JSON_KEY_MATERIALS,
     JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST,
@@ -61,7 +60,7 @@ def parse_contractor_row(ws: Worksheet, row_index: int, contractor: Dict[str, An
 
     Raises:
         ValueError: Если значение `contractor["merged_shape"]["colspan"]`
-            не поддерживается (не равно 8, 9, 10, 11 или 12), исключение
+            не поддерживается (не равно 8, 9, 10 или 11), исключение
             будет возбуждено из вложенной функции `get_column_keys`.
     """
 
@@ -72,7 +71,7 @@ def parse_contractor_row(ws: Worksheet, row_index: int, contractor: Dict[str, An
 
         Ключи могут быть составными (разделенными точкой, например, "unit_cost.materials"),
         что указывает на необходимость создания вложенной структуры в результирующем словаре.
-        Поддерживаемые значения `colspan`: 12, 11, 10, 9, 8. Порядок ключей в списке
+        Поддерживаемые значения `colspan`: 11, 10, 9, 8. Порядок ключей в списке
         соответствует ожидаемому порядку колонок данных подрядчика.
 
         Args:
@@ -83,7 +82,7 @@ def parse_contractor_row(ws: Worksheet, row_index: int, contractor: Dict[str, An
 
         Raises:
             ValueError: Если переданное значение `colspan` не поддерживается
-                (не входит в диапазон 8-12).
+                (не входит в набор {8, 9, 10, 11}).
         """
         # Ключи формируются с использованием f-строк для создания вложенной структуры
         # там, где это необходимо (например, для unit_cost и total_cost).
@@ -97,7 +96,7 @@ def parse_contractor_row(ws: Worksheet, row_index: int, contractor: Dict[str, An
         tc_ind = f"{JSON_KEY_TOTAL_COST}.{JSON_KEY_INDIRECT_COSTS}"
         tc_tot = f"{JSON_KEY_TOTAL_COST}.{JSON_KEY_TOTAL}"
 
-        if colspan == 12:
+        if colspan == 11:
             return [
                 JSON_KEY_SUGGESTED_QUANTITY,
                 uc_mat,
@@ -110,25 +109,10 @@ def parse_contractor_row(ws: Worksheet, row_index: int, contractor: Dict[str, An
                 tc_tot,
                 JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST,
                 JSON_KEY_COMMENT_CONTRACTOR,
-                JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
-            ]
-        elif colspan == 11:
-            return [
-                JSON_KEY_SUGGESTED_QUANTITY,
-                uc_mat,
-                uc_wrk,
-                uc_ind,
-                uc_tot,
-                tc_mat,
-                tc_wrk,
-                tc_ind,
-                tc_tot,
-                JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST,
-                # JSON_KEY_COMMENT_CONTRACTOR - отсутствует для colspan 11
-                JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
             ]
         elif colspan == 10:
             return [
+                JSON_KEY_SUGGESTED_QUANTITY,
                 uc_mat,
                 uc_wrk,
                 uc_ind,
@@ -137,8 +121,7 @@ def parse_contractor_row(ws: Worksheet, row_index: int, contractor: Dict[str, An
                 tc_wrk,
                 tc_ind,
                 tc_tot,
-                JSON_KEY_COMMENT_CONTRACTOR,
-                JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
+                JSON_KEY_ORGANIZER_QUANTITY_TOTAL_COST,
             ]
         elif colspan == 9:
             return [
@@ -150,12 +133,12 @@ def parse_contractor_row(ws: Worksheet, row_index: int, contractor: Dict[str, An
                 tc_wrk,
                 tc_ind,
                 tc_tot,
-                JSON_KEY_DEVIATION_FROM_CALCULATED_COST,
+                JSON_KEY_COMMENT_CONTRACTOR,
             ]
         elif colspan == 8:
             return [uc_mat, uc_wrk, uc_ind, uc_tot, tc_mat, tc_wrk, tc_ind, tc_tot]
         else:
-            raise ValueError(f"Неподдерживаемый colspan подрядчика: {colspan}. Ожидались значения 8, 9, 10, 11 или 12.")
+            raise ValueError(f"Неподдерживаемый colspan подрядчика: {colspan}. Ожидались значения 8, 9, 10 или 11.")
 
     def map_to_nested_dict(cells: List[Cell], keys: List[str]) -> Dict[str, Any]:
         """

@@ -91,15 +91,18 @@ def _bump_ttl(task_id: str):
         pass
 
 
+# Большие XLSX-файлы с AI-обработкой могут занимать до 60 минут.
+# max_retries=3 × time_limit=3900s ≈ до ~3.25 часов в худшем случае.
 @shared_task(
     bind=True,
     autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 5, "countdown": 60},
-    retry_backoff=True,
+    dont_autoretry_for=(SoftTimeLimitExceeded,),
+    max_retries=3,
+    retry_backoff=60,  # базовая задержка 60с (с jitter)
     retry_backoff_max=300,
     retry_jitter=True,
-    soft_time_limit=1800,  # мягкий лимит, напр. 30 минут
-    time_limit=2100,  # жёсткий лимит — чуть больше
+    soft_time_limit=3600,  # мягкий лимит, 60 минут (1 час)
+    time_limit=3900,  # жёсткий лимит, 65 минут
 )
 def run_parsing_in_background(self, task_id: str, file_path: str, enable_ai: bool = False):
     """Фоновая обработка XLSX-файла с опциональным AI.
@@ -155,7 +158,7 @@ def run_parsing_in_background(self, task_id: str, file_path: str, enable_ai: boo
         )
         _cleanup_file(file_path)
         logger.exception("Task %s: soft time limit exceeded", task_id)
-        raise
+        raise  # SoftTimeLimitExceeded excluded from autoretry_for — won't retry
     except Exception as e:
         will_retry = self.request.retries < self.max_retries
         _safe_set_status(
