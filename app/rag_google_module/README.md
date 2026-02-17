@@ -4,16 +4,16 @@
 
 ## 📋 Содержание
 
-- [Назначение](#-назначение)
-- [Архитектура](#️-архитектура)
-- [Установка](#-установка)
-- [Конфигурация](#️-конфигурация)
-- [Использование](#-использование)
-- [API Reference](#-api-reference)
-- [Примеры](#-примеры)
-- [Troubleshooting](#-troubleshooting)
+- [Назначение](#naznachenie)
+- [Архитектура](#arhitektura)
+- [Установка](#ustanovka)
+- [Конфигурация](#konfiguraciya)
+- [Использование](#ispolzovanie)
+- [API Reference](#api-reference)
+- [Примеры](#primery)
+- [Troubleshooting](#troubleshooting)
 
-## 🎯 Назначение
+## <a id="naznachenie"></a>🎯 Назначение
 
 Модуль предоставляет интерфейс для:
 
@@ -21,7 +21,7 @@
 2. **Индексации данных** - загрузка батчей записей в формате JSON с автоматической обработкой
 3. **Семантического поиска** - RAG-поиск по корпусу с использованием моделей Gemini
 
-## 🏗️ Архитектура
+## <a id="arhitektura"></a>🏗️ Архитектура
 
 ### Компоненты модуля
 
@@ -58,7 +58,7 @@ rag_google_module/
       └──> Logger
 ```
 
-## 📦 Установка
+## <a id="ustanovka"></a>📦 Установка
 
 ### Зависимости
 
@@ -79,7 +79,7 @@ GOOGLE_RAG_STORE_ID=rag-catalog-store
 GOOGLE_RAG_MODEL=gemini-2.5-flash
 ```
 
-## ⚙️ Конфигурация
+## <a id="konfiguraciya"></a>⚙️ Конфигурация
 
 ### RagConfig
 
@@ -115,7 +115,7 @@ config = RagConfig(
 | `operation_timeout` | int | 600 | Таймаут операций (сек) |
 | `max_retries` | int | 3 | Попыток при ошибке |
 
-## 🚀 Использование
+## <a id="ispolzovanie"></a>🚀 Использование
 
 ### Базовый пример
 
@@ -226,7 +226,7 @@ async def upload_large_catalog():
     print("Загрузка завершена!")
 ```
 
-## 📚 API Reference
+## <a id="api-reference"></a>📚 API Reference
 
 ### FileSearchClient
 
@@ -303,9 +303,9 @@ for result in results:
 
 ---
 
-### ResponseParser
+### SearchResponseParser
 
-#### `parse_search_results(response_text: str) -> List[Dict[str, Any]]`
+#### `SearchResponseParser.parse_search_results(response_text: str) -> List[Dict[str, Any]]`
 
 Парсит JSON-ответ модели.
 
@@ -350,7 +350,7 @@ async def my_api_call():
 
 Автоматически повторяет вызов при `ServerError` с экспоненциальной задержкой.
 
-## 💡 Примеры
+## <a id="primery"></a>💡 Примеры
 
 ### Интеграция с Celery
 
@@ -417,7 +417,7 @@ class CustomFileSearchClient(FileSearchClient):
 custom_client = CustomFileSearchClient()
 ```
 
-## 🐛 Troubleshooting
+## <a id="troubleshooting"></a>🐛 Troubleshooting
 
 ### Ошибка: "GOOGLE_API_KEY не установлен"
 

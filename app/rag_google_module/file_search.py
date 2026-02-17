@@ -30,6 +30,11 @@ class FileSearchClient:
         self.logger = get_rag_logger("file_search_client")
         
         self._store_name = ""
+
+        # Apply retry decorator once (not per-call) for search API requests
+        self._execute_search_request = retry_on_server_error(
+            max_attempts=self.config.max_retries
+        )(self._execute_search_request)
         
         self.logger.info(
             f"FileSearchClient инициализирован. Store ID: {self.config.store_id}, "
@@ -65,7 +70,7 @@ class FileSearchClient:
         matches_by_name = []
 
         async for store in stores_pager:
-            if self.config.store_id and store.name == self.config.store_id:
+            if self.config.store_id and store.name.split('/')[-1] == self.config.store_id:
                 match_by_id = store
                 break
             if store.display_name == self.config.store_display_name:
@@ -160,33 +165,24 @@ class FileSearchClient:
         
         raise TimeoutError(f"Таймаут операции {operation.name}")
 
-    async def search(self, query: str) -> Optional[List[Dict[str, Any]]]:
-        """Выполняет RAG-поиск по корпусу."""
+    async def search(
+        self, query: str, max_results: Optional[int] = None
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Выполняет RAG-поиск по корпусу.
+
+        Args:
+            query: Поисковый запрос.
+            max_results: Максимальное количество результатов (по умолчанию из RagConfig).
+        """
         if not self._store_name:
             raise RuntimeError("Store не инициализирован. Вызовите initialize_store().")
 
         self.logger.debug(f"RAG-поиск: {query[:50]}...")
 
-        system_prompt = self._build_search_prompt(query)
+        limit = max_results or self.config.max_search_results
+        system_prompt = self._build_search_prompt(query, max_results=limit)
 
-        @retry_on_server_error(max_attempts=self.config.max_retries)
-        async def _do_search():
-            async with self.client_manager.get_client() as client:
-                return await client.models.generate_content(
-                    model=self.config.model_name,
-                    contents=[system_prompt],
-                    config=types.GenerateContentConfig(
-                        tools=[
-                            types.Tool(
-                                file_search=types.FileSearch(
-                                    file_search_store_names=[self._store_name]
-                                )
-                            )
-                        ],
-                    ),
-                )
-
-        response = await _do_search()
+        response = await self._execute_search_request(system_prompt)
 
         try:
             response_text = response.text or ""
@@ -203,14 +199,31 @@ class FileSearchClient:
         
         return results
 
-    def _build_search_prompt(self, query: str) -> str:
+    async def _execute_search_request(self, system_prompt: str):
+        """Execute a single search request against the model (retry-decorated in __init__)."""
+        async with self.client_manager.get_client() as client:
+            return await client.models.generate_content(
+                model=self.config.model_name,
+                contents=[system_prompt],
+                config=types.GenerateContentConfig(
+                    tools=[
+                        types.Tool(
+                            file_search=types.FileSearch(
+                                file_search_store_names=[self._store_name]
+                            )
+                        )
+                    ],
+                ),
+            )
+
+    def _build_search_prompt(self, query: str, *, max_results: int = 3) -> str:
         """Build search prompt for model."""
         return f"""
 Ты — поисковая система по каталогу строительных работ.
 Используй File Search tool для поиска в прикрепленном корпусе.
-Найди до ТРЕХ (3) самых релевантных строк для запроса: "{query}"
+Найди до {max_results} самых релевантных строк для запроса: "{query}"
 
-Верни ТОЛЬКО JSON-массив:
+Верни ТОЛЬКО JSON-массив (максимум {max_results} элементов):
 [
     {{"catalog_id": 123, "score": 0.95}},
     {{"catalog_id": 456, "score": 0.80}}
