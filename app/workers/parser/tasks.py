@@ -97,8 +97,8 @@ def _bump_ttl(task_id: str):
     bind=True,
     autoretry_for=(Exception,),
     dont_autoretry_for=(SoftTimeLimitExceeded,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
+    max_retries=3,
+    retry_backoff=60,  # базовая задержка 60с (с jitter)
     retry_backoff_max=300,
     retry_jitter=True,
     soft_time_limit=3600,  # мягкий лимит, 60 минут (1 час)

@@ -25,7 +25,7 @@
 
 ### Компоненты модуля
 
-```
+```text
 rag_google_module/
 ├── __init__.py              # Публичный API модуля
 ├── file_search.py           # Основной клиент File Search API
@@ -39,7 +39,7 @@ rag_google_module/
 
 ### Диаграмма взаимодействия
 
-```
+```text
 ┌─────────────────┐
 │  User Code      │
 └────────┬────────┘
@@ -374,15 +374,18 @@ def search_in_catalog(query: str) -> list:
 ### Использование с FastAPI
 
 ```python
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from app.rag_google_module import FileSearchClient
 
-app = FastAPI()
 client = FileSearchClient()
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app):
     await client.initialize_store()
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 @app.get("/search")
 async def search_catalog(q: str):
@@ -504,15 +507,22 @@ from app.rag_google_module import FileSearchClient
 @pytest.mark.asyncio
 async def test_search():
     client = FileSearchClient()
-    
-    with patch.object(client, 'search', new_callable=AsyncMock) as mock_search:
-        mock_search.return_value = [
-            {"catalog_id": 1, "score": 0.95}
-        ]
-        
+    client._store_name = "test-store"  # bypass initialize_store
+
+    fake_response = AsyncMock()
+    fake_response.text = '[{"catalog_id": 1, "score": 0.95}]'
+
+    with patch.object(
+        client.client_manager, 'get_client'
+    ) as mock_ctx:
+        mock_client = AsyncMock()
+        mock_client.models.generate_content.return_value = fake_response
+        mock_ctx.return_value.__aenter__.return_value = mock_client
+
         results = await client.search("test query")
         assert len(results) == 1
         assert results[0]["catalog_id"] == 1
+        assert results[0]["score"] == 0.95
 ```
 
 ## 📄 Лицензия

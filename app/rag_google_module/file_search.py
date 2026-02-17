@@ -56,15 +56,38 @@ class FileSearchClient:
                 raise
 
     async def _find_or_create_store(self, client):
-        """Find existing store or create new one."""
+        """Find existing store or create new one (prefer store_id over display_name)."""
         self.logger.debug("Проверяем существующие Store...")
         stores_pager = await client.file_search_stores.list()
 
+        # Собираем совпадения по id и display_name
+        match_by_id = None
+        matches_by_name = []
+
         async for store in stores_pager:
+            if self.config.store_id and store.name == self.config.store_id:
+                match_by_id = store
+                break
             if store.display_name == self.config.store_display_name:
-                self.logger.info(f"✓ Найден Store: '{store.display_name}' ({store.name})")
-                self._store_name = store.name
-                return
+                matches_by_name.append(store)
+
+        # Предпочитаем совпадение по id
+        if match_by_id:
+            self.logger.info(f"✓ Найден Store по ID: '{match_by_id.display_name}' ({match_by_id.name})")
+            self._store_name = match_by_id.name
+            return
+
+        if matches_by_name:
+            if len(matches_by_name) > 1:
+                names = [s.name for s in matches_by_name]
+                self.logger.warning(
+                    f"Найдено {len(matches_by_name)} Store с display_name "
+                    f"'{self.config.store_display_name}': {names}. Используем первый."
+                )
+            chosen = matches_by_name[0]
+            self.logger.info(f"✓ Найден Store: '{chosen.display_name}' ({chosen.name})")
+            self._store_name = chosen.name
+            return
 
         self.logger.info("Создаем новый Store...")
         store = await client.file_search_stores.create(
@@ -137,7 +160,6 @@ class FileSearchClient:
         
         raise TimeoutError(f"Таймаут операции {operation.name}")
 
-    @retry_on_server_error(max_attempts=3)
     async def search(self, query: str) -> Optional[List[Dict[str, Any]]]:
         """Выполняет RAG-поиск по корпусу."""
         if not self._store_name:
@@ -147,35 +169,39 @@ class FileSearchClient:
 
         system_prompt = self._build_search_prompt(query)
 
-        async with self.client_manager.get_client() as client:
-            response = await client.models.generate_content(
-                model=self.config.model_name,
-                contents=[system_prompt],
-                config=types.GenerateContentConfig(
-                    tools=[
-                        types.Tool(
-                            file_search=types.FileSearch(
-                                file_search_store_names=[self._store_name]
+        @retry_on_server_error(max_attempts=self.config.max_retries)
+        async def _do_search():
+            async with self.client_manager.get_client() as client:
+                return await client.models.generate_content(
+                    model=self.config.model_name,
+                    contents=[system_prompt],
+                    config=types.GenerateContentConfig(
+                        tools=[
+                            types.Tool(
+                                file_search=types.FileSearch(
+                                    file_search_store_names=[self._store_name]
+                                )
                             )
-                        )
-                    ],
-                ),
-            )
+                        ],
+                    ),
+                )
 
-            try:
-                response_text = response.text or ""
-            except (ValueError, AttributeError):
-                self.logger.warning("Модель не вернула текст для запроса: %s", query[:50])
-                response_text = ""
+        response = await _do_search()
 
-            results = self.response_parser.parse_search_results(response_text)
-            
-            if not results:
-                self.logger.warning(f"Нет результатов для: {query[:50]}...")
-            else:
-                self.logger.info(f"Найдено {len(results)} совпадений.")
-            
-            return results
+        try:
+            response_text = response.text or ""
+        except (ValueError, AttributeError):
+            self.logger.warning("Модель не вернула текст для запроса: %s", query[:50])
+            response_text = ""
+
+        results = self.response_parser.parse_search_results(response_text)
+        
+        if not results:
+            self.logger.warning(f"Нет результатов для: {query[:50]}...")
+        else:
+            self.logger.info(f"Найдено {len(results)} совпадений.")
+        
+        return results
 
     def _build_search_prompt(self, query: str) -> str:
         """Build search prompt for model."""
