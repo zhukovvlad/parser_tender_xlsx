@@ -192,3 +192,14 @@ def normalize_job_title_with_lemmatization(text: Optional[str]) -> Optional[str]
     result = final_text if final_text else None
     # print(f">>> JOB_TITLE_NORM (spaCy): Возврат: '{result}'")
     return result
+
+
+def prepare_for_fts_query(text: Optional[str]) -> Optional[str]:
+    """
+    Готовит строку лемм для передачи в SQL запрос to_tsquery('simple', ...).
+    Превращает 'монтаж кабель силовой' в 'монтаж & кабель & силовой'.
+    """
+    lemmatized = normalize_job_title_with_lemmatization(text)
+    if not lemmatized:
+        return None
+    return " & ".join(lemmatized.split())

@@ -40,11 +40,15 @@ else
     echo -e "${YELLOW}⚠️ Файл .env не найден${NC}"
 fi
 
-# Устанавливаем NO_PROXY для обхода прокси при запросах к localhost
-# ВАЖНО: НЕ удаляем http_proxy, только добавляем no_proxy!
+# Полное отключение HTTP прокси для локальной разработки
+# Это необходимо, так как прокси на порту 2081 блокирует все localhost запросы
+unset http_proxy
+unset https_proxy
+unset HTTP_PROXY
+unset HTTPS_PROXY
 export no_proxy="localhost,127.0.0.1"
 export NO_PROXY="localhost,127.0.0.1"
-echo -e "${GREEN}✅ Установлен NO_PROXY=localhost,127.0.0.1 (обход прокси для локальных запросов)${NC}"
+echo -e "${GREEN}✅ HTTP прокси отключен для локальной разработки${NC}"
 
 # Показываем текущий режим RAG
 ENABLE_RAG_SCHEDULE=${ENABLE_RAG_SCHEDULE:-false}
