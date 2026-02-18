@@ -5,8 +5,6 @@
 
 # Исключаем переменные окружения
 .env
-.env.backup
-*.env.backup
 
 # Исключаем локальные настройки Makefile
 Makefile.local
