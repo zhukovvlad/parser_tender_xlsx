@@ -24,7 +24,7 @@ load_dotenv()
 TEST_BATCH_SIZE = 20
 os.environ["SEARCH_INDEXER_BATCH_SIZE"] = str(TEST_BATCH_SIZE)
 
-from app.workers.search_indexer.worker import SearchIndexerWorker  # noqa: E402
+from app.workers.search_indexer.worker import SearchIndexerWorker
 
 
 async def main() -> None:
@@ -40,10 +40,11 @@ async def main() -> None:
     print("      ✅ Worker инициализирован")
 
     # 2. Проверяем сколько pending_indexing ДО запуска
-    before, active_before = await worker.fetch_indexing_stats()
+    before, active_before, indexing_before = await worker.fetch_indexing_stats()
     print("\n[2/3] Текущее состояние БД:")
     print(f"      pending_indexing = {before}")
     print(f"      active           = {active_before}")
+    print(f"      indexing         = {indexing_before}")
 
     # 3. Запуск индексации
     print(f"\n[3/3] Запуск run_indexing() для батча из {TEST_BATCH_SIZE} записей...")
@@ -53,10 +54,11 @@ async def main() -> None:
     print("\n  РЕЗУЛЬТАТ:")
     print(f"    Обработано:  {result['processed']}")
     print(f"    Дубликатов:  {result['duplicates']}")
+    print(f"    Пропущено:  {result.get('skipped', 0)}")
     print("=" * 60)
 
     # 4. Проверяем состояние ПОСЛЕ
-    after, active_after = await worker.fetch_indexing_stats()
+    after, active_after, indexing_after = await worker.fetch_indexing_stats()
     pool = worker.get_pool()
     async with pool.acquire() as conn:
         merges = await conn.fetchval(
@@ -77,10 +79,11 @@ async def main() -> None:
     print("\n  Состояние ПОСЛЕ:")
     print(f"    pending_indexing = {after}  (было {before})")
     print(f"    active           = {active_after}  (было {active_before})")
+    print(f"    indexing         = {indexing_after}")
     print(f"    suggested_merges = {merges}")
 
     if samples:
-        print(f"\n  Примеры активированных записей:")
+        print("\n  Примеры активированных записей:")
         for s in samples:
             print(
                 f"    id={s['id']:>5d}  "

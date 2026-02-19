@@ -13,6 +13,7 @@ Celery задачи для Search Indexer Worker.
 Задачи:
 -------
 1. run_search_indexing_task — обработка pending_indexing позиций (по событию / периодическая)
+2. reset_stale_indexing_claims — сброс зависших 'indexing' claims
 
 Управление Event Loop:
 ---------------------
@@ -31,7 +32,7 @@ Celery задачи для Search Indexer Worker.
 import asyncio
 import os
 
-from celery import signals
+from celery import shared_task, signals
 
 from app.utils.async_runner import run_async
 
@@ -39,22 +40,6 @@ from .logger import get_search_indexer_logger
 from .worker import SearchIndexerWorker
 
 logger = get_search_indexer_logger("tasks")
-
-
-# Ленивый импорт celery_app для избежания круговой зависимости
-def get_celery_app():
-    """
-    Ленивый импорт Celery приложения.
-
-    Избегает циклических зависимостей при импорте модуля.
-    Celery app импортируется только когда он действительно нужен.
-
-    Returns:
-        Celery: Инстанс Celery приложения
-    """
-    from app.celery_app import celery_app
-
-    return celery_app
 
 
 def _parse_timeout_env(var_name: str, default: int) -> int:
@@ -234,9 +219,10 @@ async def run_search_indexing_task_async():
         return {"status": "error", "message": "Internal error"}
 
 
+@shared_task(name="app.workers.search_indexer.tasks.run_search_indexing_task")
 def run_search_indexing_task():
     """
-    Синхронная обертка для Celery задачи индексации позиций.
+    Синхронная Celery задача индексации позиций.
 
     Запускает run_search_indexing_task_async() через run_async()
     для безопасного выполнения async кода в Celery воркере.
@@ -245,11 +231,29 @@ def run_search_indexing_task():
         dict: Результат выполнения задачи:
             - processed: количество обработанных позиций
             - duplicates: количество найденных кандидатов на дубликат
+            - skipped: позиции без описания (активированы без эмбеддинга)
     """
     return run_async(run_search_indexing_task_async())
 
 
-# Регистрируем задачу в Celery (ленивый импорт celery_app)
-run_search_indexing_task = get_celery_app().task(
-    name="app.workers.search_indexer.tasks.run_search_indexing_task",
-)(run_search_indexing_task)
+# ──────────────────────────────────────────────────────────────────────
+# Celery-задача: Сброс зависших 'indexing' claims
+# ──────────────────────────────────────────────────────────────────────
+
+
+async def reset_stale_indexing_claims_async():
+    """Сбрасывает зависшие 'indexing' claims (асинхронная)."""
+    worker = await get_worker_instance_async()
+    if not worker or not worker.is_initialized:
+        logger.error("Worker не инициализирован. Сброс зависших claims пропущен.")
+        return {"status": "error", "reset": 0}
+    count = await worker.reset_stale_claims()
+    return {"status": "ok", "reset": count}
+
+
+@shared_task(
+    name="app.workers.search_indexer.tasks.reset_stale_indexing_claims"
+)
+def reset_stale_indexing_claims():
+    """Сброс зависших 'indexing' записей обратно в 'pending_indexing'."""
+    return run_async(reset_stale_indexing_claims_async())

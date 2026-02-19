@@ -31,11 +31,26 @@ class _JsonFormatter(logging.Formatter):
         if record.exc_info and record.exc_info[0] is not None:
             log_obj["exc"] = self.formatException(record.exc_info)
         # Дополнительные поля, прокидываемые через extra={}
-        for key in ("position_id", "duplicate_id", "similarity", "batch_size"):
-            val = getattr(record, key, None)
-            if val is not None:
+        # Сохраняем все кастомные атрибуты, не только захардкоженный whitelist.
+        for key, val in vars(record).items():
+            if (
+                key not in log_obj
+                and key not in _STANDARD_LOG_ATTRS
+                and not key.startswith("_")
+            ):
                 log_obj[key] = val
         return json.dumps(log_obj, ensure_ascii=False)
+
+
+# Стандартные атрибуты LogRecord, которые не нужно дублировать в JSON.
+_STANDARD_LOG_ATTRS = frozenset({
+    "name", "msg", "args", "created", "relativeCreated",
+    "thread", "threadName", "process", "processName",
+    "pathname", "filename", "module", "funcName",
+    "levelno", "levelname", "lineno", "msecs",
+    "stack_info", "exc_info", "exc_text", "message", "asctime",
+    "taskName",
+})
 
 
 def setup_search_indexer_logger(

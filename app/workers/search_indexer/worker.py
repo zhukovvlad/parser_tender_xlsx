@@ -3,14 +3,24 @@
 """
 Асинхронная бизнес-логика для Search Indexer воркера.
 
-Пайплайн на каждую строку catalog_positions (status='pending_indexing'):
-1. Генерация 768-d embedding через Gemini ``gemini-embedding-001``.
-   Embedding строится на основе **composite semantic string** —
-   description + единица измерения (LEFT JOIN units_of_measurement),
-   что позволяет различать «Стяжка м2» и «Стяжка м3».
-2. Поиск дубликатов среди active-записей (cosine distance < 0.15).
-   Если найден → insert в ``suggested_merges``.
-3. Атомарное обновление: SET embedding, status='active', updated_at=NOW().
+Двухфазный пайплайн обработки catalog_positions:
+
+Phase 1 — Claim (atomic, race-condition safe):
+  UPDATE ... SET status='indexing' WHERE status='pending_indexing'
+  с FOR UPDATE SKIP LOCKED.
+
+Phase 2 — Embed (вне транзакции):
+  768-d embedding через Gemini ``gemini-embedding-001``.
+  Composite semantic string = description + единица измерения
+  (LEFT JOIN units_of_measurement для различения «Стяжка м2» / «Стяжка м3»).
+
+Phase 3 — Activate (со status guard):
+  Дедупликация по cosine distance < 0.15 → suggested_merges.
+  SET embedding, status='active' WHERE id = $2 AND status = 'indexing'.
+
+Recovery:
+  Зависшие 'indexing' записи (воркер упал) сбрасываются в 'pending_indexing'
+  через reset_stale_claims() / периодическую Celery-задачу.
 
 Технические заметки:
 - Pure ``asyncpg`` — без ORM.
@@ -89,21 +99,39 @@ POOL_MAX_SIZE: int = _safe_int("SEARCH_INDEXER_POOL_MAX", 10)
 # Интервал поллинга (секунды)
 POLL_INTERVAL_S: int = _safe_int("SEARCH_INDEXER_POLL_INTERVAL", 10)
 
+# Timeout для сброса зависших 'indexing' claims (секунды, по умолчанию 1 час)
+STALE_CLAIM_TIMEOUT_S: int = _safe_int("SEARCH_INDEXER_STALE_TIMEOUT", 3600)
+
 
 # ──────────────────────────────────────────────────────────────────────
 # SQL-запросы
 # ──────────────────────────────────────────────────────────────────────
 
-SQL_FETCH_PENDING = """
-    SELECT cp.id,
-           cp.description,
-           cp.standard_job_title,
+# Phase 1: Claim — atomic UPDATE...RETURNING с FOR UPDATE SKIP LOCKED.
+# Переводит status 'pending_indexing' → 'indexing'. JOIN с units_of_measurement
+# выполняется над результатом CTE.
+SQL_CLAIM_BATCH = """
+    WITH claimed AS (
+        UPDATE catalog_positions
+        SET status     = 'indexing',
+            updated_at = NOW()
+        WHERE id IN (
+            SELECT id
+            FROM catalog_positions
+            WHERE status = 'pending_indexing'
+            ORDER BY id
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING id, description, standard_job_title, unit_id
+    )
+    SELECT c.id,
+           c.description,
+           c.standard_job_title,
            uom.normalized_name AS unit_name
-    FROM catalog_positions cp
-    LEFT JOIN units_of_measurement uom ON cp.unit_id = uom.id
-    WHERE cp.status = 'pending_indexing'
-    ORDER BY cp.id
-    LIMIT $1;
+    FROM claimed c
+    LEFT JOIN units_of_measurement uom ON c.unit_id = uom.id
+    ORDER BY c.id;
 """
 
 # Cosine distance search по active-записям через HNSW индекс.
@@ -126,12 +154,32 @@ SQL_INSERT_MERGE = """
     ON CONFLICT DO NOTHING;
 """
 
+# Phase 3: Activate — status guard ensures only claimed rows are updated.
 SQL_ACTIVATE = """
     UPDATE catalog_positions
     SET embedding   = $1::vector,
         status      = 'active',
         updated_at  = NOW()
-    WHERE id = $2;
+    WHERE id = $2 AND status = 'indexing';
+"""
+
+# Activate without embedding (for rows with empty descriptions).
+SQL_ACTIVATE_NO_EMBEDDING = """
+    UPDATE catalog_positions
+    SET status      = 'active',
+        updated_at  = NOW()
+    WHERE id = $1 AND status = 'indexing';
+"""
+
+# Recovery: reset stale 'indexing' claims back to 'pending_indexing'.
+# $1 = max age in seconds.
+SQL_RESET_STALE = """
+    UPDATE catalog_positions
+    SET status     = 'pending_indexing',
+        updated_at = NOW()
+    WHERE status = 'indexing'
+      AND updated_at < NOW() - make_interval(secs => $1::double precision)
+    RETURNING id;
 """
 
 
@@ -276,9 +324,10 @@ class SearchIndexerWorker:
             raise RuntimeError("Worker не инициализирован — пул недоступен")
         return self._pool
 
-    async def fetch_indexing_stats(self) -> tuple[int, int]:
+    async def fetch_indexing_stats(self) -> tuple[int, int, int]:
         """
-        Возвращает (pending_count, active_count) из catalog_positions.
+        Возвращает (pending_count, active_count, indexing_count)
+        из catalog_positions.
 
         Удобно для smoke-тестов и мониторинга.
         """
@@ -291,19 +340,54 @@ class SearchIndexerWorker:
             active = await conn.fetchval(
                 "SELECT count(*) FROM catalog_positions WHERE status = 'active'"
             )
-        return pending, active
+            indexing = await conn.fetchval(
+                "SELECT count(*) FROM catalog_positions "
+                "WHERE status = 'indexing'"
+            )
+        return pending, active, indexing
+
+    async def reset_stale_claims(
+        self, max_age_seconds: int = STALE_CLAIM_TIMEOUT_S
+    ) -> int:
+        """
+        Сбрасывает зависшие 'indexing' записи обратно в 'pending_indexing'.
+
+        Записи, которые находятся в статусе 'indexing' дольше
+        max_age_seconds, считаются зависшими (воркер упал или
+        превысил timeout).
+
+        Args:
+            max_age_seconds: Максимальный возраст claim в секундах.
+
+        Returns:
+            Количество сброшенных записей.
+        """
+        pool = self.get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                SQL_RESET_STALE, float(max_age_seconds)
+            )
+        count = len(rows)
+        if count > 0:
+            reset_ids = [r["id"] for r in rows]
+            self.logger.warning(
+                "Reset %d stale 'indexing' claims → 'pending_indexing': %s",
+                count,
+                reset_ids[:20],
+                extra={"reset_count": count},
+            )
+        return count
 
     async def run_indexing(self) -> Dict[str, Any]:
         """
-        Обрабатывает один батч pending_indexing записей.
+        Обрабатывает один батч позиций (two-phase claim → embed → activate).
 
-        Пайплайн для каждой строки:
-        1. Генерация embedding (Gemini).
-        2. Поиск дубликатов (cosine distance < threshold).
-        3. Атомарное обновление (embedding + status='active').
+        Phase 1: Atomic claim (status 'pending_indexing' → 'indexing').
+        Phase 2: Embedding generation (outside transaction).
+        Phase 3: Deduplication + activate (status guard 'indexing' → 'active').
 
         Returns:
-            dict: {"processed": int, "duplicates": int}
+            dict: {"processed": int, "duplicates": int, "skipped": int}
         """
         if not self.is_initialized:
             raise RuntimeError(
@@ -314,22 +398,25 @@ class SearchIndexerWorker:
         assert self._pool is not None
         assert self._embedder is not None
 
+        # Phase 1: Claim batch atomically (FOR UPDATE SKIP LOCKED)
         async with self._pool.acquire() as conn:
             rows: Sequence[asyncpg.Record] = await conn.fetch(
-                SQL_FETCH_PENDING, BATCH_SIZE
+                SQL_CLAIM_BATCH, BATCH_SIZE
             )
 
         if not rows:
-            return {"processed": 0, "duplicates": 0}
+            return {"processed": 0, "duplicates": 0, "skipped": 0}
 
         self.logger.info(
-            "Получен батч pending_indexing записей",
+            "Claimed batch for indexing (status → 'indexing')",
             extra={"batch_size": len(rows)},
         )
 
         processed = 0
         duplicates = 0
+        skipped = 0
 
+        # Phase 2-3: Embed (outside tx) → Dedup + Activate (inside tx)
         async with self._pool.acquire() as conn:
             for row in rows:
                 pos_id: int = row["id"]
@@ -337,18 +424,31 @@ class SearchIndexerWorker:
                 title: str = row["standard_job_title"] or ""
                 unit_name: str = row["unit_name"] or ""
 
-                # Пропускаем строки с пустым описанием
+                # Rows with empty description: activate without embedding
                 if not description.strip():
                     self.logger.warning(
-                        "Пропуск позиции %s (%s): пустое описание",
+                        "Позиция %s (%s): пустое описание — "
+                        "активация без эмбеддинга",
                         pos_id,
                         title[:80],
                         extra={"position_id": pos_id},
                     )
+                    result = await conn.execute(
+                        SQL_ACTIVATE_NO_EMBEDDING, pos_id
+                    )
+                    if result == "UPDATE 1":
+                        skipped += 1
+                    else:
+                        self.logger.warning(
+                            "Activate-no-embed no-op pos_id=%s "
+                            "(concurrent modification?)",
+                            pos_id,
+                            extra={"position_id": pos_id},
+                        )
                     continue
 
                 try:
-                    # 1. Composite semantic string (unit-aware)
+                    # Composite semantic string (unit-aware)
                     if unit_name:
                         text_to_embed = (
                             f"{description}. Единица измерения: {unit_name}"
@@ -356,12 +456,12 @@ class SearchIndexerWorker:
                     else:
                         text_to_embed = description
 
-                    # Embedding вне транзакции — внешний сетевой вызов
+                    # Phase 2: Embedding outside transaction (network call)
                     embedding = await self._embedder.embed(text_to_embed)
                     emb_literal = _vector_literal(embedding)
 
+                    # Phase 3: Dedup + Activate (with status guard)
                     async with conn.transaction():
-                        # 2. Deduplication check
                         dup = await conn.fetchrow(
                             SQL_FIND_DUPLICATE,
                             emb_literal,
@@ -392,8 +492,16 @@ class SearchIndexerWorker:
                                 },
                             )
 
-                        # 3. Activate
-                        await conn.execute(SQL_ACTIVATE, emb_literal, pos_id)
+                        # Activate with status guard
+                        activate_result = await conn.execute(
+                            SQL_ACTIVATE, emb_literal, pos_id
+                        )
+                        if activate_result != "UPDATE 1":
+                            self.logger.warning(
+                                "Activate no-op pos_id=%s (status guard)",
+                                pos_id,
+                                extra={"position_id": pos_id},
+                            )
 
                     processed += 1
                     self.logger.info(
@@ -410,4 +518,4 @@ class SearchIndexerWorker:
                         extra={"position_id": pos_id},
                     )
 
-        return {"processed": processed, "duplicates": duplicates}
+        return {"processed": processed, "duplicates": duplicates, "skipped": skipped}
