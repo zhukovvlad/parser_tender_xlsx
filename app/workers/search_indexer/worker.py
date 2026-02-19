@@ -40,11 +40,33 @@ load_dotenv()
 # Конфигурация
 # ──────────────────────────────────────────────────────────────────────
 
+def _safe_int(env_var: str, default: int) -> int:
+    """Безопасный парсинг int из переменной окружения."""
+    raw = os.getenv(env_var, "")
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return default
+
+
+def _safe_float(env_var: str, default: float) -> float:
+    """Безопасный парсинг float из переменной окружения."""
+    raw = os.getenv(env_var, "")
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        return default
+
+
 # Database
 DB_USER: str = os.getenv("DB_USER", "postgres")
 DB_PASSWORD: str = os.getenv("DB_PASSWORD", "postgres")
 DB_HOST: str = os.getenv("DB_HOST", "localhost")
-DB_PORT: str = os.getenv("DB_PORT", "5432")
+DB_PORT: int = _safe_int("DB_PORT", 5432)
 DB_NAME: str = os.getenv("DB_NAME", "tendersdb")
 
 # Google AI — модель и размерность
@@ -52,23 +74,20 @@ GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
 EMBEDDING_MODEL: str = os.getenv(
     "SEARCH_INDEXER_EMBEDDING_MODEL", "gemini-embedding-001"
 )
-EMBEDDING_DIM: int = int(os.getenv("SEARCH_INDEXER_EMBEDDING_DIM", "768"))
+EMBEDDING_DIM: int = _safe_int("SEARCH_INDEXER_EMBEDDING_DIM", 768)
 
 # Размер батча и пороги
-BATCH_SIZE: int = int(os.getenv("SEARCH_INDEXER_BATCH_SIZE", "50"))
-DEDUP_DISTANCE_THRESHOLD: float = float(
-    os.getenv("SEARCH_INDEXER_DEDUP_THRESHOLD", "0.15")
+BATCH_SIZE: int = _safe_int("SEARCH_INDEXER_BATCH_SIZE", 50)
+DEDUP_DISTANCE_THRESHOLD: float = _safe_float(
+    "SEARCH_INDEXER_DEDUP_THRESHOLD", 0.15
 )
 
-# Ограничение параллельных запросов к Gemini (rate-limit safe)
-EMBED_CONCURRENCY: int = int(os.getenv("SEARCH_INDEXER_EMBED_CONCURRENCY", "5"))
-
 # Database pool
-POOL_MIN_SIZE: int = int(os.getenv("SEARCH_INDEXER_POOL_MIN", "2"))
-POOL_MAX_SIZE: int = int(os.getenv("SEARCH_INDEXER_POOL_MAX", "10"))
+POOL_MIN_SIZE: int = _safe_int("SEARCH_INDEXER_POOL_MIN", 2)
+POOL_MAX_SIZE: int = _safe_int("SEARCH_INDEXER_POOL_MAX", 10)
 
 # Интервал поллинга (секунды)
-POLL_INTERVAL_S: int = int(os.getenv("SEARCH_INDEXER_POLL_INTERVAL", "10"))
+POLL_INTERVAL_S: int = _safe_int("SEARCH_INDEXER_POLL_INTERVAL", 10)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -141,7 +160,6 @@ class EmbeddingClient:
         self._client = genai.Client(api_key=api_key)
         self._model = model
         self._dim = dim
-        self._sem = asyncio.Semaphore(EMBED_CONCURRENCY)
         self._config = types.EmbedContentConfig(
             task_type="SEMANTIC_SIMILARITY",
             output_dimensionality=dim,
@@ -157,13 +175,12 @@ class EmbeddingClient:
         Returns:
             Нормализованный список float длиной ``self._dim``.
         """
-        async with self._sem:
-            response = await asyncio.to_thread(
-                self._client.models.embed_content,
-                model=self._model,
-                contents=text,
-                config=self._config,
-            )
+        response = await asyncio.to_thread(
+            self._client.models.embed_content,
+            model=self._model,
+            contents=text,
+            config=self._config,
+        )
         raw = list(response.embeddings[0].values)
         return _l2_normalize(raw)
 
@@ -218,12 +235,12 @@ class SearchIndexerWorker:
         """
         self.logger.info("Инициализация Search Indexer Worker...")
         try:
-            dsn = (
-                f"postgresql://{DB_USER}:{DB_PASSWORD}"
-                f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-            )
             self._pool = await asyncpg.create_pool(
-                dsn,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                host=DB_HOST,
+                port=DB_PORT,
+                database=DB_NAME,
                 min_size=POOL_MIN_SIZE,
                 max_size=POOL_MAX_SIZE,
                 command_timeout=60,
@@ -252,6 +269,29 @@ class SearchIndexerWorker:
         if self._embedder:
             await self._embedder.close()
         self.logger.info("Search Indexer Worker остановлен")
+
+    def get_pool(self) -> asyncpg.Pool:
+        """Публичный доступ к пулу подключений (для тестов/диагностики)."""
+        if self._pool is None:
+            raise RuntimeError("Worker не инициализирован — пул недоступен")
+        return self._pool
+
+    async def fetch_indexing_stats(self) -> tuple[int, int]:
+        """
+        Возвращает (pending_count, active_count) из catalog_positions.
+
+        Удобно для smoke-тестов и мониторинга.
+        """
+        pool = self.get_pool()
+        async with pool.acquire() as conn:
+            pending = await conn.fetchval(
+                "SELECT count(*) FROM catalog_positions "
+                "WHERE status = 'pending_indexing'"
+            )
+            active = await conn.fetchval(
+                "SELECT count(*) FROM catalog_positions WHERE status = 'active'"
+            )
+        return pending, active
 
     async def run_indexing(self) -> Dict[str, Any]:
         """
@@ -290,23 +330,36 @@ class SearchIndexerWorker:
         processed = 0
         duplicates = 0
 
-        for row in rows:
-            pos_id: int = row["id"]
-            description: str = row["description"] or ""
-            title: str = row["standard_job_title"] or ""
-            unit_name: str = row["unit_name"] or ""
+        async with self._pool.acquire() as conn:
+            for row in rows:
+                pos_id: int = row["id"]
+                description: str = row["description"] or ""
+                title: str = row["standard_job_title"] or ""
+                unit_name: str = row["unit_name"] or ""
 
-            try:
-                # 1. Composite semantic string (unit-aware)
-                if unit_name:
-                    text_to_embed = f"{description}. Единица измерения: {unit_name}"
-                else:
-                    text_to_embed = description
+                # Пропускаем строки с пустым описанием
+                if not description.strip():
+                    self.logger.warning(
+                        "Пропуск позиции %s (%s): пустое описание",
+                        pos_id,
+                        title[:80],
+                        extra={"position_id": pos_id},
+                    )
+                    continue
 
-                embedding = await self._embedder.embed(text_to_embed)
-                emb_literal = _vector_literal(embedding)
+                try:
+                    # 1. Composite semantic string (unit-aware)
+                    if unit_name:
+                        text_to_embed = (
+                            f"{description}. Единица измерения: {unit_name}"
+                        )
+                    else:
+                        text_to_embed = description
 
-                async with self._pool.acquire() as conn:
+                    # Embedding вне транзакции — внешний сетевой вызов
+                    embedding = await self._embedder.embed(text_to_embed)
+                    emb_literal = _vector_literal(embedding)
+
                     async with conn.transaction():
                         # 2. Deduplication check
                         dup = await conn.fetchrow(
@@ -342,19 +395,19 @@ class SearchIndexerWorker:
                         # 3. Activate
                         await conn.execute(SQL_ACTIVATE, emb_literal, pos_id)
 
-                processed += 1
-                self.logger.info(
-                    "Активирована позиция %s (%s)",
-                    pos_id,
-                    title[:80],
-                    extra={"position_id": pos_id},
-                )
+                    processed += 1
+                    self.logger.info(
+                        "Активирована позиция %s (%s)",
+                        pos_id,
+                        title[:80],
+                        extra={"position_id": pos_id},
+                    )
 
-            except Exception:
-                self.logger.exception(
-                    "Ошибка обработки позиции %s",
-                    pos_id,
-                    extra={"position_id": pos_id},
-                )
+                except Exception:
+                    self.logger.exception(
+                        "Ошибка обработки позиции %s",
+                        pos_id,
+                        extra={"position_id": pos_id},
+                    )
 
         return {"processed": processed, "duplicates": duplicates}

@@ -3,7 +3,7 @@
 """
 Smoke-тест Search Indexer Worker.
 
-Обрабатывает 10 pending_indexing позиций:
+Обрабатывает TEST_BATCH_SIZE pending_indexing позиций:
   1. Генерирует embedding (Gemini gemini-embedding-001, 768-d).
   2. Проверяет дубликаты (cosine distance < 0.15).
   3. Активирует (status → 'active').
@@ -20,8 +20,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Подменяем BATCH_SIZE на 10 для теста
-os.environ["SEARCH_INDEXER_BATCH_SIZE"] = "20"
+# Размер тестового батча
+TEST_BATCH_SIZE = 20
+os.environ["SEARCH_INDEXER_BATCH_SIZE"] = str(TEST_BATCH_SIZE)
 
 from app.workers.search_indexer.worker import SearchIndexerWorker  # noqa: E402
 
@@ -30,7 +31,7 @@ async def main() -> None:
     worker = SearchIndexerWorker()
 
     print("=" * 60)
-    print("  SMOKE TEST: Search Indexer Worker (20 позиций, unit-aware)")
+    print(f"  SMOKE TEST: Search Indexer Worker ({TEST_BATCH_SIZE} позиций, unit-aware)")
     print("=" * 60)
 
     # 1. Инициализация
@@ -39,35 +40,25 @@ async def main() -> None:
     print("      ✅ Worker инициализирован")
 
     # 2. Проверяем сколько pending_indexing ДО запуска
-    async with worker._pool.acquire() as conn:
-        before = await conn.fetchval(
-            "SELECT count(*) FROM catalog_positions WHERE status = 'pending_indexing'"
-        )
-        active_before = await conn.fetchval(
-            "SELECT count(*) FROM catalog_positions WHERE status = 'active'"
-        )
-    print(f"\n[2/3] Текущее состояние БД:")
+    before, active_before = await worker.fetch_indexing_stats()
+    print("\n[2/3] Текущее состояние БД:")
     print(f"      pending_indexing = {before}")
     print(f"      active           = {active_before}")
 
     # 3. Запуск индексации
-    print(f"\n[3/3] Запуск run_indexing() для батча из 10 записей...")
+    print(f"\n[3/3] Запуск run_indexing() для батча из {TEST_BATCH_SIZE} записей...")
     result = await worker.run_indexing()
 
     print(f"\n{'=' * 60}")
-    print(f"  РЕЗУЛЬТАТ:")
+    print("\n  РЕЗУЛЬТАТ:")
     print(f"    Обработано:  {result['processed']}")
     print(f"    Дубликатов:  {result['duplicates']}")
-    print(f"{'=' * 60}")
+    print("=" * 60)
 
     # 4. Проверяем состояние ПОСЛЕ
-    async with worker._pool.acquire() as conn:
-        after = await conn.fetchval(
-            "SELECT count(*) FROM catalog_positions WHERE status = 'pending_indexing'"
-        )
-        active_after = await conn.fetchval(
-            "SELECT count(*) FROM catalog_positions WHERE status = 'active'"
-        )
+    after, active_after = await worker.fetch_indexing_stats()
+    pool = worker.get_pool()
+    async with pool.acquire() as conn:
         merges = await conn.fetchval(
             "SELECT count(*) FROM suggested_merges"
         )
@@ -83,7 +74,7 @@ async def main() -> None:
             LIMIT 3
         """)
 
-    print(f"\n  Состояние ПОСЛЕ:")
+    print("\n  Состояние ПОСЛЕ:")
     print(f"    pending_indexing = {after}  (было {before})")
     print(f"    active           = {active_after}  (было {active_before})")
     print(f"    suggested_merges = {merges}")

@@ -62,8 +62,9 @@ def setup_search_indexer_logger(
     """
     logger = logging.getLogger(name)
 
-    # Избегаем повторной настройки
-    if logger.handlers:
+    # Избегаем повторной настройки (используем custom-атрибут вместо logger.handlers,
+    # чтобы внешне добавленные хендлеры не помешали инициализации JSON-формата)
+    if getattr(logger, "_search_indexer_configured", False):
         return logger
 
     # Определяем уровень логгирования
@@ -73,14 +74,10 @@ def setup_search_indexer_logger(
             "SEARCH_INDEXER_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO")
         )
 
-    log_levels = {
-        "DEBUG": logging.DEBUG,
-        "INFO": logging.INFO,
-        "WARNING": logging.WARNING,
-        "ERROR": logging.ERROR,
-    }
-
-    level = log_levels.get(log_level.upper(), logging.INFO)
+    # Используем встроенную конвертацию имени уровня (поддерживает
+    # DEBUG, INFO, WARNING, ERROR, CRITICAL, FATAL и их числовые значения)
+    numeric_level = logging.getLevelName(log_level.upper())
+    level = numeric_level if isinstance(numeric_level, int) else logging.INFO
     logger.setLevel(level)
 
     formatter = _JsonFormatter()
@@ -109,6 +106,7 @@ def setup_search_indexer_logger(
         logger.addHandler(console_handler)
 
     logger.propagate = False
+    logger._search_indexer_configured = True
     return logger
 
 
@@ -124,6 +122,6 @@ def get_search_indexer_logger(name: str = "search_indexer") -> logging.Logger:
         Логгер для search_indexer воркера
     """
     logger = logging.getLogger(name)
-    if not logger.handlers:
+    if not getattr(logger, "_search_indexer_configured", False):
         logger = setup_search_indexer_logger(name=name)
     return logger
