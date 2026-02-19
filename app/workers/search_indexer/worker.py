@@ -416,23 +416,53 @@ class SearchIndexerWorker:
         duplicates = 0
         skipped = 0
 
-        # Phase 2-3: Embed (outside tx) → Dedup + Activate (inside tx)
-        async with self._pool.acquire() as conn:
-            for row in rows:
-                pos_id: int = row["id"]
-                description: str = row["description"] or ""
-                title: str = row["standard_job_title"] or ""
-                unit_name: str = row["unit_name"] or ""
+        # ── Phase 2: Embedding (outside DB connection) ──────────────
+        # Собираем эмбеддинги заранее, чтобы не держать DB-соединение
+        # открытым на время сетевых вызовов к Gemini.
+        # embed_results: list of (pos_id, title, emb_literal | None, skip_reason | None)
+        embed_results: list[tuple[int, str, str | None, str | None]] = []
 
-                # Rows with empty description: activate without embedding
-                if not description.strip():
-                    self.logger.warning(
-                        "Позиция %s (%s): пустое описание — "
-                        "активация без эмбеддинга",
-                        pos_id,
-                        title[:80],
-                        extra={"position_id": pos_id},
+        for row in rows:
+            pos_id: int = row["id"]
+            description: str = row["description"] or ""
+            title: str = row["standard_job_title"] or ""
+            unit_name: str = row["unit_name"] or ""
+
+            if not description.strip():
+                self.logger.warning(
+                    "Позиция %s (%s): пустое описание — "
+                    "активация без эмбеддинга",
+                    pos_id,
+                    title[:80],
+                    extra={"position_id": pos_id},
+                )
+                embed_results.append((pos_id, title, None, "no_description"))
+                continue
+
+            try:
+                # Composite semantic string (unit-aware)
+                if unit_name:
+                    text_to_embed = (
+                        f"{description}. Единица измерения: {unit_name}"
                     )
+                else:
+                    text_to_embed = description
+
+                embedding = await self._embedder.embed(text_to_embed)
+                emb_literal = _vector_literal(embedding)
+                embed_results.append((pos_id, title, emb_literal, None))
+            except Exception:
+                self.logger.exception(
+                    "Ошибка генерации эмбеддинга для позиции %s",
+                    pos_id,
+                    extra={"position_id": pos_id},
+                )
+                embed_results.append((pos_id, title, None, "embed_error"))
+
+        # ── Phase 3: DB operations (fast, single connection) ────────
+        async with self._pool.acquire() as conn:
+            for pos_id, title, emb_literal, skip_reason in embed_results:
+                if skip_reason == "no_description":
                     result = await conn.execute(
                         SQL_ACTIVATE_NO_EMBEDDING, pos_id
                     )
@@ -447,21 +477,16 @@ class SearchIndexerWorker:
                         )
                     continue
 
+                if skip_reason == "embed_error":
+                    # Already logged during embed phase
+                    continue
+
+                # emb_literal is guaranteed not None here
+                assert emb_literal is not None
+
                 try:
-                    # Composite semantic string (unit-aware)
-                    if unit_name:
-                        text_to_embed = (
-                            f"{description}. Единица измерения: {unit_name}"
-                        )
-                    else:
-                        text_to_embed = description
-
-                    # Phase 2: Embedding outside transaction (network call)
-                    embedding = await self._embedder.embed(text_to_embed)
-                    emb_literal = _vector_literal(embedding)
-
-                    # Phase 3: Dedup + Activate (with status guard)
                     async with conn.transaction():
+                        # Deduplication check
                         dup = await conn.fetchrow(
                             SQL_FIND_DUPLICATE,
                             emb_literal,
@@ -496,20 +521,21 @@ class SearchIndexerWorker:
                         activate_result = await conn.execute(
                             SQL_ACTIVATE, emb_literal, pos_id
                         )
-                        if activate_result != "UPDATE 1":
-                            self.logger.warning(
-                                "Activate no-op pos_id=%s (status guard)",
-                                pos_id,
-                                extra={"position_id": pos_id},
-                            )
 
-                    processed += 1
-                    self.logger.info(
-                        "Активирована позиция %s (%s)",
-                        pos_id,
-                        title[:80],
-                        extra={"position_id": pos_id},
-                    )
+                    if activate_result == "UPDATE 1":
+                        processed += 1
+                        self.logger.info(
+                            "Активирована позиция %s (%s)",
+                            pos_id,
+                            title[:80],
+                            extra={"position_id": pos_id},
+                        )
+                    else:
+                        self.logger.warning(
+                            "Activate no-op pos_id=%s (status guard)",
+                            pos_id,
+                            extra={"position_id": pos_id},
+                        )
 
                 except Exception:
                     self.logger.exception(
