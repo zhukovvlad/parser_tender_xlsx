@@ -171,6 +171,16 @@ SQL_ACTIVATE_NO_EMBEDDING = """
     WHERE id = $1 AND status = 'indexing';
 """
 
+# Recovery: reset specific rows back to 'pending_indexing' (e.g. embed errors).
+# $1 = array of ids.
+SQL_RESET_EMBED_ERRORS = """
+    UPDATE catalog_positions
+    SET status     = 'pending_indexing',
+        updated_at = NOW()
+    WHERE id = ANY($1::int[])
+      AND status = 'indexing';
+"""
+
 # Recovery: reset stale 'indexing' claims back to 'pending_indexing'.
 # $1 = max age in seconds.
 SQL_RESET_STALE = """
@@ -458,6 +468,22 @@ class SearchIndexerWorker:
                     extra={"position_id": pos_id},
                 )
                 embed_results.append((pos_id, title, None, "embed_error"))
+
+        # Сброс embed_error rows обратно в pending_indexing (чтобы не зависли
+        # в 'indexing' до reset_stale_claims)
+        embed_error_ids = [
+            pid for pid, _, _, reason in embed_results
+            if reason == "embed_error"
+        ]
+        if embed_error_ids:
+            async with self._pool.acquire() as conn:
+                await conn.execute(SQL_RESET_EMBED_ERRORS, embed_error_ids)
+            self.logger.warning(
+                "Reset %d embed-error rows → 'pending_indexing': %s",
+                len(embed_error_ids),
+                embed_error_ids[:20],
+                extra={"embed_error_count": len(embed_error_ids)},
+            )
 
         # ── Phase 3: DB operations (fast, single connection) ────────
         async with self._pool.acquire() as conn:

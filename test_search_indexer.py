@@ -36,10 +36,10 @@ async def main() -> None:
 
     # 1. Инициализация
     print("\n[1/3] Инициализация (DB Pool + Gemini Embedding Client)...")
-    await worker.initialize()
-    print("      ✅ Worker инициализирован")
 
     try:
+        await worker.initialize()
+        print("      ✅ Worker инициализирован")
         # 2. Проверяем сколько pending_indexing ДО запуска
         before, active_before, indexing_before = await worker.fetch_indexing_stats()
         print("\n[2/3] Текущее состояние БД:")

@@ -155,6 +155,16 @@ async def get_worker_instance_async():
             )
             return worker_instance
         except Exception as e:
+            # Закрываем частично инициализированный воркер (напр. pool создан,
+            # но EmbeddingClient упал)
+            try:
+                await new_worker.shutdown()
+            except Exception as shutdown_exc:
+                logger.warning(
+                    "Не удалось закрыть частично инициализированный "
+                    "worker: %s",
+                    shutdown_exc,
+                )
             logger.critical(
                 f"Ошибка инициализации Search Indexer Worker "
                 f"в процессе {current_pid}: {e}",
