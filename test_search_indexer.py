@@ -42,6 +42,11 @@ async def main() -> None:
         print("      ✅ Worker инициализирован")
         # 2. Проверяем сколько pending_indexing ДО запуска
         before, active_before, indexing_before = await worker.fetch_indexing_stats()
+        pool = worker.get_pool()
+        async with pool.acquire() as conn:
+            pre_merges = await conn.fetchval(
+                "SELECT count(*) FROM suggested_merges"
+            )
         print("\n[2/3] Текущее состояние БД:")
         print(f"      pending_indexing = {before}")
         print(f"      active           = {active_before}")
@@ -60,7 +65,6 @@ async def main() -> None:
 
         # 4. Проверяем состояние ПОСЛЕ
         after, active_after, indexing_after = await worker.fetch_indexing_stats()
-        pool = worker.get_pool()
         async with pool.acquire() as conn:
             merges = await conn.fetchval(
                 "SELECT count(*) FROM suggested_merges"
@@ -77,11 +81,12 @@ async def main() -> None:
                 LIMIT 3
             """)
 
+        new_merges = merges - pre_merges
         print("\n  Состояние ПОСЛЕ:")
         print(f"    pending_indexing = {after}  (было {before})")
         print(f"    active           = {active_after}  (было {active_before})")
         print(f"    indexing         = {indexing_after}")
-        print(f"    suggested_merges = {merges}")
+        print(f"    suggested_merges = {merges}  (новых: {new_merges})")
 
         if samples:
             print("\n  Примеры активированных записей:")

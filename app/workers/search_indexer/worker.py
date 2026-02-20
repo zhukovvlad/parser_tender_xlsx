@@ -340,21 +340,18 @@ class SearchIndexerWorker:
         из catalog_positions.
 
         Удобно для smoke-тестов и мониторинга.
+        Использует единый агрегатный запрос вместо трёх round-trip.
         """
         pool = self.get_pool()
         async with pool.acquire() as conn:
-            pending = await conn.fetchval(
-                "SELECT count(*) FROM catalog_positions "
-                "WHERE status = 'pending_indexing'"
+            row = await conn.fetchrow(
+                "SELECT "
+                "  COUNT(*) FILTER (WHERE status = 'pending_indexing') AS pending, "
+                "  COUNT(*) FILTER (WHERE status = 'active') AS active, "
+                "  COUNT(*) FILTER (WHERE status = 'indexing') AS indexing "
+                "FROM catalog_positions"
             )
-            active = await conn.fetchval(
-                "SELECT count(*) FROM catalog_positions WHERE status = 'active'"
-            )
-            indexing = await conn.fetchval(
-                "SELECT count(*) FROM catalog_positions "
-                "WHERE status = 'indexing'"
-            )
-        return pending, active, indexing
+        return row["pending"], row["active"], row["indexing"]
 
     async def reset_stale_claims(
         self, max_age_seconds: int = STALE_CLAIM_TIMEOUT_S
@@ -508,7 +505,12 @@ class SearchIndexerWorker:
                     continue
 
                 # emb_literal is guaranteed not None here
-                assert emb_literal is not None
+                # (no_description and embed_error were handled above)
+                if emb_literal is None:
+                    raise ValueError(
+                        f"emb_literal is None for pos_id={pos_id} "
+                        f"— unexpected: skip_reason should have been set"
+                    )
 
                 try:
                     async with conn.transaction():
@@ -569,5 +571,19 @@ class SearchIndexerWorker:
                         pos_id,
                         extra={"position_id": pos_id},
                     )
+                    # Немедленный сброс зависшей строки (не ждём reset_stale_claims)
+                    try:
+                        await conn.execute(
+                            "UPDATE catalog_positions "
+                            "SET status = 'pending_indexing', updated_at = NOW() "
+                            "WHERE id = $1 AND status = 'indexing'",
+                            pos_id,
+                        )
+                    except Exception:
+                        self.logger.warning(
+                            "Не удалось сбросить claim для pos_id=%s",
+                            pos_id,
+                            extra={"position_id": pos_id},
+                        )
 
         return {"processed": processed, "duplicates": duplicates, "skipped": skipped}

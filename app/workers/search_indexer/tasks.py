@@ -91,6 +91,9 @@ worker_instance: SearchIndexerWorker | None = None
 worker_instance_pid: int | None = None
 
 # Lock для защиты от одновременной инициализации из нескольких корутин.
+# NB: asyncio.Lock достаточен, т.к. Celery в production использует prefork
+# (один поток на процесс). При переходе на gevent/eventlet потребуется
+# thread-safe примитив.
 _worker_init_lock = asyncio.Lock()
 
 
@@ -139,6 +142,7 @@ async def get_worker_instance_async():
             worker_instance = None
             worker_instance_pid = None
 
+        new_worker = None
         try:
             logger.info(
                 "Создаем новый Search Indexer Worker instance для процесса %s...",
@@ -157,14 +161,15 @@ async def get_worker_instance_async():
         except Exception as e:
             # Закрываем частично инициализированный воркер (напр. pool создан,
             # но EmbeddingClient упал)
-            try:
-                await new_worker.shutdown()
-            except Exception as shutdown_exc:
-                logger.warning(
-                    "Не удалось закрыть частично инициализированный "
-                    "worker: %s",
-                    shutdown_exc,
-                )
+            if new_worker is not None:
+                try:
+                    await new_worker.shutdown()
+                except Exception as shutdown_exc:
+                    logger.warning(
+                        "Не удалось закрыть частично инициализированный "
+                        "worker: %s",
+                        shutdown_exc,
+                    )
             logger.critical(
                 f"Ошибка инициализации Search Indexer Worker "
                 f"в процессе {current_pid}: {e}",
@@ -195,6 +200,8 @@ def setup_search_indexer(sender, **kwargs):
         "Запуск инициализации Search Indexer Worker..."
     )
     global worker_instance, worker_instance_pid
+    worker_instance = None
+    worker_instance_pid = None
     try:
         worker_instance = SearchIndexerWorker()
         worker_instance_pid = os.getpid()
@@ -206,8 +213,17 @@ def setup_search_indexer(sender, **kwargs):
             f"в 'worker_ready': {e}",
             exc_info=True,
         )
-        if worker_instance:
-            worker_instance.is_initialized = False
+        if worker_instance is not None:
+            try:
+                run_async(worker_instance.shutdown())
+            except Exception as shutdown_exc:
+                logger.warning(
+                    "Не удалось закрыть частично инициализированный "
+                    "worker в 'worker_ready': %s",
+                    shutdown_exc,
+                )
+            worker_instance = None
+            worker_instance_pid = None
 
 
 # ──────────────────────────────────────────────────────────────────────
