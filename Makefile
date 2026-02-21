@@ -2,7 +2,7 @@
 
 # .PHONY гарантирует, что make выполнит команду, даже если в директории
 # уже есть файл или папка с таким же именем (например, "run").
-.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-integration test-new clean dev prod parse parse-offline parse-gemini parse-gemini-async worker-start worker-status sync-pending format lint check test-gemini-positions
+.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-integration test-new update-golden clean dev prod parse parse-offline parse-gemini parse-gemini-async worker-start worker-status sync-pending format lint check test-gemini-positions
 
 # Определяем переменные по умолчанию для удобства.
 # Эти значения можно переопределить в Makefile.local
@@ -71,6 +71,16 @@ test-fast:
 test-integration:
 	@echo "Запуск интеграционных тестов..."
 	@python -m pytest -v -m "integration"
+
+# Обновить все golden JSON-файлы из соответствующих Excel-фикстур
+update-golden:
+	@echo "Обновление golden JSON-файлов из tests/fixtures/excel/..."
+	@for xlsx in tests/fixtures/excel/*.xlsx; do \
+		json="tests/fixtures/json/$$(basename "$${xlsx%.xlsx}").json"; \
+		echo "  $$xlsx → $$json"; \
+		python -m app.parse "$$xlsx" > "$$json"; \
+	done
+	@echo "Готово. Проверьте изменения в tests/fixtures/json/ перед коммитом."
 
 # Запуск только новых тестов (основные модули)
 test-new:
@@ -223,6 +233,7 @@ help:
 	@echo "  make test-excel-parser-coverage - Запустить тесты excel_parser с покрытием"
 	@echo "  make test-fast   - Быстрый запуск тестов (без интеграций, без покрытия)"
 	@echo "  make test-integration - Запустить только интеграционные тесты"
+	@echo "  make update-golden   - Пересоздать все golden JSON из Excel-фикстур"
 	@echo "  make test-new    - Запустить только новые тесты (gemini_module)"
 	@echo "  make clean       - Очистить временные файлы"
 	@echo "  make parse FILE=<path>        - Парсить указанный XLSX файл"
