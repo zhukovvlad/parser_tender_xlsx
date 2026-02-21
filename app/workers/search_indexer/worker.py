@@ -102,6 +102,15 @@ POLL_INTERVAL_S: int = _safe_int("SEARCH_INDEXER_POLL_INTERVAL", 10)
 # Timeout для сброса зависших 'indexing' claims (секунды, по умолчанию 1 час)
 STALE_CLAIM_TIMEOUT_S: int = _safe_int("SEARCH_INDEXER_STALE_TIMEOUT", 3600)
 
+# Timeout на один вызов Gemini Embedding API (секунды)
+EMBED_TIMEOUT_S: int = _safe_int("SEARCH_INDEXER_EMBED_TIMEOUT", 30)
+
+# Fail-fast: максимальное количество подряд неудачных embed-вызовов
+# перед досрочным прекращением батча
+MAX_CONSECUTIVE_EMBED_ERRORS: int = _safe_int(
+    "SEARCH_INDEXER_MAX_CONSECUTIVE_ERRORS", 3
+)
+
 
 # ──────────────────────────────────────────────────────────────────────
 # SQL-запросы
@@ -233,13 +242,21 @@ class EmbeddingClient:
         Returns:
             Нормализованный список float длиной ``self._dim``.
         """
-        response = await asyncio.to_thread(
-            self._client.models.embed_content,
-            model=self._model,
-            contents=text,
-            config=self._config,
+        response = await asyncio.wait_for(
+            asyncio.to_thread(
+                self._client.models.embed_content,
+                model=self._model,
+                contents=text,
+                config=self._config,
+            ),
+            timeout=EMBED_TIMEOUT_S,
         )
         raw = list(response.embeddings[0].values)
+        if len(raw) != self._dim:
+            raise ValueError(
+                f"Embedding dimension mismatch: expected {self._dim}, "
+                f"got {len(raw)} from model '{self._model}'"
+            )
         return _l2_normalize(raw)
 
     async def close(self) -> None:
@@ -253,10 +270,18 @@ class EmbeddingClient:
 
 
 def _l2_normalize(vec: list[float]) -> list[float]:
-    """L2-нормализация вектора до единичной длины."""
+    """L2-нормализация вектора до единичной длины.
+
+    Raises:
+        ValueError: Если все компоненты вектора нулевые (нулевая L2-норма).
+            Такой вектор недопустим для cosine similarity вычислений.
+    """
     norm = math.sqrt(sum(x * x for x in vec))
     if norm == 0.0:
-        return vec
+        raise ValueError(
+            "Невозможно L2-нормализовать вектор с нулевой нормой "
+            "(все компоненты равны 0)"
+        )
     return [x / norm for x in vec]
 
 
@@ -429,6 +454,8 @@ class SearchIndexerWorker:
         # embed_results: list of (pos_id, title, emb_literal | None, skip_reason | None)
         embed_results: list[tuple[int, str, str | None, str | None]] = []
 
+        consecutive_errors = 0
+
         for row in rows:
             pos_id: int = row["id"]
             description: str = row["description"] or ""
@@ -458,6 +485,7 @@ class SearchIndexerWorker:
                 embedding = await self._embedder.embed(text_to_embed)
                 emb_literal = _vector_literal(embedding)
                 embed_results.append((pos_id, title, emb_literal, None))
+                consecutive_errors = 0  # reset on success
             except Exception:
                 self.logger.exception(
                     "Ошибка генерации эмбеддинга для позиции %s",
@@ -465,6 +493,26 @@ class SearchIndexerWorker:
                     extra={"position_id": pos_id},
                 )
                 embed_results.append((pos_id, title, None, "embed_error"))
+                consecutive_errors += 1
+                if consecutive_errors >= MAX_CONSECUTIVE_EMBED_ERRORS:
+                    self.logger.error(
+                        "Достигнут лимит последовательных ошибок эмбеддинга "
+                        "(%d подряд). Прерываем обработку батча.",
+                        consecutive_errors,
+                        extra={"consecutive_errors": consecutive_errors},
+                    )
+                    # Остаток батча помечаем как embed_error для сброса
+                    remaining_idx = (
+                        [r["id"] for r in rows]
+                        .index(pos_id) + 1
+                    )
+                    for remaining_row in rows[remaining_idx:]:
+                        embed_results.append(
+                            (remaining_row["id"],
+                             remaining_row["standard_job_title"] or "",
+                             None, "embed_error")
+                        )
+                    break
 
         # Сброс embed_error rows обратно в pending_indexing (чтобы не зависли
         # в 'indexing' до reset_stale_claims)
