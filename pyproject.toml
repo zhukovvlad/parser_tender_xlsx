@@ -46,7 +46,7 @@ python_files = [
 ]
 markers = [
     "unit: marks tests as unit tests (fast, no external dependencies)",
-    "integration: marks tests as integration tests (require API keys or external services)",
+    "integration: marks tests as integration tests (require API keys)",
     "slow: marks tests as slow running",
     "gemini: marks tests that make real Gemini API calls (require GOOGLE_API_KEY)",
     "offline: marks tests that must pass without any network access",
