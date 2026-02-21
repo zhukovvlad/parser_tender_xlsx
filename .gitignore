@@ -18,6 +18,8 @@ Makefile.local
 !TESTING.md
 !CODE_REVIEW_REPORT.md
 !REVIEW_SUMMARY.md
+!QA_TEST_SPEC.md
+!TESTING_CHECKLIST.md
 
 # Исключаем виртуальное окружение и настройки VSCode
 .venv/
