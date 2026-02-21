@@ -9,8 +9,10 @@
 # Исключаем локальные настройки Makefile
 Makefile.local
 
-# Не игнорировать README.md в любом регистре, в любом месте
-!README.md
+# Разрешаем тестовые фикстуры в tests/fixtures/ (иначе *.xlsx и *.json были бы исключены)
+!tests/fixtures/**/*.xlsx
+!tests/fixtures/**/*.json
+!tests/fixtures/**/README.md
 !readme.md
 !Readme.md
 
@@ -18,6 +20,8 @@ Makefile.local
 !TESTING.md
 !CODE_REVIEW_REPORT.md
 !REVIEW_SUMMARY.md
+!QA_TEST_SPEC.md
+!TESTING_CHECKLIST.md
 
 # Исключаем виртуальное окружение и настройки VSCode
 .venv/
