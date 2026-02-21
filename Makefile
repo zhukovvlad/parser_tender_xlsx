@@ -2,7 +2,7 @@
 
 # .PHONY гарантирует, что make выполнит команду, даже если в директории
 # уже есть файл или папка с таким же именем (например, "run").
-.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-new clean dev prod parse parse-offline parse-gemini parse-gemini-async worker-start worker-status sync-pending format lint check test-gemini-positions
+.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-integration test-new clean dev prod parse parse-offline parse-gemini parse-gemini-async worker-start worker-status sync-pending format lint check test-gemini-positions
 
 # Определяем переменные по умолчанию для удобства.
 # Эти значения можно переопределить в Makefile.local
@@ -62,10 +62,15 @@ test-excel-parser-coverage:
 	@echo "Запуск тестов excel_parser с анализом покрытия..."
 	@python -m pytest app/tests/excel_parser/ --cov=app.excel_parser --cov-report=html --cov-report=term -v
 
-# Быстрый запуск тестов (без покрытия)
+# Быстрый запуск тестов (без покрытия, без интеграций)
 test-fast:
-	@echo "Быстрый запуск тестов..."
-	@python -m pytest -x --tb=short
+	@echo "Быстрый запуск тестов (без интеграций)..."
+	@python -m pytest -x --tb=short -m "not integration and not gemini and not slow"
+
+# Запуск интеграционных тестов (требуют внешних сервисов / API-ключей)
+test-integration:
+	@echo "Запуск интеграционных тестов..."
+	@python -m pytest -v -m "integration"
 
 # Запуск только новых тестов (основные модули)
 test-new:
@@ -216,7 +221,8 @@ help:
 	@echo "  make test-gemini-coverage - Запустить тесты gemini_module с покрытием"
 	@echo "  make test-excel-parser - Запустить тесты для excel_parser"
 	@echo "  make test-excel-parser-coverage - Запустить тесты excel_parser с покрытием"
-	@echo "  make test-fast   - Быстрый запуск тестов (остановка на первой ошибке)"
+	@echo "  make test-fast   - Быстрый запуск тестов (без интеграций, без покрытия)"
+	@echo "  make test-integration - Запустить только интеграционные тесты"
 	@echo "  make test-new    - Запустить только новые тесты (gemini_module)"
 	@echo "  make clean       - Очистить временные файлы"
 	@echo "  make parse FILE=<path>        - Парсить указанный XLSX файл"

@@ -45,6 +45,32 @@ python_files = [
     "*_test.py"
 ]
 markers = [
-    "integration: marks tests as integration tests (require API keys)",
+    "unit: marks tests as unit tests (fast, no external dependencies)",
+    "integration: marks tests as integration tests (require API keys or external services)",
     "slow: marks tests as slow running",
+    "gemini: marks tests that make real Gemini API calls (require GOOGLE_API_KEY)",
+    "offline: marks tests that must pass without any network access",
 ]
+
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "app/tests/*",
+    "*/migrations/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 0
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "pass",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
