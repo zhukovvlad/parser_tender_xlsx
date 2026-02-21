@@ -105,7 +105,7 @@
 
 **Что:** Структура выходного JSON соответствует ожидаемой схеме (обязательные ключи, типы данных).
 
-**Как:** JSON Schema validation (`jsonschema`) или Pydantic-модели против реального вывода.
+**Как:** JSON Schema validation (`jsonschema`, требуется добавить пакет `jsonschema` в `requirements.txt` при реализации тестов) или Pydantic-модели против реального вывода.
 
 **Маркер:** `@pytest.mark.unit` (если схема статичная) или `@pytest.mark.integration`
 
