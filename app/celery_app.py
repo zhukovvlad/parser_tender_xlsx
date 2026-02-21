@@ -24,6 +24,7 @@ celery_app = Celery(
     include=[
         "app.workers.gemini.tasks",
         "app.workers.parser.tasks",
+        "app.workers.search_indexer.tasks",
         # "app.workers.rag_catalog.tasks",  # <-- (ОТКЛЮЧЕНО: RAG воркер)
     ],
 )
@@ -49,6 +50,7 @@ celery_app.conf.update(
     task_routes={
         "app.workers.gemini.tasks.*": {"queue": "default"},
         "app.workers.parser.tasks.*": {"queue": "default"},
+        "app.workers.search_indexer.tasks.*": {"queue": "default"},
         # "app.workers.rag_catalog.tasks.*": {"queue": "default"},  # <-- (ОТКЛЮЧЕНО: Маршрут для RAG)
     },
     # Очередь по умолчанию
@@ -116,6 +118,15 @@ beat_schedule_config["cleanup-old-results"] = {
     "options": {"queue": "default"},
 }
 
+# Search Indexer: периодический сброс зависших 'indexing' claims
+beat_schedule_config["search-indexer-reset-stale-claims"] = {
+    "task": "app.workers.search_indexer.tasks.reset_stale_indexing_claims",
+    # Воркер считает claim "зависшим" через 3600с (1 час).
+    # Запускаем чаще — раз в 15 мин — чтобы быстрее восстанавливать обработку.
+    "schedule": timedelta(minutes=15),
+    "options": {"queue": "default"},
+}
+
 celery_app.conf.beat_schedule = beat_schedule_config
 # --- Конец нового блока ---
 
@@ -125,6 +136,7 @@ celery_app.autodiscover_tasks(
     [
         "app.workers.gemini",
         "app.workers.parser",
+        "app.workers.search_indexer",
         # "app.workers.rag_catalog",  # <-- (ОТКЛЮЧЕНО: RAG воркер)
     ]
 )

@@ -48,6 +48,9 @@ navec>=0.10.0
 ipymarkup>=0.9.0
 marisa-trie>=1.2.1
 
+# --- Async PostgreSQL (search_indexer worker) ---
+asyncpg>=0.29.0
+
 # --- Научные вычисления ---
 numpy>=1.24.0
 
