@@ -314,7 +314,10 @@ def run_search_indexing_task():
         return {"status": "skipped", "message": "Another instance is running"}
 
     try:
-        return run_async(run_search_indexing_task_async())
+        return run_async(
+            run_search_indexing_task_async(),
+            timeout=_INDEXER_LOCK_TTL,
+        )
     finally:
         try:
             lock.release()

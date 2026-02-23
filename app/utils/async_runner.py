@@ -43,10 +43,10 @@ def _ensure_loop() -> asyncio.AbstractEventLoop:
         # After fork the old loop belongs to the parent — do NOT touch it.
         if _loop is not None and _pid == current_pid:
             try:
-                _loop.call_soon_threadsafe(_loop.stop)
-                if _thread is not None and _thread.is_alive():
-                    _thread.join(timeout=5)
                 if not _loop.is_closed():
+                    _loop.call_soon_threadsafe(_loop.stop)
+                    if _thread is not None and _thread.is_alive():
+                        _thread.join(timeout=5)
                     _loop.close()
             except Exception:
                 _logger.debug(
