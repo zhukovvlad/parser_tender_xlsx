@@ -221,18 +221,19 @@ class EmbeddingClient:
         if self._client is None:
             import httpx as httpx_lib  # noqa: E402  # импорт после fork!
             from google import genai  # noqa: E402  # импорт после fork!
+            from google.genai import types  # noqa: E402  # импорт после fork!
 
             self._client = genai.Client(
                 api_key=self._api_key,
-                http_options={
-                    "timeout": 120_000,  # 120s общий таймаут SDK (мс)
-                    "clientArgs": {
+                http_options=types.HttpOptions(
+                    timeout=120_000,  # 120s общий таймаут SDK (мс)
+                    client_args={
                         "timeout": httpx_lib.Timeout(
                             120.0,        # default для read/write/pool
-                            connect=60.0,  # 60s для SSL handshake
+                            connect=60.0,  # 60s для SSL handshake (WSL2)
                         ),
                     },
-                },
+                ),
             )
         return self._client
 
@@ -568,8 +569,22 @@ class SearchIndexerWorker:
             texts = [t[2] for t in embeddable_rows]
             try:
                 embeddings = await self._embedder.embed_batch(texts)
+                if len(embeddings) != len(texts):
+                    self.logger.error(
+                        "Embedding count mismatch: expected %d, got %d",
+                        len(texts),
+                        len(embeddings),
+                        extra={
+                            "expected": len(texts),
+                            "actual": len(embeddings),
+                        },
+                    )
+                    raise ValueError(
+                        f"Embedding count mismatch: "
+                        f"expected {len(texts)}, got {len(embeddings)}"
+                    )
                 for (e_pos_id, e_title, _), embedding in zip(
-                    embeddable_rows, embeddings
+                    embeddable_rows, embeddings, strict=True
                 ):
                     emb_literal = _vector_literal(embedding)
                     embed_results.append(

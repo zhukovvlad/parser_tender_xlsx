@@ -1,9 +1,10 @@
 # app/utils/async_runner.py
 
 import asyncio
+import concurrent.futures
 import os
 import threading
-from typing import Any, Coroutine
+from typing import Any, Coroutine, Optional
 
 # Persistent event loop per process.
 # Avoids the problem of asyncio.run() creating and destroying loops,
@@ -35,6 +36,18 @@ def _ensure_loop() -> asyncio.AbstractEventLoop:
         ):
             return _loop
 
+        # Cleanup old loop if same PID (closed loop, not fork).
+        # After fork the old loop belongs to the parent — do NOT touch it.
+        if _loop is not None and _pid == current_pid:
+            try:
+                _loop.call_soon_threadsafe(_loop.stop)
+                if _thread is not None and _thread.is_alive():
+                    _thread.join(timeout=5)
+                if not _loop.is_closed():
+                    _loop.close()
+            except Exception:
+                pass  # best-effort cleanup
+
         # New process (fork) or stale loop — create fresh
         _loop = asyncio.new_event_loop()
         _pid = current_pid
@@ -46,7 +59,10 @@ def _ensure_loop() -> asyncio.AbstractEventLoop:
         return _loop
 
 
-def run_async(coro: Coroutine[Any, Any, Any]) -> Any:
+def run_async(
+    coro: Coroutine[Any, Any, Any],
+    timeout: Optional[float] = None,
+) -> Any:
     """
     Безопасно запускает async-код из синхронного контекста.
 
@@ -62,11 +78,14 @@ def run_async(coro: Coroutine[Any, Any, Any]) -> Any:
     Args:
         coro: Coroutine объект (результат вызова async функции)
             Например: run_async(my_async_func())
+        timeout: Максимальное время ожидания результата (секунды).
+            None — ждать бесконечно (поведение по умолчанию).
 
     Returns:
         Any: Результат выполнения корутины
 
     Raises:
+        TimeoutError: Если корутина не завершилась за timeout секунд.
         Exception: Пробрасывает любые исключения из корутины
 
     Example:
@@ -82,4 +101,10 @@ def run_async(coro: Coroutine[Any, Any, Any]) -> Any:
     """
     loop = _ensure_loop()
     future = asyncio.run_coroutine_threadsafe(coro, loop)
-    return future.result()
+    try:
+        return future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        future.cancel()
+        raise TimeoutError(
+            f"run_async: coroutine did not complete within {timeout}s"
+        ) from None

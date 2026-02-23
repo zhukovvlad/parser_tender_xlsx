@@ -40,13 +40,32 @@ from .worker import SearchIndexerWorker
 
 logger = get_search_indexer_logger("tasks")
 
+
+def _safe_int_env(var_name: str, default: int) -> int:
+    """Безопасно парсит целочисленную переменную окружения.
+
+    Возвращает default при отсутствии, пустом значении или невалидном формате.
+    """
+    raw = os.getenv(var_name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning(
+            "%s=%s не является валидным числом. "
+            "Используется значение по умолчанию: %d",
+            var_name, raw, default,
+        )
+        return default
+
+
 # Redis URL для распределённой блокировки
 _REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-_REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+_REDIS_PORT = _safe_int_env("REDIS_PORT", 6379)
 
-# Ключ и TTL для Redis-lock (не допускает параллельных задач индексации)
+# Ключ для Redis-lock (не допускает параллельных задач индексации)
 _INDEXER_LOCK_KEY = "search_indexer:run_lock"
-_INDEXER_LOCK_TTL = 1800  # 30 минут — максимальное время обработки батча
 
 
 def _parse_timeout_env(var_name: str, default: int) -> int:
@@ -87,6 +106,10 @@ def _parse_timeout_env(var_name: str, default: int) -> int:
 
 # Timeout для задачи (в секундах)
 INDEXER_TIMEOUT = _parse_timeout_env("SEARCH_INDEXER_TIMEOUT", 1800)  # 30 минут
+
+# TTL для Redis-lock: task timeout + запас 120 с на graceful shutdown/cleanup.
+# Если TTL == timeout, lock может истечь до finally-блока при медленном завершении.
+_INDEXER_LOCK_TTL = INDEXER_TIMEOUT + 120
 
 # ──────────────────────────────────────────────────────────────────────
 # Синглтон воркера (ленивая инициализация per-process)
@@ -293,8 +316,12 @@ def run_search_indexing_task():
     import redis
 
     r = redis.Redis(host=_REDIS_HOST, port=_REDIS_PORT, db=0)
-    # SET NX + EX — атомарная установка ключа с TTL
-    acquired = r.set(_INDEXER_LOCK_KEY, "1", nx=True, ex=_INDEXER_LOCK_TTL)
+    lock = r.lock(
+        _INDEXER_LOCK_KEY,
+        timeout=_INDEXER_LOCK_TTL,
+        blocking=False,  # не ждём — сразу отказ если занят
+    )
+    acquired = lock.acquire(blocking=False)
     if not acquired:
         logger.info(
             "Задача индексации пропущена: другой экземпляр уже работает."
@@ -305,6 +332,11 @@ def run_search_indexing_task():
         return run_async(run_search_indexing_task_async())
     finally:
         try:
-            r.delete(_INDEXER_LOCK_KEY)
+            lock.release()
+        except redis.exceptions.LockNotOwnedError:
+            logger.warning(
+                "Redis-lock уже истёк (TTL=%d с) до завершения задачи",
+                _INDEXER_LOCK_TTL,
+            )
         except Exception:
             logger.warning("Не удалось освободить Redis-lock", exc_info=True)

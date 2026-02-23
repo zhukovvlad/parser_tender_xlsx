@@ -45,11 +45,12 @@ fi
 # не может подключиться к Google Gemini API из WSL2 — SSL handshake зависает.
 export no_proxy="localhost,127.0.0.1,0.0.0.0,::1"
 export NO_PROXY="localhost,127.0.0.1,0.0.0.0,::1"
-if [ -n "$http_proxy" ] || [ -n "$HTTP_PROXY" ]; then
-    echo -e "${GREEN}✅ HTTP прокси сохранен (no_proxy=localhost,127.0.0.1)${NC}"
+if [ -n "$http_proxy" ] || [ -n "$HTTP_PROXY" ] || [ -n "$https_proxy" ] || [ -n "$HTTPS_PROXY" ]; then
+    echo -e "${GREEN}✅ Прокси сохранен (no_proxy=localhost,127.0.0.1)${NC}"
     echo -e "   http_proxy=${http_proxy:-$HTTP_PROXY}"
+    echo -e "   https_proxy=${https_proxy:-$HTTPS_PROXY}"
 else
-    echo -e "${YELLOW}⚠️ HTTP прокси не обнаружен в окружении${NC}"
+    echo -e "${YELLOW}⚠️ HTTP/HTTPS прокси не обнаружен в окружении${NC}"
 fi
 
 # Показываем текущий режим RAG
