@@ -13,7 +13,6 @@ Celery задачи для Search Indexer Worker.
 Задачи:
 -------
 1. run_search_indexing_task — обработка pending_indexing позиций (по событию / периодическая)
-2. reset_stale_indexing_claims — сброс зависших 'indexing' claims
 
 Управление Event Loop:
 ---------------------
@@ -42,18 +41,21 @@ from .worker import SearchIndexerWorker
 logger = get_search_indexer_logger("tasks")
 
 
-def _parse_timeout_env(var_name: str, default: int) -> int:
+def _parse_int_env(var_name: str, default: int) -> int:
     """
-    Безопасно парсит timeout из переменной окружения.
+    Безопасно парсит целочисленную переменную окружения.
 
-    Валидирует значение и возвращает default при ошибках.
+    Валидирует значение (положительное целое) и возвращает default
+    при отсутствии, пустом значении, невалидном формате или <= 0.
+
+    Используется для портов, таймаутов и других числовых настроек.
 
     Args:
         var_name: Имя переменной окружения
-        default: Значение по умолчанию (секунды)
+        default: Значение по умолчанию
 
     Returns:
-        int: Таймаут в секундах (валидированный положительный int)
+        int: Валидированное положительное целое число
     """
     raw_value = os.getenv(var_name, "").strip()
 
@@ -64,22 +66,36 @@ def _parse_timeout_env(var_name: str, default: int) -> int:
         parsed = int(raw_value)
     except ValueError:
         logger.warning(
-            f"{var_name}={raw_value} не является валидным числом. "
-            f"Используется значение по умолчанию: {default}"
+            "%s=%s не является валидным числом. "
+            "Используется значение по умолчанию: %d",
+            var_name, raw_value, default,
         )
         return default
     else:
         if parsed <= 0:
             logger.warning(
-                f"{var_name}={raw_value} должен быть положительным числом. "
-                f"Используется значение по умолчанию: {default}"
+                "%s=%s должен быть положительным числом. "
+                "Используется значение по умолчанию: %d",
+                var_name, raw_value, default,
             )
             return default
         return parsed
 
 
+# Redis URL для распределённой блокировки
+_REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+_REDIS_PORT = _parse_int_env("REDIS_PORT", 6379)
+
+# Ключ для Redis-lock (не допускает параллельных задач индексации)
+_INDEXER_LOCK_KEY = "search_indexer:run_lock"
+
+
 # Timeout для задачи (в секундах)
-INDEXER_TIMEOUT = _parse_timeout_env("SEARCH_INDEXER_TIMEOUT", 1800)  # 30 минут
+INDEXER_TIMEOUT = _parse_int_env("SEARCH_INDEXER_TIMEOUT", 1800)  # 30 минут
+
+# TTL для Redis-lock: task timeout + запас 120 с на graceful shutdown/cleanup.
+# Если TTL == timeout, lock может истечь до finally-блока при медленном завершении.
+_INDEXER_LOCK_TTL = INDEXER_TIMEOUT + 120
 
 # ──────────────────────────────────────────────────────────────────────
 # Синглтон воркера (ленивая инициализация per-process)
@@ -269,6 +285,11 @@ def run_search_indexing_task():
     """
     Синхронная Celery задача индексации позиций.
 
+    Использует Redis SET NX для distributed lock —
+    гарантирует, что одновременно работает только один экземпляр задачи.
+    Это предотвращает race condition, когда два воркера обрабатывают
+    одни и те же pending_indexing строки.
+
     Запускает run_search_indexing_task_async() через run_async()
     для безопасного выполнения async кода в Celery воркере.
 
@@ -278,27 +299,44 @@ def run_search_indexing_task():
             - duplicates: количество найденных кандидатов на дубликат
             - skipped: позиции без описания (активированы без эмбеддинга)
     """
-    return run_async(run_search_indexing_task_async())
+    import redis
 
+    r = redis.Redis(
+        host=_REDIS_HOST,
+        port=_REDIS_PORT,
+        db=0,
+        socket_connect_timeout=5,
+        socket_timeout=5,
+    )
+    lock = r.lock(
+        _INDEXER_LOCK_KEY,
+        timeout=_INDEXER_LOCK_TTL,
+    )
+    acquired = lock.acquire(blocking=False)  # не ждём — сразу отказ если занят
+    if not acquired:
+        logger.info(
+            "Задача индексации пропущена: другой экземпляр уже работает."
+        )
+        return {
+            "status": "skipped",
+            "message": "Another instance is running",
+            "processed": 0,
+            "duplicates": 0,
+            "skipped": 0,
+        }
 
-# ──────────────────────────────────────────────────────────────────────
-# Celery-задача: Сброс зависших 'indexing' claims
-# ──────────────────────────────────────────────────────────────────────
-
-
-async def reset_stale_indexing_claims_async():
-    """Сбрасывает зависшие 'indexing' claims (асинхронная)."""
-    worker = await get_worker_instance_async()
-    if not worker or not worker.is_initialized:
-        logger.error("Worker не инициализирован. Сброс зависших claims пропущен.")
-        return {"status": "error", "reset": 0}
-    count = await worker.reset_stale_claims()
-    return {"status": "ok", "reset": count}
-
-
-@shared_task(
-    name="app.workers.search_indexer.tasks.reset_stale_indexing_claims"
-)
-def reset_stale_indexing_claims():
-    """Сброс зависших 'indexing' записей обратно в 'pending_indexing'."""
-    return run_async(reset_stale_indexing_claims_async())
+    try:
+        return run_async(
+            run_search_indexing_task_async(),
+            timeout=_INDEXER_LOCK_TTL,
+        )
+    finally:
+        try:
+            lock.release()
+        except redis.exceptions.LockNotOwnedError:
+            logger.warning(
+                "Redis-lock уже истёк (TTL=%d с) до завершения задачи",
+                _INDEXER_LOCK_TTL,
+            )
+        except Exception:
+            logger.warning("Не удалось освободить Redis-lock", exc_info=True)

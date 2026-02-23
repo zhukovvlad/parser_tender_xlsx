@@ -41,7 +41,7 @@ async def main() -> None:
         await worker.initialize()
         print("      ✅ Worker инициализирован")
         # 2. Проверяем сколько pending_indexing ДО запуска
-        before, active_before, indexing_before = await worker.fetch_indexing_stats()
+        before, active_before = await worker.fetch_indexing_stats()
         pool = worker.get_pool()
         async with pool.acquire() as conn:
             pre_merges = await conn.fetchval(
@@ -50,7 +50,6 @@ async def main() -> None:
         print("\n[2/3] Текущее состояние БД:")
         print(f"      pending_indexing = {before}")
         print(f"      active           = {active_before}")
-        print(f"      indexing         = {indexing_before}")
 
         # 3. Запуск индексации
         print(f"\n[3/3] Запуск run_indexing() для батча из {TEST_BATCH_SIZE} записей...")
@@ -64,7 +63,7 @@ async def main() -> None:
         print("=" * 60)
 
         # 4. Проверяем состояние ПОСЛЕ
-        after, active_after, indexing_after = await worker.fetch_indexing_stats()
+        after, active_after = await worker.fetch_indexing_stats()
         async with pool.acquire() as conn:
             merges = await conn.fetchval(
                 "SELECT count(*) FROM suggested_merges"
@@ -85,7 +84,6 @@ async def main() -> None:
         print("\n  Состояние ПОСЛЕ:")
         print(f"    pending_indexing = {after}  (было {before})")
         print(f"    active           = {active_after}  (было {active_before})")
-        print(f"    indexing         = {indexing_after}")
         print(f"    suggested_merges = {merges}  (новых: {new_merges})")
 
         if samples:
