@@ -131,7 +131,7 @@ beat_schedule_config["search-indexer-poll-pending"] = {
 # Search Indexer: периодический сброс зависших 'indexing' claims
 beat_schedule_config["search-indexer-reset-stale-claims"] = {
     "task": "app.workers.search_indexer.tasks.reset_stale_indexing_claims",
-    # Воркер считает claim "зависшим" через 3600с (1 час).
+    # Воркер считает claim "зависшим" через 3600s (1 час).
     # Запускаем чаще — раз в 15 мин — чтобы быстрее восстанавливать обработку.
     "schedule": timedelta(minutes=15),
     "options": {"queue": "indexer"},
