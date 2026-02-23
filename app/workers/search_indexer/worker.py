@@ -219,8 +219,8 @@ class EmbeddingClient:
         - SDK timeout = 120 000 мс (общий таймаут на запрос)
         """
         if self._client is None:
-            import httpx as httpx_lib  # noqa: импорт после fork!
-            from google import genai  # noqa: импорт после fork!
+            import httpx as httpx_lib  # noqa: E402  # импорт после fork!
+            from google import genai  # noqa: E402  # импорт после fork!
 
             self._client = genai.Client(
                 api_key=self._api_key,
@@ -318,11 +318,11 @@ class EmbeddingClient:
         Raises:
             Последнее исключение, если все попытки исчерпаны.
         """
-        import httpx as httpx_lib  # noqa: импорт после fork!
+        import httpx as httpx_lib  # noqa: E402  # импорт после fork!
 
         last_exc: BaseException | None = None
-        # Увеличенный таймаут для батча (минимум EMBED_TIMEOUT_S)
-        batch_timeout = max(EMBED_TIMEOUT_S, EMBED_TIMEOUT_S + len(texts) * 2)
+        # Увеличенный таймаут для батча
+        batch_timeout = EMBED_TIMEOUT_S + len(texts) * 2
 
         for attempt in range(max_retries):
             try:
