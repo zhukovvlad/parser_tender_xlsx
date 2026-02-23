@@ -3,11 +3,10 @@
 """
 Асинхронная бизнес-логика для Search Indexer воркера.
 
-Двухфазный пайплайн обработки catalog_positions:
+Пайплайн обработки catalog_positions:
 
-Phase 1 — Claim (atomic, race-condition safe):
-  UPDATE ... SET status='indexing' WHERE status='pending_indexing'
-  с FOR UPDATE SKIP LOCKED.
+Phase 1 — Fetch (SELECT pending_indexing rows):
+  SELECT ... WHERE status='pending_indexing' ORDER BY id LIMIT N.
 
 Phase 2 — Embed (вне транзакции):
   768-d embedding через Gemini ``gemini-embedding-001``.
@@ -16,11 +15,8 @@ Phase 2 — Embed (вне транзакции):
 
 Phase 3 — Activate (со status guard):
   Дедупликация по cosine distance < 0.15 → suggested_merges.
-  SET embedding, status='active' WHERE id = $2 AND status = 'indexing'.
-
-Recovery:
-  Зависшие 'indexing' записи (воркер упал) сбрасываются в 'pending_indexing'
-  через reset_stale_claims() / периодическую Celery-задачу.
+  SET embedding, status='active' WHERE id = $2 AND status = 'pending_indexing'.
+  Если строку уже обработал другой воркер, UPDATE затронет 0 строк (идемпотентно).
 
 Технические заметки:
 - Pure ``asyncpg`` — без ORM.
@@ -39,8 +35,6 @@ from typing import Any, Dict, Sequence
 
 import asyncpg
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
 
 from .logger import get_search_indexer_logger
 
@@ -99,11 +93,8 @@ POOL_MAX_SIZE: int = _safe_int("SEARCH_INDEXER_POOL_MAX", 10)
 # Интервал поллинга (секунды)
 POLL_INTERVAL_S: int = _safe_int("SEARCH_INDEXER_POLL_INTERVAL", 10)
 
-# Timeout для сброса зависших 'indexing' claims (секунды, по умолчанию 1 час)
-STALE_CLAIM_TIMEOUT_S: int = _safe_int("SEARCH_INDEXER_STALE_TIMEOUT", 3600)
-
 # Timeout на один вызов Gemini Embedding API (секунды)
-EMBED_TIMEOUT_S: int = _safe_int("SEARCH_INDEXER_EMBED_TIMEOUT", 30)
+EMBED_TIMEOUT_S: int = _safe_int("SEARCH_INDEXER_EMBED_TIMEOUT", 60)
 
 # Fail-fast: максимальное количество подряд неудачных embed-вызовов
 # перед досрочным прекращением батча
@@ -116,31 +107,18 @@ MAX_CONSECUTIVE_EMBED_ERRORS: int = _safe_int(
 # SQL-запросы
 # ──────────────────────────────────────────────────────────────────────
 
-# Phase 1: Claim — atomic UPDATE...RETURNING с FOR UPDATE SKIP LOCKED.
-# Переводит status 'pending_indexing' → 'indexing'. JOIN с units_of_measurement
-# выполняется над результатом CTE.
-SQL_CLAIM_BATCH = """
-    WITH claimed AS (
-        UPDATE catalog_positions
-        SET status     = 'indexing',
-            updated_at = NOW()
-        WHERE id IN (
-            SELECT id
-            FROM catalog_positions
-            WHERE status = 'pending_indexing'
-            ORDER BY id
-            LIMIT $1
-            FOR UPDATE SKIP LOCKED
-        )
-        RETURNING id, description, standard_job_title, unit_id
-    )
-    SELECT c.id,
-           c.description,
-           c.standard_job_title,
+# Phase 1: Fetch — SELECT pending_indexing rows.
+# JOIN с units_of_measurement для получения единицы измерения.
+SQL_FETCH_BATCH = """
+    SELECT cp.id,
+           cp.description,
+           cp.standard_job_title,
            uom.normalized_name AS unit_name
-    FROM claimed c
-    LEFT JOIN units_of_measurement uom ON c.unit_id = uom.id
-    ORDER BY c.id;
+    FROM catalog_positions cp
+    LEFT JOIN units_of_measurement uom ON cp.unit_id = uom.id
+    WHERE cp.status = 'pending_indexing'
+    ORDER BY cp.id
+    LIMIT $1;
 """
 
 # Cosine distance search по active-записям через HNSW индекс.
@@ -163,13 +141,13 @@ SQL_INSERT_MERGE = """
     ON CONFLICT DO NOTHING;
 """
 
-# Phase 3: Activate — status guard ensures only claimed rows are updated.
+# Phase 3: Activate — status guard ensures idempotency.
 SQL_ACTIVATE = """
     UPDATE catalog_positions
     SET embedding   = $1::vector,
         status      = 'active',
         updated_at  = NOW()
-    WHERE id = $2 AND status = 'indexing';
+    WHERE id = $2 AND status = 'pending_indexing';
 """
 
 # Activate without embedding (for rows with empty descriptions).
@@ -177,29 +155,10 @@ SQL_ACTIVATE_NO_EMBEDDING = """
     UPDATE catalog_positions
     SET status      = 'active',
         updated_at  = NOW()
-    WHERE id = $1 AND status = 'indexing';
+    WHERE id = $1 AND status = 'pending_indexing';
 """
 
-# Recovery: reset specific rows back to 'pending_indexing' (e.g. embed errors).
-# $1 = array of ids.
-SQL_RESET_EMBED_ERRORS = """
-    UPDATE catalog_positions
-    SET status     = 'pending_indexing',
-        updated_at = NOW()
-    WHERE id = ANY($1::int[])
-      AND status = 'indexing';
-"""
 
-# Recovery: reset stale 'indexing' claims back to 'pending_indexing'.
-# $1 = max age in seconds.
-SQL_RESET_STALE = """
-    UPDATE catalog_positions
-    SET status     = 'pending_indexing',
-        updated_at = NOW()
-    WHERE status = 'indexing'
-      AND updated_at < NOW() - make_interval(secs => $1::double precision)
-    RETURNING id;
-"""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -209,11 +168,28 @@ SQL_RESET_STALE = """
 
 class EmbeddingClient:
     """
-    Обёртка над Google GenAI Embedding API.
+    Обёртка над Google Gemini Embedding API (sync SDK).
 
-    Использует модель ``gemini-embedding-001`` с task_type=SEMANTIC_SIMILARITY
-    и output_dimensionality=768. Результат нормализуется до единичного вектора
-    (требование документации для размерностей < 3072).
+    Использует синхронный ``client.models.embed_content()`` из
+    ``google-genai``, как в документации:
+    https://ai.google.dev/gemini-api/docs/embeddings
+
+    Ключевые оптимизации:
+
+    - **Batch embedding**: все тексты батча отправляются одним HTTP-запросом
+      через ``contents=[text1, text2, ...]``, что критически снижает
+      количество SSL-handshake и сетевых round-trip (1 вместо N).
+    - **Retry с пересозданием клиента**: при ConnectTimeout / SSL-ошибках
+      httpx-клиент пересоздаётся со свежим SSL-контекстом.
+    - **Увеличенный connect timeout**: 60 с на SSL handshake
+      (в WSL2 / нестабильных сетях стандартный timeout недостаточен).
+
+    Sync SDK работает через httpx и не страдает от проблем
+    aiohttp + fork() в Celery. Блокирующий вызов выносится
+    в поток через ``asyncio.to_thread()``.
+
+    Клиент создаётся лениво — **после fork**, чтобы SSL-контекст
+    был свежим.
     """
 
     def __init__(
@@ -224,34 +200,96 @@ class EmbeddingClient:
     ) -> None:
         if not api_key:
             raise ValueError("GOOGLE_API_KEY обязателен для генерации эмбеддингов")
-        self._client = genai.Client(api_key=api_key)
+        self._api_key = api_key
         self._model = model
         self._dim = dim
-        self._config = types.EmbedContentConfig(
-            task_type="SEMANTIC_SIMILARITY",
-            output_dimensionality=dim,
+        self._client: Any = None
+        self._logger = get_search_indexer_logger("embedding_client")
+
+    def _get_client(self):
+        """Ленивое создание клиента (после fork).
+
+        Импорт google.genai выполняется здесь, а не на уровне модуля,
+        чтобы httpx/SSL инициализировались в дочернем процессе Celery,
+        а не наследовались от MainProcess через fork().
+
+        HTTP-конфигурация:
+        - connect timeout = 60 с (SSL handshake в WSL2 может быть медленным)
+        - read/write/pool timeout = 120 с (batch embedding обрабатывается долго)
+        - SDK timeout = 120 000 мс (общий таймаут на запрос)
+        """
+        if self._client is None:
+            import httpx as httpx_lib  # noqa: импорт после fork!
+            from google import genai  # noqa: импорт после fork!
+
+            self._client = genai.Client(
+                api_key=self._api_key,
+                http_options={
+                    "timeout": 120_000,  # 120s общий таймаут SDK (мс)
+                    "clientArgs": {
+                        "timeout": httpx_lib.Timeout(
+                            120.0,        # default для read/write/pool
+                            connect=60.0,  # 60s для SSL handshake
+                        ),
+                    },
+                },
+            )
+        return self._client
+
+    def _reset_client(self) -> None:
+        """Сбрасывает httpx-клиент для создания свежего SSL-соединения.
+
+        Вызывается при ConnectTimeout / SSL-ошибках, чтобы следующий
+        запрос не переиспользовал «мёртвый» connection pool.
+        """
+        self._client = None
+
+    def _embed_sync(self, text: str) -> list[float]:
+        """Синхронный вызов embed_content для одного текста (запускается в потоке)."""
+        from google.genai import types  # noqa: импорт после fork!
+
+        client = self._get_client()
+        result = client.models.embed_content(
+            model=self._model,
+            contents=text,
+            config=types.EmbedContentConfig(
+                task_type="SEMANTIC_SIMILARITY",
+                output_dimensionality=self._dim,
+            ),
         )
+        return list(result.embeddings[0].values)
+
+    def _embed_batch_sync(self, texts: list[str]) -> list[list[float]]:
+        """Batch embed_content — один HTTP-запрос для N текстов.
+
+        Согласно документации Google Gemini Embedding API,
+        ``contents`` принимает список строк и возвращает
+        соответствующий список эмбеддингов:
+        https://ai.google.dev/gemini-api/docs/embeddings#generating-embeddings
+        """
+        from google.genai import types  # noqa: импорт после fork!
+
+        client = self._get_client()
+        result = client.models.embed_content(
+            model=self._model,
+            contents=texts,
+            config=types.EmbedContentConfig(
+                task_type="SEMANTIC_SIMILARITY",
+                output_dimensionality=self._dim,
+            ),
+        )
+        return [list(emb.values) for emb in result.embeddings]
 
     async def embed(self, text: str) -> list[float]:
         """
         Возвращает нормализованный embedding-вектор заданной размерности.
 
-        Args:
-            text: Текст для эмбеддинга (description из catalog_positions).
-
-        Returns:
-            Нормализованный список float длиной ``self._dim``.
+        Для обработки батчей предпочтительнее ``embed_batch()``.
         """
-        response = await asyncio.wait_for(
-            asyncio.to_thread(
-                self._client.models.embed_content,
-                model=self._model,
-                contents=text,
-                config=self._config,
-            ),
+        raw = await asyncio.wait_for(
+            asyncio.to_thread(self._embed_sync, text),
             timeout=EMBED_TIMEOUT_S,
         )
-        raw = list(response.embeddings[0].values)
         if len(raw) != self._dim:
             raise ValueError(
                 f"Embedding dimension mismatch: expected {self._dim}, "
@@ -259,9 +297,79 @@ class EmbeddingClient:
             )
         return _l2_normalize(raw)
 
+    async def embed_batch(
+        self,
+        texts: list[str],
+        max_retries: int = 3,
+    ) -> list[list[float]]:
+        """Batch embedding с retry и пересозданием клиента при сетевых ошибках.
+
+        Отправляет все тексты одним HTTP-запросом, что критически снижает
+        количество SSL-handshake (1 вместо N). При ConnectTimeout / SSL-
+        ошибках пересоздаёт httpx-клиент и повторяет с exponential backoff.
+
+        Args:
+            texts: Список текстов для эмбеддинга.
+            max_retries: Максимальное количество попыток при сетевых ошибках.
+
+        Returns:
+            Список L2-нормализованных эмбеддинг-векторов (порядок = порядку texts).
+
+        Raises:
+            Последнее исключение, если все попытки исчерпаны.
+        """
+        import httpx as httpx_lib  # noqa: импорт после fork!
+
+        last_exc: BaseException | None = None
+        # Увеличенный таймаут для батча (минимум EMBED_TIMEOUT_S)
+        batch_timeout = max(EMBED_TIMEOUT_S, EMBED_TIMEOUT_S + len(texts) * 2)
+
+        for attempt in range(max_retries):
+            try:
+                raw_list = await asyncio.wait_for(
+                    asyncio.to_thread(self._embed_batch_sync, texts),
+                    timeout=batch_timeout,
+                )
+                # Валидация размерности и L2-нормализация
+                results: list[list[float]] = []
+                for i, raw in enumerate(raw_list):
+                    if len(raw) != self._dim:
+                        raise ValueError(
+                            f"Embedding dimension mismatch at index {i}: "
+                            f"expected {self._dim}, got {len(raw)}"
+                        )
+                    results.append(_l2_normalize(raw))
+                return results
+            except (
+                httpx_lib.ConnectTimeout,
+                httpx_lib.ConnectError,
+                httpx_lib.ReadTimeout,
+                TimeoutError,
+                asyncio.TimeoutError,
+                ConnectionError,
+                OSError,
+            ) as exc:
+                last_exc = exc
+                self._reset_client()  # свежий SSL-контекст
+                if attempt < max_retries - 1:
+                    delay = 2 ** attempt  # 1s, 2s
+                    self._logger.warning(
+                        "Batch embed attempt %d/%d failed: %s. "
+                        "Retrying in %ds with fresh client...",
+                        attempt + 1,
+                        max_retries,
+                        type(exc).__name__,
+                        delay,
+                        extra={"attempt": attempt + 1, "error": str(exc)},
+                    )
+                    await asyncio.sleep(delay)
+
+        assert last_exc is not None
+        raise last_exc
+
     async def close(self) -> None:
-        """Освобождение ресурсов (для совместимости интерфейса)."""
-        pass
+        """Освобождение ресурсов."""
+        self._client = None
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -359,64 +467,31 @@ class SearchIndexerWorker:
             raise RuntimeError("Worker не инициализирован — пул недоступен")
         return self._pool
 
-    async def fetch_indexing_stats(self) -> tuple[int, int, int]:
+    async def fetch_indexing_stats(self) -> tuple[int, int]:
         """
-        Возвращает (pending_count, active_count, indexing_count)
+        Возвращает (pending_count, active_count)
         из catalog_positions.
 
         Удобно для smoke-тестов и мониторинга.
-        Использует единый агрегатный запрос вместо трёх round-trip.
+        Использует единый агрегатный запрос вместо двух round-trip.
         """
         pool = self.get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT "
                 "  COUNT(*) FILTER (WHERE status = 'pending_indexing') AS pending, "
-                "  COUNT(*) FILTER (WHERE status = 'active') AS active, "
-                "  COUNT(*) FILTER (WHERE status = 'indexing') AS indexing "
+                "  COUNT(*) FILTER (WHERE status = 'active') AS active "
                 "FROM catalog_positions"
             )
-        return row["pending"], row["active"], row["indexing"]
-
-    async def reset_stale_claims(
-        self, max_age_seconds: int = STALE_CLAIM_TIMEOUT_S
-    ) -> int:
-        """
-        Сбрасывает зависшие 'indexing' записи обратно в 'pending_indexing'.
-
-        Записи, которые находятся в статусе 'indexing' дольше
-        max_age_seconds, считаются зависшими (воркер упал или
-        превысил timeout).
-
-        Args:
-            max_age_seconds: Максимальный возраст claim в секундах.
-
-        Returns:
-            Количество сброшенных записей.
-        """
-        pool = self.get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                SQL_RESET_STALE, float(max_age_seconds)
-            )
-        count = len(rows)
-        if count > 0:
-            reset_ids = [r["id"] for r in rows]
-            self.logger.warning(
-                "Reset %d stale 'indexing' claims → 'pending_indexing': %s",
-                count,
-                reset_ids[:20],
-                extra={"reset_count": count},
-            )
-        return count
+        return row["pending"], row["active"]
 
     async def run_indexing(self) -> Dict[str, Any]:
         """
-        Обрабатывает один батч позиций (two-phase claim → embed → activate).
+        Обрабатывает один батч позиций (fetch → embed → activate).
 
-        Phase 1: Atomic claim (status 'pending_indexing' → 'indexing').
+        Phase 1: Fetch pending_indexing rows (SELECT only, no status change).
         Phase 2: Embedding generation (outside transaction).
-        Phase 3: Deduplication + activate (status guard 'indexing' → 'active').
+        Phase 3: Deduplication + activate (status guard 'pending_indexing' → 'active').
 
         Returns:
             dict: {"processed": int, "duplicates": int, "skipped": int}
@@ -430,17 +505,17 @@ class SearchIndexerWorker:
         assert self._pool is not None
         assert self._embedder is not None
 
-        # Phase 1: Claim batch atomically (FOR UPDATE SKIP LOCKED)
+        # Phase 1: Fetch pending_indexing rows
         async with self._pool.acquire() as conn:
             rows: Sequence[asyncpg.Record] = await conn.fetch(
-                SQL_CLAIM_BATCH, BATCH_SIZE
+                SQL_FETCH_BATCH, BATCH_SIZE
             )
 
         if not rows:
             return {"processed": 0, "duplicates": 0, "skipped": 0}
 
         self.logger.info(
-            "Claimed batch for indexing (status → 'indexing')",
+            "Fetched batch for indexing",
             extra={"batch_size": len(rows)},
         )
 
@@ -451,10 +526,15 @@ class SearchIndexerWorker:
         # ── Phase 2: Embedding (outside DB connection) ──────────────
         # Собираем эмбеддинги заранее, чтобы не держать DB-соединение
         # открытым на время сетевых вызовов к Gemini.
+        #
+        # Используем BATCH embedding: все тексты отправляются одним
+        # HTTP-запросом к Gemini API (contents=[...]), что сокращает
+        # количество SSL-handshake с N до 1.
         # embed_results: list of (pos_id, title, emb_literal | None, skip_reason | None)
         embed_results: list[tuple[int, str, str | None, str | None]] = []
 
-        consecutive_errors = 0
+        # Step 1: Разделяем строки на embeddable и no-description
+        embeddable_rows: list[tuple[int, str, str]] = []  # (pos_id, title, text_to_embed)
 
         for row in rows:
             pos_id: int = row["id"]
@@ -473,58 +553,54 @@ class SearchIndexerWorker:
                 embed_results.append((pos_id, title, None, "no_description"))
                 continue
 
-            try:
-                # Composite semantic string (unit-aware)
-                if unit_name:
-                    text_to_embed = (
-                        f"{description}. Единица измерения: {unit_name}"
-                    )
-                else:
-                    text_to_embed = description
+            # Composite semantic string (unit-aware)
+            if unit_name:
+                text_to_embed = (
+                    f"{description}. Единица измерения: {unit_name}"
+                )
+            else:
+                text_to_embed = description
 
-                embedding = await self._embedder.embed(text_to_embed)
-                emb_literal = _vector_literal(embedding)
-                embed_results.append((pos_id, title, emb_literal, None))
-                consecutive_errors = 0  # reset on success
+            embeddable_rows.append((pos_id, title, text_to_embed))
+
+        # Step 2: Batch embed — один HTTP-запрос для всех текстов
+        if embeddable_rows:
+            texts = [t[2] for t in embeddable_rows]
+            try:
+                embeddings = await self._embedder.embed_batch(texts)
+                for (e_pos_id, e_title, _), embedding in zip(
+                    embeddable_rows, embeddings
+                ):
+                    emb_literal = _vector_literal(embedding)
+                    embed_results.append(
+                        (e_pos_id, e_title, emb_literal, None)
+                    )
+                self.logger.info(
+                    "Batch embedding succeeded for %d positions",
+                    len(embeddable_rows),
+                    extra={"batch_size": len(embeddable_rows)},
+                )
             except Exception:
                 self.logger.exception(
-                    "Ошибка генерации эмбеддинга для позиции %s",
-                    pos_id,
-                    extra={"position_id": pos_id},
+                    "Batch embedding failed for %d positions, "
+                    "rows remain pending_indexing for next run",
+                    len(embeddable_rows),
+                    extra={"embed_error_count": len(embeddable_rows)},
                 )
-                embed_results.append((pos_id, title, None, "embed_error"))
-                consecutive_errors += 1
-                if consecutive_errors >= MAX_CONSECUTIVE_EMBED_ERRORS:
-                    self.logger.error(
-                        "Достигнут лимит последовательных ошибок эмбеддинга "
-                        "(%d подряд). Прерываем обработку батча.",
-                        consecutive_errors,
-                        extra={"consecutive_errors": consecutive_errors},
+                for e_pos_id, e_title, _ in embeddable_rows:
+                    embed_results.append(
+                        (e_pos_id, e_title, None, "embed_error")
                     )
-                    # Остаток батча помечаем как embed_error для сброса
-                    remaining_idx = (
-                        [r["id"] for r in rows]
-                        .index(pos_id) + 1
-                    )
-                    for remaining_row in rows[remaining_idx:]:
-                        embed_results.append(
-                            (remaining_row["id"],
-                             remaining_row["standard_job_title"] or "",
-                             None, "embed_error")
-                        )
-                    break
 
-        # Сброс embed_error rows обратно в pending_indexing (чтобы не зависли
-        # в 'indexing' до reset_stale_claims)
+        # embed_error rows остаются в 'pending_indexing' — будут обработаны
+        # при следующем запуске задачи.
         embed_error_ids = [
             pid for pid, _, _, reason in embed_results
             if reason == "embed_error"
         ]
         if embed_error_ids:
-            async with self._pool.acquire() as conn:
-                await conn.execute(SQL_RESET_EMBED_ERRORS, embed_error_ids)
             self.logger.warning(
-                "Reset %d embed-error rows → 'pending_indexing': %s",
+                "Embed errors for %d rows (will retry next run): %s",
                 len(embed_error_ids),
                 embed_error_ids[:20],
                 extra={"embed_error_count": len(embed_error_ids)},
@@ -619,19 +695,7 @@ class SearchIndexerWorker:
                         pos_id,
                         extra={"position_id": pos_id},
                     )
-                    # Немедленный сброс зависшей строки (не ждём reset_stale_claims)
-                    try:
-                        await conn.execute(
-                            "UPDATE catalog_positions "
-                            "SET status = 'pending_indexing', updated_at = NOW() "
-                            "WHERE id = $1 AND status = 'indexing'",
-                            pos_id,
-                        )
-                    except Exception:
-                        self.logger.warning(
-                            "Не удалось сбросить claim для pos_id=%s",
-                            pos_id,
-                            extra={"position_id": pos_id},
-                        )
+                    # Строка остаётся в 'pending_indexing' —
+                    # будет обработана при следующем запуске.
 
         return {"processed": processed, "duplicates": duplicates, "skipped": skipped}

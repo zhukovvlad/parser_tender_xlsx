@@ -40,15 +40,17 @@ else
     echo -e "${YELLOW}⚠️ Файл .env не найден${NC}"
 fi
 
-# Полное отключение HTTP прокси для локальной разработки
-# Это необходимо, так как прокси на порту 2081 блокирует все localhost запросы
-unset http_proxy
-unset https_proxy
-unset HTTP_PROXY
-unset HTTPS_PROXY
-export no_proxy="localhost,127.0.0.1"
-export NO_PROXY="localhost,127.0.0.1"
-echo -e "${GREEN}✅ HTTP прокси отключен для локальной разработки${NC}"
+# Настройка прокси: localhost/Redis без прокси, внешние API — через прокси.
+# ВАЖНО: НЕ удаляем http_proxy/https_proxy, т.к. без прокси Python (httpx/SSL)
+# не может подключиться к Google Gemini API из WSL2 — SSL handshake зависает.
+export no_proxy="localhost,127.0.0.1,0.0.0.0,::1"
+export NO_PROXY="localhost,127.0.0.1,0.0.0.0,::1"
+if [ -n "$http_proxy" ] || [ -n "$HTTP_PROXY" ]; then
+    echo -e "${GREEN}✅ HTTP прокси сохранен (no_proxy=localhost,127.0.0.1)${NC}"
+    echo -e "   http_proxy=${http_proxy:-$HTTP_PROXY}"
+else
+    echo -e "${YELLOW}⚠️ HTTP прокси не обнаружен в окружении${NC}"
+fi
 
 # Показываем текущий режим RAG
 ENABLE_RAG_SCHEDULE=${ENABLE_RAG_SCHEDULE:-false}

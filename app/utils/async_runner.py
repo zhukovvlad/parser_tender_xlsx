@@ -1,22 +1,63 @@
 # app/utils/async_runner.py
 
 import asyncio
+import os
 import threading
 from typing import Any, Coroutine
+
+# Persistent event loop per process.
+# Avoids the problem of asyncio.run() creating and destroying loops,
+# which breaks asyncpg connection pools bound to a previous loop.
+_loop: asyncio.AbstractEventLoop | None = None
+_thread: threading.Thread | None = None
+_lock = threading.Lock()
+_pid: int | None = None
+
+
+def _ensure_loop() -> asyncio.AbstractEventLoop:
+    """
+    Returns a persistent event loop running in a background thread.
+
+    Creates a new loop if:
+    - No loop exists yet
+    - The current process is a fork (PID changed)
+    - The loop was closed
+
+    Thread-safe via threading.Lock.
+    """
+    global _loop, _thread, _pid
+    with _lock:
+        current_pid = os.getpid()
+        if (
+            _loop is not None
+            and _pid == current_pid
+            and not _loop.is_closed()
+        ):
+            return _loop
+
+        # New process (fork) or stale loop — create fresh
+        _loop = asyncio.new_event_loop()
+        _pid = current_pid
+        _thread = threading.Thread(
+            target=_loop.run_forever,
+            daemon=True,
+        )
+        _thread.start()
+        return _loop
 
 
 def run_async(coro: Coroutine[Any, Any, Any]) -> Any:
     """
     Безопасно запускает async-код из синхронного контекста.
 
-    Решает проблему запуска async функций в синхронном коде, особенно
-    когда event loop может быть уже запущен (например, в Celery воркерах).
+    Использует persistent event loop в фоновом потоке, что решает
+    проблему asyncpg/aiohttp pools, привязанных к event loop:
+    - asyncio.run() создаёт и ЗАКРЫВАЕТ loop каждый раз
+    - Pools, созданные в одном loop, не работают в другом
+    - Persistent loop живёт всё время жизни процесса
 
-    Логика работы:
-    --------------
-    1. Проверяет, запущен ли event loop в текущем потоке
-    2. Если НЕТ → использует asyncio.run() (стандартный способ)
-    3. Если ДА → создает отдельный поток с новым event loop
+    Fork-safe: при fork (Celery prefork) создаётся новый loop
+    для дочернего процесса (определяется по PID).
 
     Args:
         coro: Coroutine объект (результат вызова async функции)
@@ -38,34 +79,7 @@ def run_async(coro: Coroutine[Any, Any, Any]) -> Any:
         - Вызов async Go API из синхронных Celery задач
         - Интеграция async библиотек в синхронный код
         - Работа с async context managers в синхронных функциях
-
-    Note:
-        Создание нового потока имеет overhead (~1-2ms), но это приемлемо
-        для большинства случаев. Для высокочастотных вызовов рассмотрите
-        миграцию на полностью async архитектуру.
     """
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        # Нет event loop → можно спокойно asyncio.run
-        return asyncio.run(coro)
-
-    # Event loop уже есть → запускаем в отдельном потоке
-    result: Any = None
-    error: Exception | None = None
-
-    def runner():
-        nonlocal result, error
-        try:
-            result = asyncio.run(coro)
-        except Exception as e:
-            error = e
-
-    thread = threading.Thread(target=runner, daemon=True)
-    thread.start()
-    thread.join()
-
-    if error:
-        raise error
-
-    return result
+    loop = _ensure_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    return future.result()

@@ -128,15 +128,6 @@ beat_schedule_config["search-indexer-poll-pending"] = {
     "options": {"queue": "indexer", "expires": 29},
 }
 
-# Search Indexer: периодический сброс зависших 'indexing' claims
-beat_schedule_config["search-indexer-reset-stale-claims"] = {
-    "task": "app.workers.search_indexer.tasks.reset_stale_indexing_claims",
-    # Воркер считает claim "зависшим" через 3600s (1 час).
-    # Запускаем чаще — раз в 15 мин — чтобы быстрее восстанавливать обработку.
-    "schedule": timedelta(minutes=15),
-    "options": {"queue": "indexer"},
-}
-
 celery_app.conf.beat_schedule = beat_schedule_config
 # --- Конец нового блока ---
 

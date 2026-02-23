@@ -13,7 +13,6 @@ Celery задачи для Search Indexer Worker.
 Задачи:
 -------
 1. run_search_indexing_task — обработка pending_indexing позиций (по событию / периодическая)
-2. reset_stale_indexing_claims — сброс зависших 'indexing' claims
 
 Управление Event Loop:
 ---------------------
@@ -40,6 +39,14 @@ from .logger import get_search_indexer_logger
 from .worker import SearchIndexerWorker
 
 logger = get_search_indexer_logger("tasks")
+
+# Redis URL для распределённой блокировки
+_REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+_REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+
+# Ключ и TTL для Redis-lock (не допускает параллельных задач индексации)
+_INDEXER_LOCK_KEY = "search_indexer:run_lock"
+_INDEXER_LOCK_TTL = 1800  # 30 минут — максимальное время обработки батча
 
 
 def _parse_timeout_env(var_name: str, default: int) -> int:
@@ -269,6 +276,11 @@ def run_search_indexing_task():
     """
     Синхронная Celery задача индексации позиций.
 
+    Использует Redis SET NX для distributed lock —
+    гарантирует, что одновременно работает только один экземпляр задачи.
+    Это предотвращает race condition, когда два воркера обрабатывают
+    одни и те же pending_indexing строки.
+
     Запускает run_search_indexing_task_async() через run_async()
     для безопасного выполнения async кода в Celery воркере.
 
@@ -278,27 +290,21 @@ def run_search_indexing_task():
             - duplicates: количество найденных кандидатов на дубликат
             - skipped: позиции без описания (активированы без эмбеддинга)
     """
-    return run_async(run_search_indexing_task_async())
+    import redis
 
+    r = redis.Redis(host=_REDIS_HOST, port=_REDIS_PORT, db=0)
+    # SET NX + EX — атомарная установка ключа с TTL
+    acquired = r.set(_INDEXER_LOCK_KEY, "1", nx=True, ex=_INDEXER_LOCK_TTL)
+    if not acquired:
+        logger.info(
+            "Задача индексации пропущена: другой экземпляр уже работает."
+        )
+        return {"status": "skipped", "message": "Another instance is running"}
 
-# ──────────────────────────────────────────────────────────────────────
-# Celery-задача: Сброс зависших 'indexing' claims
-# ──────────────────────────────────────────────────────────────────────
-
-
-async def reset_stale_indexing_claims_async():
-    """Сбрасывает зависшие 'indexing' claims (асинхронная)."""
-    worker = await get_worker_instance_async()
-    if not worker or not worker.is_initialized:
-        logger.error("Worker не инициализирован. Сброс зависших claims пропущен.")
-        return {"status": "error", "reset": 0}
-    count = await worker.reset_stale_claims()
-    return {"status": "ok", "reset": count}
-
-
-@shared_task(
-    name="app.workers.search_indexer.tasks.reset_stale_indexing_claims"
-)
-def reset_stale_indexing_claims():
-    """Сброс зависших 'indexing' записей обратно в 'pending_indexing'."""
-    return run_async(reset_stale_indexing_claims_async())
+    try:
+        return run_async(run_search_indexing_task_async())
+    finally:
+        try:
+            r.delete(_INDEXER_LOCK_KEY)
+        except Exception:
+            logger.warning("Не удалось освободить Redis-lock", exc_info=True)
