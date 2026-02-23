@@ -41,45 +41,21 @@ from .worker import SearchIndexerWorker
 logger = get_search_indexer_logger("tasks")
 
 
-def _safe_int_env(var_name: str, default: int) -> int:
-    """Безопасно парсит целочисленную переменную окружения.
-
-    Возвращает default при отсутствии, пустом значении или невалидном формате.
+def _parse_int_env(var_name: str, default: int) -> int:
     """
-    raw = os.getenv(var_name, "").strip()
-    if not raw:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning(
-            "%s=%s не является валидным числом. "
-            "Используется значение по умолчанию: %d",
-            var_name, raw, default,
-        )
-        return default
+    Безопасно парсит целочисленную переменную окружения.
 
+    Валидирует значение (положительное целое) и возвращает default
+    при отсутствии, пустом значении, невалидном формате или <= 0.
 
-# Redis URL для распределённой блокировки
-_REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-_REDIS_PORT = _safe_int_env("REDIS_PORT", 6379)
-
-# Ключ для Redis-lock (не допускает параллельных задач индексации)
-_INDEXER_LOCK_KEY = "search_indexer:run_lock"
-
-
-def _parse_timeout_env(var_name: str, default: int) -> int:
-    """
-    Безопасно парсит timeout из переменной окружения.
-
-    Валидирует значение и возвращает default при ошибках.
+    Используется для портов, таймаутов и других числовых настроек.
 
     Args:
         var_name: Имя переменной окружения
-        default: Значение по умолчанию (секунды)
+        default: Значение по умолчанию
 
     Returns:
-        int: Таймаут в секундах (валидированный положительный int)
+        int: Валидированное положительное целое число
     """
     raw_value = os.getenv(var_name, "").strip()
 
@@ -90,22 +66,32 @@ def _parse_timeout_env(var_name: str, default: int) -> int:
         parsed = int(raw_value)
     except ValueError:
         logger.warning(
-            f"{var_name}={raw_value} не является валидным числом. "
-            f"Используется значение по умолчанию: {default}"
+            "%s=%s не является валидным числом. "
+            "Используется значение по умолчанию: %d",
+            var_name, raw_value, default,
         )
         return default
     else:
         if parsed <= 0:
             logger.warning(
-                f"{var_name}={raw_value} должен быть положительным числом. "
-                f"Используется значение по умолчанию: {default}"
+                "%s=%s должен быть положительным числом. "
+                "Используется значение по умолчанию: %d",
+                var_name, raw_value, default,
             )
             return default
         return parsed
 
 
+# Redis URL для распределённой блокировки
+_REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+_REDIS_PORT = _parse_int_env("REDIS_PORT", 6379)
+
+# Ключ для Redis-lock (не допускает параллельных задач индексации)
+_INDEXER_LOCK_KEY = "search_indexer:run_lock"
+
+
 # Timeout для задачи (в секундах)
-INDEXER_TIMEOUT = _parse_timeout_env("SEARCH_INDEXER_TIMEOUT", 1800)  # 30 минут
+INDEXER_TIMEOUT = _parse_int_env("SEARCH_INDEXER_TIMEOUT", 1800)  # 30 минут
 
 # TTL для Redis-lock: task timeout + запас 120 с на graceful shutdown/cleanup.
 # Если TTL == timeout, lock может истечь до finally-блока при медленном завершении.
@@ -319,9 +305,8 @@ def run_search_indexing_task():
     lock = r.lock(
         _INDEXER_LOCK_KEY,
         timeout=_INDEXER_LOCK_TTL,
-        blocking=False,  # не ждём — сразу отказ если занят
     )
-    acquired = lock.acquire(blocking=False)
+    acquired = lock.acquire(blocking=False)  # не ждём — сразу отказ если занят
     if not acquired:
         logger.info(
             "Задача индексации пропущена: другой экземпляр уже работает."

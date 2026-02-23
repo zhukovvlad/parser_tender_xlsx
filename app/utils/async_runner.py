@@ -2,9 +2,12 @@
 
 import asyncio
 import concurrent.futures
+import logging
 import os
 import threading
 from typing import Any, Coroutine, Optional
+
+_logger = logging.getLogger(__name__)
 
 # Persistent event loop per process.
 # Avoids the problem of asyncio.run() creating and destroying loops,
@@ -46,7 +49,9 @@ def _ensure_loop() -> asyncio.AbstractEventLoop:
                 if not _loop.is_closed():
                     _loop.close()
             except Exception:
-                pass  # best-effort cleanup
+                _logger.debug(
+                    "Error during old event loop cleanup", exc_info=True
+                )
 
         # New process (fork) or stale loop — create fresh
         _loop = asyncio.new_event_loop()
@@ -54,6 +59,7 @@ def _ensure_loop() -> asyncio.AbstractEventLoop:
         _thread = threading.Thread(
             target=_loop.run_forever,
             daemon=True,
+            name="async_runner",
         )
         _thread.start()
         return _loop

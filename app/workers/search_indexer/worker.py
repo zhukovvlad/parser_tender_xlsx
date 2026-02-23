@@ -242,7 +242,13 @@ class EmbeddingClient:
 
         Вызывается при ConnectTimeout / SSL-ошибках, чтобы следующий
         запрос не переиспользовал «мёртвый» connection pool.
+        Закрывает старый клиент для освобождения connection pool.
         """
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:
+                pass  # best-effort: клиент мог быть уже сломан
         self._client = None
 
     def _embed_sync(self, text: str) -> list[float]:
@@ -365,11 +371,20 @@ class EmbeddingClient:
                     )
                     await asyncio.sleep(delay)
 
-        assert last_exc is not None
-        raise last_exc
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError(
+            "embed_batch: no exception captured; check max_retries "
+            f"(max_retries={max_retries})"
+        )
 
     async def close(self) -> None:
-        """Освобождение ресурсов."""
+        """Освобождение ресурсов (закрытие httpx connection pool)."""
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:
+                pass  # best-effort
         self._client = None
 
 

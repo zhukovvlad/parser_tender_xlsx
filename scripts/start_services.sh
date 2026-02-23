@@ -43,12 +43,30 @@ fi
 # Настройка прокси: localhost/Redis без прокси, внешние API — через прокси.
 # ВАЖНО: НЕ удаляем http_proxy/https_proxy, т.к. без прокси Python (httpx/SSL)
 # не может подключиться к Google Gemini API из WSL2 — SSL handshake зависает.
-export no_proxy="localhost,127.0.0.1,0.0.0.0,::1"
-export NO_PROXY="localhost,127.0.0.1,0.0.0.0,::1"
+# Добавляем localhost-адреса в no_proxy, сохраняя существующие значения.
+_LOCAL_HOSTS="localhost,127.0.0.1,::1"
+if [ -n "$no_proxy" ]; then
+    export no_proxy="${no_proxy},${_LOCAL_HOSTS}"
+else
+    export no_proxy="${_LOCAL_HOSTS}"
+fi
+if [ -n "$NO_PROXY" ]; then
+    export NO_PROXY="${NO_PROXY},${_LOCAL_HOSTS}"
+else
+    export NO_PROXY="${_LOCAL_HOSTS}"
+fi
+
+# Функция редактирования credentials из proxy URL для безопасного логирования.
+_redact_proxy() {
+    echo "$1" | sed -E 's|://[^@]+@|://REDACTED@|'
+}
+
 if [ -n "$http_proxy" ] || [ -n "$HTTP_PROXY" ] || [ -n "$https_proxy" ] || [ -n "$HTTPS_PROXY" ]; then
-    echo -e "${GREEN}✅ Прокси сохранен (no_proxy=localhost,127.0.0.1)${NC}"
-    echo -e "   http_proxy=${http_proxy:-$HTTP_PROXY}"
-    echo -e "   https_proxy=${https_proxy:-$HTTPS_PROXY}"
+    echo -e "${GREEN}✅ Прокси сохранен (no_proxy=${no_proxy})${NC}"
+    _hp="${http_proxy:-$HTTP_PROXY}"
+    _hsp="${https_proxy:-$HTTPS_PROXY}"
+    [ -n "$_hp" ]  && echo -e "   http_proxy=$(_redact_proxy "$_hp")"
+    [ -n "$_hsp" ] && echo -e "   https_proxy=$(_redact_proxy "$_hsp")"
 else
     echo -e "${YELLOW}⚠️ HTTP/HTTPS прокси не обнаружен в окружении${NC}"
 fi
