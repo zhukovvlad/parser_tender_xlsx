@@ -46,11 +46,14 @@ celery_app.conf.update(
     # Retry настройки
     task_default_retry_delay=60,  # Задержка между попытками
     task_max_retries=3,  # Максимальное количество попыток
-    # Маршрутизация задач
+    # Маршрутизация задач по выделенным очередям
+    # (устраняет head-of-line blocking между тяжёлым парсингом,
+    #  rate-limited LLM вызовами и быстрым polling-индексером)
     task_routes={
-        "app.workers.gemini.tasks.*": {"queue": "default"},
-        "app.workers.parser.tasks.*": {"queue": "default"},
-        "app.workers.search_indexer.tasks.*": {"queue": "default"},
+        "app.workers.parser.tasks.*": {"queue": "parser"},
+        "app.workers.search_indexer.tasks.*": {"queue": "indexer"},
+        "app.workers.gemini.tasks.cleanup_old_results": {"queue": "default"},
+        "app.workers.gemini.tasks.*": {"queue": "llm"},
         # "app.workers.rag_catalog.tasks.*": {"queue": "default"},  # <-- (ОТКЛЮЧЕНО: Маршрут для RAG)
     },
     # Очередь по умолчанию
@@ -118,13 +121,20 @@ beat_schedule_config["cleanup-old-results"] = {
     "options": {"queue": "default"},
 }
 
+# Search Indexer: периодический опрос БД для обработки pending_indexing позиций
+beat_schedule_config["search-indexer-poll-pending"] = {
+    "task": "app.workers.search_indexer.tasks.run_search_indexing_task",
+    "schedule": timedelta(seconds=30),
+    "options": {"queue": "indexer"},
+}
+
 # Search Indexer: периодический сброс зависших 'indexing' claims
 beat_schedule_config["search-indexer-reset-stale-claims"] = {
     "task": "app.workers.search_indexer.tasks.reset_stale_indexing_claims",
     # Воркер считает claim "зависшим" через 3600с (1 час).
     # Запускаем чаще — раз в 15 мин — чтобы быстрее восстанавливать обработку.
     "schedule": timedelta(minutes=15),
-    "options": {"queue": "default"},
+    "options": {"queue": "indexer"},
 }
 
 celery_app.conf.beat_schedule = beat_schedule_config

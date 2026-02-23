@@ -147,13 +147,21 @@ worker-start:
 
 # === CELERY КОМАНДЫ ===
 
-celery-worker-ai:
-	@echo "🚀 Запускаю Celery воркер для AI (ai_queue)..."
-	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=ai_queue --concurrency=1 --hostname=ai@%h
+celery-worker-parser:
+	@echo "🚀 Запускаю Celery воркер для парсинга (parser)..."
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=parser --concurrency=4 --hostname=parser@%h
+
+celery-worker-indexer:
+	@echo "🚀 Запускаю Celery воркер для индексации (indexer)..."
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=indexer --concurrency=2 --hostname=indexer@%h
+
+celery-worker-llm:
+	@echo "🚀 Запускаю Celery воркер для LLM (llm)..."
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=llm --concurrency=2 --hostname=llm@%h
 
 celery-worker-default:
 	@echo "🚀 Запускаю Celery воркер для общих задач (default)..."
-	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=default --concurrency=4 --hostname=default@%h
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=default --concurrency=1 --hostname=default@%h
 
 celery-beat:
 	@echo "⏰ Запускаю Celery Beat планировщик..."
