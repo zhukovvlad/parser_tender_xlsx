@@ -36,6 +36,8 @@ def _ensure_loop() -> asyncio.AbstractEventLoop:
             _loop is not None
             and _pid == current_pid
             and not _loop.is_closed()
+            and _thread is not None
+            and _thread.is_alive()
         ):
             return _loop
 

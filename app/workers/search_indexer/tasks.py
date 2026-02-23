@@ -301,7 +301,13 @@ def run_search_indexing_task():
     """
     import redis
 
-    r = redis.Redis(host=_REDIS_HOST, port=_REDIS_PORT, db=0)
+    r = redis.Redis(
+        host=_REDIS_HOST,
+        port=_REDIS_PORT,
+        db=0,
+        socket_connect_timeout=5,
+        socket_timeout=5,
+    )
     lock = r.lock(
         _INDEXER_LOCK_KEY,
         timeout=_INDEXER_LOCK_TTL,

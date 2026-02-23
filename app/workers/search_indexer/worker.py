@@ -386,7 +386,9 @@ class EmbeddingClient:
             try:
                 self._client.close()
             except Exception:
-                pass  # best-effort
+                self._logger.debug(
+                    "Ignored error closing genai client", exc_info=True
+                )
         self._client = None
 
 
