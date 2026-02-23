@@ -113,17 +113,24 @@ if [ "$REQUIREMENTS_HASH" != "$STORED_HASH" ]; then
     echo -e "${GREEN}✅ Зависимости установлены${NC}"
 fi
 
-# 1. Запускаем "Медленный" воркер для AI (Gemini)
-# Он слушает ТОЛЬКО очередь ai_queue и работает в 1 поток
-start_service "celery-ai" \
-    "celery -A app.celery_app worker --loglevel=INFO --queues=ai_queue --concurrency=1 --hostname=ai@%h" \
-    "logs/celery_ai.log"
+# 1. Воркер для парсинга (CPU-bound, высокая конкурентность)
+start_service "celery-parser" \
+    "celery -A app.celery_app worker --loglevel=INFO --queues=parser --concurrency=4 --hostname=parser@%h" \
+    "logs/celery_parser.log"
 
-# 2. Запускаем "Быстрый" воркер для остальных задач (Default)
-# Он слушает очередь default (сюда упадут Matcher, Cleaner и системные задачи)
-# Ставим concurrency=4, чтобы они работали параллельно
+# 2. Воркер для поискового индексатора (polling + embedding, низкая конкурентность)
+start_service "celery-indexer" \
+    "celery -A app.celery_app worker --loglevel=INFO --queues=indexer --concurrency=2 --hostname=indexer@%h" \
+    "logs/celery_indexer.log"
+
+# 3. Воркер для LLM / Gemini задач (rate-limited API, низкая конкурентность)
+start_service "celery-llm" \
+    "celery -A app.celery_app worker --loglevel=INFO --queues=llm --concurrency=2 --hostname=llm@%h" \
+    "logs/celery_llm.log"
+
+# 4. Воркер для общих/лёгких задач (cleanup и т.д.)
 start_service "celery-default" \
-    "celery -A app.celery_app worker --loglevel=INFO --queues=default --concurrency=4 --hostname=default@%h" \
+    "celery -A app.celery_app worker --loglevel=INFO --queues=default --concurrency=1 --hostname=default@%h" \
     "logs/celery_default.log"
 
 # Запускаем Celery Beat (планировщик)
@@ -151,10 +158,12 @@ fi
 # Запускаем FastAPI приложение
 echo -e "${BLUE}🌐 Запускаю FastAPI приложение...${NC}"
 echo -e "${GREEN}📝 Логи сервисов:${NC}"
-echo -e "  - Celery AI Worker: logs/celery_ai.log"
+echo -e "  - Celery Parser Worker:  logs/celery_parser.log"
+echo -e "  - Celery Indexer Worker: logs/celery_indexer.log"
+echo -e "  - Celery LLM Worker:     logs/celery_llm.log"
 echo -e "  - Celery Default Worker: logs/celery_default.log"
-echo -e "  - Celery Beat: logs/celery_beat.log"
-echo -e "  - FastAPI: logs/fastapi.log"
+echo -e "  - Celery Beat:           logs/celery_beat.log"
+echo -e "  - FastAPI:               logs/fastapi.log"
 
 # Запускаем FastAPI в фоне
 nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload > logs/fastapi.log 2>&1 &

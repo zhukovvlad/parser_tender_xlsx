@@ -2,7 +2,7 @@
 
 # .PHONY гарантирует, что make выполнит команду, даже если в директории
 # уже есть файл или папка с таким же именем (например, "run").
-.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-integration test-new update-golden clean dev prod parse parse-offline parse-gemini parse-gemini-async worker-start worker-status sync-pending format lint check test-gemini-positions
+.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-integration test-new update-golden clean dev prod parse parse-offline parse-gemini parse-gemini-async worker-start worker-status sync-pending format lint check test-gemini-positions celery-worker-parser celery-worker-indexer celery-worker-llm celery-worker-default celery-beat celery-flower celery-status celery-tasks celery-purge start-all stop-all
 
 # Определяем переменные по умолчанию для удобства.
 # Эти значения можно переопределить в Makefile.local
@@ -10,6 +10,10 @@ APP_MODULE = main:app
 HOST = 0.0.0.0
 PORT = 8000
 RELOAD = --reload
+
+# Уровень логирования для Celery воркеров (Makefile = DEBUG для локальной отладки;
+# scripts/start_services.sh использует INFO для production-like запуска).
+CELERY_LOGLEVEL ?= DEBUG
 
 # Подключаем локальные настройки, если файл существует
 -include Makefile.local
@@ -147,17 +151,25 @@ worker-start:
 
 # === CELERY КОМАНДЫ ===
 
-celery-worker-ai:
-	@echo "🚀 Запускаю Celery воркер для AI (ai_queue)..."
-	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=ai_queue --concurrency=1 --hostname=ai@%h
+celery-worker-parser:
+	@echo "🚀 Запускаю Celery воркер для парсинга (parser)..."
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=$(CELERY_LOGLEVEL) --queues=parser --concurrency=4 --hostname=parser@%h
+
+celery-worker-indexer:
+	@echo "🚀 Запускаю Celery воркер для индексации (indexer)..."
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=$(CELERY_LOGLEVEL) --queues=indexer --concurrency=2 --hostname=indexer@%h
+
+celery-worker-llm:
+	@echo "🚀 Запускаю Celery воркер для LLM (llm)..."
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=$(CELERY_LOGLEVEL) --queues=llm --concurrency=2 --hostname=llm@%h
 
 celery-worker-default:
 	@echo "🚀 Запускаю Celery воркер для общих задач (default)..."
-	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=DEBUG --queues=default --concurrency=4 --hostname=default@%h
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=$(CELERY_LOGLEVEL) --queues=default --concurrency=1 --hostname=default@%h
 
 celery-beat:
 	@echo "⏰ Запускаю Celery Beat планировщик..."
-	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app beat --loglevel=INFO
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app beat --loglevel=$(CELERY_LOGLEVEL)
 
 celery-flower:
 	@echo "🌸 Запускаю Flower мониторинг на http://localhost:5555..."
@@ -247,7 +259,10 @@ help:
 	@echo "  make process-positions TENDER_ID=<id> LOT_ID=<id> FILE=<path> - Обработать позиции"
 	@echo ""
 	@echo "🐝 Команды Celery:"
-	@echo "  make celery-worker            - Запустить Celery воркер"
+	@echo "  make celery-worker-parser     - Воркер парсинга (queue=parser, concurrency=4)"
+	@echo "  make celery-worker-indexer    - Воркер индексации (queue=indexer, concurrency=2)"
+	@echo "  make celery-worker-llm        - Воркер LLM/Gemini (queue=llm, concurrency=2)"
+	@echo "  make celery-worker-default    - Воркер общих задач (queue=default, concurrency=1)"
 	@echo "  make celery-beat              - Запустить планировщик задач"
 	@echo "  make celery-flower            - Запустить мониторинг (localhost:5555)"
 	@echo "  make celery-status            - Статус воркеров"
