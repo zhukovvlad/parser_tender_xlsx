@@ -169,7 +169,7 @@ celery-worker-default:
 
 celery-beat:
 	@echo "⏰ Запускаю Celery Beat планировщик..."
-	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app beat --loglevel=INFO
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app beat --loglevel=$(CELERY_LOGLEVEL)
 
 celery-flower:
 	@echo "🌸 Запускаю Flower мониторинг на http://localhost:5555..."

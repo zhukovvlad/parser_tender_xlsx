@@ -125,7 +125,7 @@ beat_schedule_config["cleanup-old-results"] = {
 beat_schedule_config["search-indexer-poll-pending"] = {
     "task": "app.workers.search_indexer.tasks.run_search_indexing_task",
     "schedule": timedelta(seconds=30),
-    "options": {"queue": "indexer"},
+    "options": {"queue": "indexer", "expires": 29},
 }
 
 # Search Indexer: периодический сброс зависших 'indexing' claims
