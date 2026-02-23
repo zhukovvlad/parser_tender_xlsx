@@ -317,7 +317,13 @@ def run_search_indexing_task():
         logger.info(
             "Задача индексации пропущена: другой экземпляр уже работает."
         )
-        return {"status": "skipped", "message": "Another instance is running"}
+        return {
+            "status": "skipped",
+            "message": "Another instance is running",
+            "processed": 0,
+            "duplicates": 0,
+            "skipped": 0,
+        }
 
     try:
         return run_async(

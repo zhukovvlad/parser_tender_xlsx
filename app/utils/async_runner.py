@@ -41,18 +41,32 @@ def _ensure_loop() -> asyncio.AbstractEventLoop:
         ):
             return _loop
 
-        # Cleanup old loop if same PID (closed loop, not fork).
+        # Cleanup old loop if same PID (closed loop or dead thread, not fork).
         # After fork the old loop belongs to the parent — do NOT touch it.
         if _loop is not None and _pid == current_pid:
             try:
                 if not _loop.is_closed():
-                    _loop.call_soon_threadsafe(_loop.stop)
                     if _thread is not None and _thread.is_alive():
+                        _loop.call_soon_threadsafe(_loop.stop)
                         _thread.join(timeout=5)
-                    _loop.close()
-            except Exception:
+                    if _thread is not None and _thread.is_alive():
+                        # Thread didn't stop in time — skip close to avoid
+                        # RuntimeError on a still-running loop.
+                        _logger.warning(
+                            "async_runner thread did not stop within 5s; "
+                            "skipping loop.close() to avoid RuntimeError"
+                        )
+                    else:
+                        _loop.close()
+            except RuntimeError:
                 _logger.debug(
-                    "Error during old event loop cleanup", exc_info=True
+                    "RuntimeError during old event loop cleanup",
+                    exc_info=True,
+                )
+            except Exception:
+                _logger.warning(
+                    "Unexpected error during old event loop cleanup",
+                    exc_info=True,
                 )
 
         # New process (fork) or stale loop — create fresh
@@ -107,7 +121,12 @@ def run_async(
         - Интеграция async библиотек в синхронный код
         - Работа с async context managers в синхронных функциях
     """
-    loop = _ensure_loop()
+    try:
+        loop = _ensure_loop()
+    except Exception:
+        # Prevent RuntimeWarning for unawaited coroutine
+        coro.close()
+        raise
     future = asyncio.run_coroutine_threadsafe(coro, loop)
     try:
         return future.result(timeout=timeout)
