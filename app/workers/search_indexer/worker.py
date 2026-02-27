@@ -82,8 +82,10 @@ EMBEDDING_DIM: int = _safe_int("SEARCH_INDEXER_EMBEDDING_DIM", 768)
 
 # Размер батча и пороги
 BATCH_SIZE: int = _safe_int("SEARCH_INDEXER_BATCH_SIZE", 50)
-DEDUP_DISTANCE_THRESHOLD: float = _safe_float(
-    "SEARCH_INDEXER_DEDUP_THRESHOLD", 0.15
+_SAFE_DEFAULT_DEDUP: float = 0.15
+_raw_dedup = _safe_float("SEARCH_INDEXER_DEDUP_THRESHOLD", _SAFE_DEFAULT_DEDUP)
+DEDUP_DISTANCE_THRESHOLD: float = (
+    _raw_dedup if 0.0 < _raw_dedup < 2.0 else _SAFE_DEFAULT_DEDUP
 )
 
 # Database pool
@@ -106,6 +108,14 @@ MAX_CONSECUTIVE_EMBED_ERRORS: int = _safe_int(
 # ──────────────────────────────────────────────────────────────────────
 # SQL-запросы
 # ──────────────────────────────────────────────────────────────────────
+
+# Dynamic threshold from system_settings table.
+SQL_GET_THRESHOLD = """
+    SELECT value_numeric
+    FROM system_settings
+    WHERE key = 'dedup_distance_threshold'
+    LIMIT 1;
+"""
 
 # Phase 1: Fetch — SELECT pending_indexing rows.
 # JOIN с units_of_measurement для получения единицы измерения.
@@ -458,6 +468,17 @@ class SearchIndexerWorker:
             )
             self._embedder = EmbeddingClient(api_key=GOOGLE_API_KEY)
             self.is_initialized = True
+            if _raw_dedup != DEDUP_DISTANCE_THRESHOLD:
+                self.logger.error(
+                    "Env SEARCH_INDEXER_DEDUP_THRESHOLD=%.4f is out of range "
+                    "(0.0 < t < 2.0), using safe default %.4f",
+                    _raw_dedup,
+                    DEDUP_DISTANCE_THRESHOLD,
+                    extra={
+                        "invalid_threshold": _raw_dedup,
+                        "fallback_threshold": DEDUP_DISTANCE_THRESHOLD,
+                    },
+                )
             self.logger.info(
                 "Search Indexer Worker инициализирован "
                 "(model=%s, dim=%d, threshold=%.2f)",
@@ -524,6 +545,62 @@ class SearchIndexerWorker:
 
         assert self._pool is not None
         assert self._embedder is not None
+
+        # ── Fetch dynamic dedup threshold from system_settings ──
+        dedup_threshold = DEDUP_DISTANCE_THRESHOLD
+        try:
+            async with self._pool.acquire() as conn:
+                row_threshold = await conn.fetchrow(SQL_GET_THRESHOLD)
+        except asyncpg.PostgresError:
+            self.logger.error(
+                "Failed to fetch dynamic dedup threshold from system_settings, "
+                "falling back to env default %.4f",
+                DEDUP_DISTANCE_THRESHOLD,
+                extra={"fallback_threshold": DEDUP_DISTANCE_THRESHOLD},
+                exc_info=True,
+            )
+        else:
+            if row_threshold is None or row_threshold["value_numeric"] is None:
+                self.logger.warning(
+                    "Dynamic dedup threshold not found in system_settings, "
+                    "falling back to env default %.4f",
+                    DEDUP_DISTANCE_THRESHOLD,
+                    extra={"fallback_threshold": DEDUP_DISTANCE_THRESHOLD},
+                )
+            else:
+                raw_value = row_threshold["value_numeric"]
+                try:
+                    candidate_threshold = float(raw_value)
+                except (TypeError, ValueError):
+                    self.logger.warning(
+                        "Invalid dynamic dedup threshold %r in system_settings, "
+                        "falling back to env default %.4f",
+                        raw_value,
+                        DEDUP_DISTANCE_THRESHOLD,
+                        extra={
+                            "invalid_threshold": raw_value,
+                            "fallback_threshold": DEDUP_DISTANCE_THRESHOLD,
+                        },
+                    )
+                else:
+                    if 0.0 < candidate_threshold < 2.0:
+                        dedup_threshold = candidate_threshold
+                        self.logger.info(
+                            "Using dynamic dedup threshold %.4f from system_settings",
+                            dedup_threshold,
+                            extra={"dedup_threshold": dedup_threshold},
+                        )
+                    else:
+                        self.logger.warning(
+                            "Out-of-range dynamic dedup threshold %.4f in system_settings; "
+                            "expected 0.0 < threshold < 2.0. Falling back to env default %.4f",
+                            candidate_threshold,
+                            DEDUP_DISTANCE_THRESHOLD,
+                            extra={
+                                "invalid_threshold": candidate_threshold,
+                                "fallback_threshold": DEDUP_DISTANCE_THRESHOLD,
+                            },
+                        )
 
         # Phase 1: Fetch pending_indexing rows
         async with self._pool.acquire() as conn:
@@ -677,7 +754,7 @@ class SearchIndexerWorker:
                             SQL_FIND_DUPLICATE,
                             emb_literal,
                             pos_id,
-                            DEDUP_DISTANCE_THRESHOLD,
+                            dedup_threshold,
                         )
 
                         if dup is not None:
