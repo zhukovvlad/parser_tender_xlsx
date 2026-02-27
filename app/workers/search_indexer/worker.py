@@ -82,8 +82,10 @@ EMBEDDING_DIM: int = _safe_int("SEARCH_INDEXER_EMBEDDING_DIM", 768)
 
 # Размер батча и пороги
 BATCH_SIZE: int = _safe_int("SEARCH_INDEXER_BATCH_SIZE", 50)
-DEDUP_DISTANCE_THRESHOLD: float = _safe_float(
-    "SEARCH_INDEXER_DEDUP_THRESHOLD", 0.15
+_SAFE_DEFAULT_DEDUP: float = 0.15
+_raw_dedup = _safe_float("SEARCH_INDEXER_DEDUP_THRESHOLD", _SAFE_DEFAULT_DEDUP)
+DEDUP_DISTANCE_THRESHOLD: float = (
+    _raw_dedup if 0.0 < _raw_dedup < 2.0 else _SAFE_DEFAULT_DEDUP
 )
 
 # Database pool
@@ -111,7 +113,8 @@ MAX_CONSECUTIVE_EMBED_ERRORS: int = _safe_int(
 SQL_GET_THRESHOLD = """
     SELECT value_numeric
     FROM system_settings
-    WHERE key = 'dedup_distance_threshold';
+    WHERE key = 'dedup_distance_threshold'
+    LIMIT 1;
 """
 
 # Phase 1: Fetch — SELECT pending_indexing rows.
@@ -465,6 +468,17 @@ class SearchIndexerWorker:
             )
             self._embedder = EmbeddingClient(api_key=GOOGLE_API_KEY)
             self.is_initialized = True
+            if _raw_dedup != DEDUP_DISTANCE_THRESHOLD:
+                self.logger.error(
+                    "Env SEARCH_INDEXER_DEDUP_THRESHOLD=%.4f is out of range "
+                    "(0.0 < t < 2.0), using safe default %.4f",
+                    _raw_dedup,
+                    DEDUP_DISTANCE_THRESHOLD,
+                    extra={
+                        "invalid_threshold": _raw_dedup,
+                        "fallback_threshold": DEDUP_DISTANCE_THRESHOLD,
+                    },
+                )
             self.logger.info(
                 "Search Indexer Worker инициализирован "
                 "(model=%s, dim=%d, threshold=%.2f)",
