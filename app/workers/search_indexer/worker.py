@@ -107,6 +107,13 @@ MAX_CONSECUTIVE_EMBED_ERRORS: int = _safe_int(
 # SQL-запросы
 # ──────────────────────────────────────────────────────────────────────
 
+# Dynamic threshold from system_settings table.
+SQL_GET_THRESHOLD = """
+    SELECT value_numeric
+    FROM system_settings
+    WHERE key = 'dedup_distance_threshold';
+"""
+
 # Phase 1: Fetch — SELECT pending_indexing rows.
 # JOIN с units_of_measurement для получения единицы измерения.
 SQL_FETCH_BATCH = """
@@ -525,6 +532,25 @@ class SearchIndexerWorker:
         assert self._pool is not None
         assert self._embedder is not None
 
+        # ── Fetch dynamic dedup threshold from system_settings ──
+        dedup_threshold = DEDUP_DISTANCE_THRESHOLD
+        async with self._pool.acquire() as conn:
+            row_threshold = await conn.fetchrow(SQL_GET_THRESHOLD)
+        if row_threshold is None or row_threshold["value_numeric"] is None:
+            self.logger.warning(
+                "Dynamic dedup threshold not found in system_settings, "
+                "falling back to env default %.4f",
+                DEDUP_DISTANCE_THRESHOLD,
+                extra={"fallback_threshold": DEDUP_DISTANCE_THRESHOLD},
+            )
+        else:
+            dedup_threshold = float(row_threshold["value_numeric"])
+            self.logger.info(
+                "Using dynamic dedup threshold %.4f from system_settings",
+                dedup_threshold,
+                extra={"dedup_threshold": dedup_threshold},
+            )
+
         # Phase 1: Fetch pending_indexing rows
         async with self._pool.acquire() as conn:
             rows: Sequence[asyncpg.Record] = await conn.fetch(
@@ -677,7 +703,7 @@ class SearchIndexerWorker:
                             SQL_FIND_DUPLICATE,
                             emb_literal,
                             pos_id,
-                            DEDUP_DISTANCE_THRESHOLD,
+                            dedup_threshold,
                         )
 
                         if dup is not None:
