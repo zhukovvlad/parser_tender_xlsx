@@ -190,6 +190,61 @@
 - [ ] **Сохранение структуры при пустом вводе** → без исключений
 - [ ] **Корректность финального JSON** — соответствие схеме
 
+### 3.9 Search Indexer Worker (`search_indexer/worker.py`)
+
+#### 3.9.1 Конфигурация и хелперы
+
+- [ ] **`_safe_int`** — корректные значения, пустая строка, невалидная строка → default
+- [ ] **`_safe_float`** — корректные значения, пустая строка, невалидная строка → default
+- [ ] **`DEDUP_DISTANCE_THRESHOLD`** — значение вне (0.0, 2.0) → fallback на `_SAFE_DEFAULT_DEDUP`
+- [ ] **`_vector_literal`** — корректная сериализация вектора в строку `[0.1,0.2,...]`
+
+#### 3.9.2 SQL-запросы (проверка через мок-БД или реальную тестовую БД)
+
+- [ ] **`SQL_FIND_DUPLICATE`** — порог читается из `system_settings` подзапросом, а не параметром
+- [ ] **`SQL_FIND_DUPLICATE`** — при отсутствии `dedup_distance_threshold` в `system_settings` используется fallback 0.15
+- [ ] **`SQL_FIND_DUPLICATE`** — возвращает ближайшую active-позицию в пределах порога
+- [ ] **`SQL_FIND_DUPLICATE`** — не возвращает саму себя (`id <> $2`)
+- [ ] **`SQL_FIND_DUPLICATE`** — не возвращает позиции со статусом отличным от `active`
+- [ ] **`SQL_INSERT_MERGE`** — новая запись создаётся со статусом `PENDING`
+- [ ] **`SQL_INSERT_MERGE`** — при конфликте `(main_position_id, duplicate_position_id)` обновляется `similarity_score`
+- [ ] **`SQL_INSERT_MERGE`** — при конфликте статус сбрасывается в `PENDING`, если текущий не терминальный
+- [ ] **`SQL_INSERT_MERGE`** — терминальные статусы `MERGED`/`REJECTED` не перезаписываются
+- [ ] **`SQL_INSERT_MERGE`** — `updated_at` обновляется при конфликте
+- [ ] **`SQL_ACTIVATE`** — status guard: обновляет только `pending_indexing` → `active`
+- [ ] **`SQL_ACTIVATE_NO_EMBEDDING`** — аналогичный status guard без записи embedding
+
+#### 3.9.3 `run_indexing()` — Phase 1: Fetch
+
+- [ ] **Пустой батч** → возвращает `{"processed": 0, "duplicates": 0, "skipped": 0}`
+- [ ] **Батч ограничен `BATCH_SIZE`** → не более N строк
+- [ ] **Только `pending_indexing`** строки попадают в выборку
+
+#### 3.9.4 `run_indexing()` — Phase 2: Embedding
+
+- [ ] **Позиция с пустым описанием** → skip, `no_description`, активация без embedding
+- [ ] **Composite string включает единицу измерения** (если `unit_name` не пуст)
+- [ ] **Batch embed** — все тексты отправляются одним вызовом `embed_batch`
+- [ ] **Ошибка `embed_batch`** → строки остаются `pending_indexing`, не падает
+- [ ] **Несовпадение количества embeddings и текстов** → `ValueError`
+
+#### 3.9.5 `run_indexing()` — Phase 3: Dedup + Activate
+
+- [ ] **Race condition устранён** — порог не кешируется в Python, читается подзапросом в SQL
+- [ ] **Дубликат найден** → создаётся запись в `suggested_merges`, `duplicates` +1
+- [ ] **Дубликат не найден** → позиция активируется, `processed` +1
+- [ ] **Concurrent modification** (status guard) → activate no-op, warning в лог
+- [ ] **Ошибка в транзакции** → строка остаётся `pending_indexing`, не ломает батч
+- [ ] **Idempotency** — повторный прогон того же батча не создаёт дубликатов
+
+#### 3.9.6 Жизненный цикл воркера
+
+- [ ] **`initialize()`** — создаёт пул и embedder, логирует параметры
+- [ ] **`initialize()`** — невалидный порог из env → warning, fallback, воркер работает
+- [ ] **`shutdown()`** — корректно закрывает пул и embedder
+- [ ] **`run_indexing()` до `initialize()`** → `RuntimeError`
+- [ ] **`fetch_indexing_stats()`** — возвращает `(pending, active)` counts
+
 ---
 
 ## IV. Интеграционные тесты
@@ -213,6 +268,16 @@
 - [ ] **Задача парсинга** запускается и завершается в eager mode
 - [ ] **Задача Gemini-постобработки** запускается с мок-Gemini в eager mode
 - [ ] **Retry-логика** при ошибке Gemini API → задача повторяется нужное число раз
+
+### 4.4 Search Indexer (с тестовой БД + мок Gemini)
+
+- [ ] **Full pipeline** — `pending_indexing` → embed → dedup → `active` (happy path)
+- [ ] **Дедупликация** — два похожих описания → запись в `suggested_merges`
+- [ ] **Upsert merge** — повторный прогон обновляет `similarity_score`, а не `DO NOTHING`
+- [ ] **Терминальные статусы** — `MERGED`/`REJECTED` не перезаписываются upsert-ом
+- [ ] **Динамический порог** — изменение `dedup_distance_threshold` в `system_settings` между прогонами влияет на результат
+- [ ] **Пустое описание** — позиция активируется без embedding
+- [ ] **Ошибка Gemini** — строки остаются `pending_indexing`, следующий прогон подхватывает
 
 ---
 
@@ -261,6 +326,7 @@
 - [ ] `app/excel_parser/` покрытие ≥ 80%
 - [ ] `app/gemini_module/` покрытие ≥ 60%
 - [ ] `app/go_module/` покрытие ≥ 50%
+- [ ] `app/workers/search_indexer/` покрытие ≥ 70%
 - [ ] Общее по `app/` покрытие ≥ 65%
 
 ### Обязательные условия принятия
