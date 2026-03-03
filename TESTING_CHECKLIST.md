@@ -240,7 +240,7 @@
 #### 3.9.6 Жизненный цикл воркера
 
 - [ ] **`initialize()`** — создаёт пул и embedder, логирует параметры
-- [ ] **`initialize()`** — невалидный порог из env → warning, fallback, воркер работает
+- [ ] **`initialize()`** — невалидный порог из env → **error** лог, fallback, воркер работает
 - [ ] **`shutdown()`** — корректно закрывает пул и embedder
 - [ ] **`run_indexing()` до `initialize()`** → `RuntimeError`
 - [ ] **`fetch_indexing_stats()`** — возвращает `(pending, active)` counts

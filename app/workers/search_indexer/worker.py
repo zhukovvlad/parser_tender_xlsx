@@ -133,13 +133,15 @@ SQL_FIND_DUPLICATE = """
     FROM catalog_positions
     WHERE status = 'active'
       AND id <> $2
-      AND (embedding <=> $1::vector) < COALESCE(
-            (SELECT value_numeric
-               FROM system_settings
-              WHERE key = 'dedup_distance_threshold'
-              LIMIT 1),
-            0.15
-          )
+      AND (embedding <=> $1::vector) < LEAST(GREATEST(
+            COALESCE(
+              (SELECT value_numeric
+                 FROM system_settings
+                WHERE key = 'dedup_distance_threshold'
+                LIMIT 1),
+              0.15
+            ),
+            0.01), 2.0)
     ORDER BY distance
     LIMIT 1;
 """

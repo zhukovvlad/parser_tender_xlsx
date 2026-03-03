@@ -22,21 +22,26 @@
 
 **Было:** порог передавался третьим параметром `$3`, считанным заранее.
 
-**Стало:** подзапрос к `system_settings` прямо в `WHERE`:
+**Стало:** подзапрос к `system_settings` прямо в `WHERE` с clamping через
+`LEAST`/`GREATEST` для защиты от невалидных значений в БД:
 
 ```sql
-AND (embedding <=> $1::vector) < COALESCE(
-      (SELECT value_numeric
-         FROM system_settings
-        WHERE key = 'dedup_distance_threshold'
-        LIMIT 1),
-      0.15
-    )
+AND (embedding <=> $1::vector) < LEAST(GREATEST(
+      COALESCE(
+        (SELECT value_numeric
+           FROM system_settings
+          WHERE key = 'dedup_distance_threshold'
+          LIMIT 1),
+        0.15
+      ),
+      0.01), 2.0)
 ```
 
 Параметр `$3` удалён → запрос принимает только `$1` (вектор) и `$2` (id).
 БД сама берёт актуальный порог в момент выполнения транзакции.
 Фоллбэк 0.15 сохранён на случай отсутствия записи в `system_settings`.
+Границы `[0.01, 2.0]` гарантируют, что невалидное значение в `system_settings`
+не приведёт к некорректной дедупликации.
 
 ### 2. `SQL_INSERT_MERGE` — `ON CONFLICT DO UPDATE`
 
