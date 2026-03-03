@@ -109,14 +109,6 @@ MAX_CONSECUTIVE_EMBED_ERRORS: int = _safe_int(
 # SQL-запросы
 # ──────────────────────────────────────────────────────────────────────
 
-# Dynamic threshold from system_settings table.
-SQL_GET_THRESHOLD = """
-    SELECT value_numeric
-    FROM system_settings
-    WHERE key = 'dedup_distance_threshold'
-    LIMIT 1;
-"""
-
 # Phase 1: Fetch — SELECT pending_indexing rows.
 # JOIN с units_of_measurement для получения единицы измерения.
 SQL_FETCH_BATCH = """
@@ -132,14 +124,24 @@ SQL_FETCH_BATCH = """
 """
 
 # Cosine distance search по active-записям через HNSW индекс.
-# $1 = embedding vector (text cast), $2 = current row id, $3 = threshold.
+# $1 = embedding vector (text cast), $2 = current row id.
+# Порог дедупликации читается из system_settings прямо в момент
+# выполнения запроса, что устраняет race condition.
 SQL_FIND_DUPLICATE = """
     SELECT id,
            (embedding <=> $1::vector) AS distance
     FROM catalog_positions
     WHERE status = 'active'
       AND id <> $2
-      AND (embedding <=> $1::vector) < $3
+      AND (embedding <=> $1::vector) < LEAST(GREATEST(
+            COALESCE(
+              (SELECT value_numeric
+                 FROM system_settings
+                WHERE key = 'dedup_distance_threshold'
+                LIMIT 1),
+              0.15
+            ),
+            0.01), 2.0)
     ORDER BY distance
     LIMIT 1;
 """
@@ -148,7 +150,14 @@ SQL_INSERT_MERGE = """
     INSERT INTO suggested_merges
         (main_position_id, duplicate_position_id, similarity_score, status)
     VALUES ($1, $2, $3, 'PENDING')
-    ON CONFLICT DO NOTHING;
+    ON CONFLICT (main_position_id, duplicate_position_id) DO UPDATE
+        SET similarity_score = EXCLUDED.similarity_score,
+            status = CASE
+                WHEN suggested_merges.status IN ('MERGED', 'REJECTED')
+                THEN suggested_merges.status
+                ELSE 'PENDING'
+            END,
+            updated_at = NOW();
 """
 
 # Phase 3: Activate — status guard ensures idempotency.
@@ -546,62 +555,6 @@ class SearchIndexerWorker:
         assert self._pool is not None
         assert self._embedder is not None
 
-        # ── Fetch dynamic dedup threshold from system_settings ──
-        dedup_threshold = DEDUP_DISTANCE_THRESHOLD
-        try:
-            async with self._pool.acquire() as conn:
-                row_threshold = await conn.fetchrow(SQL_GET_THRESHOLD)
-        except asyncpg.PostgresError:
-            self.logger.error(
-                "Failed to fetch dynamic dedup threshold from system_settings, "
-                "falling back to env default %.4f",
-                DEDUP_DISTANCE_THRESHOLD,
-                extra={"fallback_threshold": DEDUP_DISTANCE_THRESHOLD},
-                exc_info=True,
-            )
-        else:
-            if row_threshold is None or row_threshold["value_numeric"] is None:
-                self.logger.warning(
-                    "Dynamic dedup threshold not found in system_settings, "
-                    "falling back to env default %.4f",
-                    DEDUP_DISTANCE_THRESHOLD,
-                    extra={"fallback_threshold": DEDUP_DISTANCE_THRESHOLD},
-                )
-            else:
-                raw_value = row_threshold["value_numeric"]
-                try:
-                    candidate_threshold = float(raw_value)
-                except (TypeError, ValueError):
-                    self.logger.warning(
-                        "Invalid dynamic dedup threshold %r in system_settings, "
-                        "falling back to env default %.4f",
-                        raw_value,
-                        DEDUP_DISTANCE_THRESHOLD,
-                        extra={
-                            "invalid_threshold": raw_value,
-                            "fallback_threshold": DEDUP_DISTANCE_THRESHOLD,
-                        },
-                    )
-                else:
-                    if 0.0 < candidate_threshold < 2.0:
-                        dedup_threshold = candidate_threshold
-                        self.logger.info(
-                            "Using dynamic dedup threshold %.4f from system_settings",
-                            dedup_threshold,
-                            extra={"dedup_threshold": dedup_threshold},
-                        )
-                    else:
-                        self.logger.warning(
-                            "Out-of-range dynamic dedup threshold %.4f in system_settings; "
-                            "expected 0.0 < threshold < 2.0. Falling back to env default %.4f",
-                            candidate_threshold,
-                            DEDUP_DISTANCE_THRESHOLD,
-                            extra={
-                                "invalid_threshold": candidate_threshold,
-                                "fallback_threshold": DEDUP_DISTANCE_THRESHOLD,
-                            },
-                        )
-
         # Phase 1: Fetch pending_indexing rows
         async with self._pool.acquire() as conn:
             rows: Sequence[asyncpg.Record] = await conn.fetch(
@@ -754,7 +707,6 @@ class SearchIndexerWorker:
                             SQL_FIND_DUPLICATE,
                             emb_literal,
                             pos_id,
-                            dedup_threshold,
                         )
 
                         if dup is not None:
