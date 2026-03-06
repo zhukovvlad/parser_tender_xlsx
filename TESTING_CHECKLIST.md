@@ -216,6 +216,8 @@
 - [ ] **`SQL_ACTIVATE`** — status guard: обновляет только `pending_indexing` → `active`
 - [ ] **`SQL_ACTIVATE_GROUP`** — записывает embedding, лемматизированный `standard_job_title` и `status='active'`
 - [ ] **`SQL_ACTIVATE_GROUP`** — status guard: обновляет только `pending_indexing` → `active`
+- [ ] **`SQL_ACTIVATE_GROUP_NO_EMBEDDING`** — обновляет `standard_job_title` и `status='active'` без embedding
+- [ ] **`SQL_ACTIVATE_GROUP_NO_EMBEDDING`** — status guard: обновляет только `pending_indexing` → `active`
 - [ ] **`SQL_ACTIVATE_NO_EMBEDDING`** — аналогичный status guard без записи embedding
 
 #### 3.9.3 `run_indexing()` — Phase 1: Fetch
@@ -262,7 +264,7 @@
 - [ ] **`_lemmatize_text`** — пустая строка → пустая строка без исключений (fallback на `text.strip()`)
 - [ ] **`_lemmatize_text`** — `None` от `normalize_job_title_with_lemmatization` → fallback на `text.strip()`
 - [ ] **Смешанный батч** — POSITION и GROUP_TITLE в одном батче обрабатываются корректно
-- [ ] **GROUP_TITLE с пустым описанием** → активация без embedding, title лемматизирован
+- [ ] **GROUP_TITLE с пустым описанием** → `SQL_ACTIVATE_GROUP_NO_EMBEDDING`, title лемматизирован в БД
 - [ ] **GROUP_TITLE end-to-end** — лемматизация → embed → dedup → `SQL_ACTIVATE_GROUP` → `active` + обновлённый title в БД
 - [ ] **`embed_results` кортежи** содержат `kind` для всех строк
 

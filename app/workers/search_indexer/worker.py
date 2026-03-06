@@ -181,6 +181,15 @@ SQL_ACTIVATE_GROUP = """
     WHERE id = $3 AND status = 'pending_indexing';
 """
 
+# Activate group without embedding (empty description, but title was lemmatized).
+SQL_ACTIVATE_GROUP_NO_EMBEDDING = """
+    UPDATE catalog_positions
+    SET standard_job_title = $1,
+        status             = 'active',
+        updated_at         = NOW()
+    WHERE id = $2 AND status = 'pending_indexing';
+"""
+
 # Activate without embedding (for rows with empty descriptions).
 SQL_ACTIVATE_NO_EMBEDDING = """
     UPDATE catalog_positions
@@ -647,7 +656,7 @@ class SearchIndexerWorker:
 
         # Step 2: Batch embed — один HTTP-запрос для всех текстов
         if embeddable_rows:
-            texts = [t[2] for t in embeddable_rows]
+            texts = [t[3] for t in embeddable_rows]
             try:
                 embeddings = await self._embedder.embed_batch(texts)
                 if len(embeddings) != len(texts):
@@ -706,9 +715,14 @@ class SearchIndexerWorker:
         async with self._pool.acquire() as conn:
             for pos_id, title, kind, emb_literal, skip_reason in embed_results:
                 if skip_reason == "no_description":
-                    result = await conn.execute(
-                        SQL_ACTIVATE_NO_EMBEDDING, pos_id
-                    )
+                    if kind == "GROUP_TITLE":
+                        result = await conn.execute(
+                            SQL_ACTIVATE_GROUP_NO_EMBEDDING, title, pos_id
+                        )
+                    else:
+                        result = await conn.execute(
+                            SQL_ACTIVATE_NO_EMBEDDING, pos_id
+                        )
                     if result == "UPDATE 1":
                         skipped += 1
                     else:
