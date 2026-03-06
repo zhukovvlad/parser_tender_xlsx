@@ -231,6 +231,7 @@
 - [ ] **Позиция с пустым описанием** → skip, `no_description`, активация без embedding
 - [ ] **Composite string включает единицу измерения** (если `unit_name` не пуст)
 - [ ] **`kind` извлекается из каждой строки** и передаётся в `embed_results`
+- [ ] **`kind` = NULL или нераспознанное значение** → лемматизация не выполняется, используется стандартный `SQL_ACTIVATE` / `SQL_ACTIVATE_NO_EMBEDDING`
 - [ ] **`GROUP_TITLE` — `standard_job_title` лемматизируется** в Phase 2 через `_lemmatize_text()` → spaCy `normalize_job_title_with_lemmatization`
 - [ ] **`POSITION` — `standard_job_title` не модифицируется** (уже лемматизирован upstream)
 - [ ] **Batch embed** — все тексты отправляются одним вызовом `embed_batch`
@@ -265,6 +266,7 @@
 - [ ] **`_lemmatize_text`** — `None` от `normalize_job_title_with_lemmatization` → возвращает `None` (обновление `standard_job_title` пропускается в Phase 3)
 - [ ] **Смешанный батч** — POSITION и GROUP_TITLE в одном батче обрабатываются корректно
 - [ ] **GROUP_TITLE с пустым описанием** → `SQL_ACTIVATE_GROUP_NO_EMBEDDING`, title лемматизирован в БД
+- [ ] **GROUP_TITLE дубликат** — лемматизированный GROUP_TITLE срабатывает `SQL_FIND_DUPLICATE` → запись в `suggested_merges`, затем `SQL_ACTIVATE_GROUP` активирует с обновлённым title
 - [ ] **GROUP_TITLE end-to-end** — лемматизация → embed → dedup → `SQL_ACTIVATE_GROUP` → `active` + обновлённый title в БД
 - [ ] **`embed_results` кортежи** содержат `kind` для всех строк
 

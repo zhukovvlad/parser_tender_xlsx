@@ -64,14 +64,20 @@ signal «нет нормализованного title». В Phase 3 guard
 
 ### 5. Условная активация в Phase 3
 
-В фазе записи в БД добавлены ветки:
+В Phase 3 выбор SQL-запроса определяется **двумя условиями с приоритетом**:
 
-- `kind == 'GROUP_TITLE'` + embedding → `SQL_ACTIVATE_GROUP(emb_literal, title, pos_id)` —
-  записывает embedding **и** лемматизированный `standard_job_title`.
-- `kind == 'GROUP_TITLE'` + пустое описание → `SQL_ACTIVATE_GROUP_NO_EMBEDDING(title, pos_id)` —
-  активация без embedding, но с обновлением лемматизированного title.
-- Иначе → `SQL_ACTIVATE(emb_literal, pos_id)` / `SQL_ACTIVATE_NO_EMBEDDING(pos_id)` —
-  стандартная активация.
+1. **`title is not None`** — проверяется первым. Если `_lemmatize_text()` вернула
+   `None` (пустой ввод, текст целиком из пунктуации), строка **всегда**
+   обрабатывается через стандартные `SQL_ACTIVATE` / `SQL_ACTIVATE_NO_EMBEDDING`,
+   независимо от `kind`. Обновление `standard_job_title` пропускается.
+2. **`kind == 'GROUP_TITLE'`** — проверяется только когда `title is not None`:
+   - с embedding → `SQL_ACTIVATE_GROUP(emb_literal, title, pos_id)`
+   - без embedding → `SQL_ACTIVATE_GROUP_NO_EMBEDDING(title, pos_id)`
+
+Edge case: GROUP_TITLE с title вроде `"---"` или `"**"` —
+`normalize_job_title_with_lemmatization` вернёт `None`, guard
+`title is not None` сработает, и строка активируется без
+обновления `standard_job_title` (сохраняется исходное значение в БД).
 
 ### 6. Багфиксы по результатам PR review
 
