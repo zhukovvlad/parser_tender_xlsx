@@ -453,20 +453,22 @@ def _l2_normalize(vec: list[float]) -> list[float]:
     return [x / norm for x in vec]
 
 
-def _lemmatize_text(text: str) -> str:
+def _lemmatize_text(text: str | None) -> str | None:
     """Лемматизация текста для GROUP_TITLE строк.
 
     Использует normalize_job_title_with_lemmatization из excel_parser,
     которая выполняет: lowercase → очистка Markdown/пунктуации →
     лемматизация через spaCy (ru_core_news_sm).
 
-    Если результат None (пустой ввод), возвращает исходный текст
-    после strip(), чтобы не потерять данные.
+    Возвращает None, если ввод пустой или лемматизация не дала результата,
+    чтобы сохранить контракт upstream (None = нет нормализованного title).
     """
-    from app.excel_parser.sanitize_text import normalize_job_title_with_lemmatization
+    if not text or not text.strip():
+        return None
 
-    result = normalize_job_title_with_lemmatization(text)
-    return result if result is not None else text.strip()
+    from app.excel_parser.sanitize_text import normalize_job_title_with_lemmatization  # импорт после fork!
+
+    return normalize_job_title_with_lemmatization(text)
 
 
 def _vector_literal(vec: list[float]) -> str:
@@ -618,10 +620,10 @@ class SearchIndexerWorker:
         # HTTP-запросом к Gemini API (contents=[...]), что сокращает
         # количество SSL-handshake с N до 1.
         # embed_results: list of (pos_id, title, kind, emb_literal | None, skip_reason | None)
-        embed_results: list[tuple[int, str, str, str | None, str | None]] = []
+        embed_results: list[tuple[int, str | None, str, str | None, str | None]] = []
 
         # Step 1: Разделяем строки на embeddable и no-description
-        embeddable_rows: list[tuple[int, str, str, str]] = []  # (pos_id, title, kind, text_to_embed)
+        embeddable_rows: list[tuple[int, str | None, str, str]] = []  # (pos_id, title, kind, text_to_embed)
 
         for row in rows:
             pos_id: int = row["id"]
@@ -638,7 +640,7 @@ class SearchIndexerWorker:
                     "Позиция %s (%s): пустое описание — "
                     "активация без эмбеддинга",
                     pos_id,
-                    title[:80],
+                    (title or "")[:80],
                     extra={"position_id": pos_id},
                 )
                 embed_results.append((pos_id, title, kind, None, "no_description"))
@@ -715,7 +717,7 @@ class SearchIndexerWorker:
         async with self._pool.acquire() as conn:
             for pos_id, title, kind, emb_literal, skip_reason in embed_results:
                 if skip_reason == "no_description":
-                    if kind == "GROUP_TITLE":
+                    if kind == "GROUP_TITLE" and title is not None:
                         result = await conn.execute(
                             SQL_ACTIVATE_GROUP_NO_EMBEDDING, title, pos_id
                         )
@@ -779,7 +781,7 @@ class SearchIndexerWorker:
                             )
 
                         # Activate with status guard
-                        if kind == "GROUP_TITLE":
+                        if kind == "GROUP_TITLE" and title is not None:
                             activate_result = await conn.execute(
                                 SQL_ACTIVATE_GROUP,
                                 emb_literal,
@@ -796,7 +798,7 @@ class SearchIndexerWorker:
                         self.logger.info(
                             "Активирована позиция %s (%s)",
                             pos_id,
-                            title[:80],
+                            (title or "")[:80],
                             extra={"position_id": pos_id},
                         )
                     else:
