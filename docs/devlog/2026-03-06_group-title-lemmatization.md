@@ -1,0 +1,107 @@
+# 2026-03-06 — Поддержка GROUP_TITLE с лемматизацией в search_indexer worker
+
+## Контекст
+
+Search Indexer Worker (`worker.py`) ранее обрабатывал только строки с `kind = 'POSITION'`,
+где `standard_job_title` уже был лемматизирован upstream. Теперь воркер получает
+строки с `kind = 'GROUP_TITLE'`, в которых `standard_job_title` содержит сырой
+пользовательский ввод. Для корректной индексации и дедупликации воркер должен
+самостоятельно лемматизировать заголовок перед генерацией эмбеддинга.
+
+## Что сделано
+
+### 1. `SQL_FETCH_BATCH` — добавлена колонка `kind`
+
+В `SELECT` добавлено поле `cp.kind`, чтобы воркер мог различать тип строки
+и применять соответствующую логику обработки.
+
+### 2. Новая SQL-константа `SQL_ACTIVATE_GROUP`
+
+Для `GROUP_TITLE` строк нужно записать не только embedding и `status = 'active'`,
+но и обновлённый (лемматизированный) `standard_job_title`:
+
+```sql
+UPDATE catalog_positions
+SET embedding          = $1::vector,
+    standard_job_title = $2,
+    status             = 'active',
+    updated_at         = NOW()
+WHERE id = $3 AND status = 'pending_indexing';
+```
+
+Status guard (`AND status = 'pending_indexing'`) сохранён для идемпотентности.
+
+### 3. Функция `_lemmatize_text()`
+
+Делегирует лемматизацию в `normalize_job_title_with_lemmatization()`
+из `app.excel_parser.sanitize_text` — тот же пайплайн, что используется
+при парсинге Excel-таблиц:
+
+1. lowercase
+2. удаление Markdown-разметки (`**`, `_`, `---`)
+3. замена пунктуации на пробелы (дефисы внутри слов сохраняются)
+4. лемматизация через spaCy `ru_core_news_sm`
+
+Импорт ленивый (внутри функции) — соответствует паттерну
+воркера (инициализация после fork в Celery). Если
+`normalize_job_title_with_lemmatization` вернёт `None` (пустой ввод
+или текст целиком из пунктуации), функция возвращает `None` —
+signal «нет нормализованного title». В Phase 3 guard
+`title is not None` пропустит обновление `standard_job_title`
+и использует стандартный `SQL_ACTIVATE` / `SQL_ACTIVATE_NO_EMBEDDING`.
+
+Вызывается для строк с `kind == 'GROUP_TITLE'` в Phase 2,
+до построения composite string и отправки в Gemini Embedding API.
+
+### 4. Обновлённая структура данных в `run_indexing()`
+
+Кортежи `embed_results` и `embeddable_rows` расширены полем `kind`:
+
+- `embed_results`: `(pos_id, title, kind, emb_literal | None, skip_reason | None)`
+- `embeddable_rows`: `(pos_id, title, kind, text_to_embed)`
+
+Это позволяет Phase 3 знать, какой SQL-запрос использовать.
+
+### 5. Условная активация в Phase 3
+
+В Phase 3 выбор SQL-запроса определяется **двумя условиями с приоритетом**:
+
+1. **`title is not None`** — проверяется первым. Если `_lemmatize_text()` вернула
+   `None` (пустой ввод, текст целиком из пунктуации), строка **всегда**
+   обрабатывается через стандартные `SQL_ACTIVATE` / `SQL_ACTIVATE_NO_EMBEDDING`,
+   независимо от `kind`. Обновление `standard_job_title` пропускается.
+2. **`kind == 'GROUP_TITLE'`** — проверяется только когда `title is not None`:
+   - с embedding → `SQL_ACTIVATE_GROUP(emb_literal, title, pos_id)`
+   - без embedding → `SQL_ACTIVATE_GROUP_NO_EMBEDDING(title, pos_id)`
+
+Edge case: GROUP_TITLE с title вроде `"---"` или `"**"` —
+`normalize_job_title_with_lemmatization` вернёт `None`, guard
+`title is not None` сработает, и строка активируется без
+обновления `standard_job_title` (сохраняется исходное значение в БД).
+
+### 6. Багфиксы по результатам PR review
+
+**Неверный индекс кортежа (критический).**
+`texts = [t[2] for t in embeddable_rows]` извлекал `kind` (индекс 2)
+вместо `text_to_embed` (индекс 3). В Gemini отправлялись бы строки
+`"POSITION"` / `"GROUP_TITLE"` вместо описаний. Исправлено на `t[3]`.
+
+**Потеря title при пустом описании.**
+GROUP_TITLE с пустым описанием попадал в `SQL_ACTIVATE_NO_EMBEDDING`,
+который не обновлял `standard_job_title`. Добавлена новая
+константа `SQL_ACTIVATE_GROUP_NO_EMBEDDING` и условная ветка в Phase 3.
+
+## Файлы затронуты
+
+- `app/workers/search_indexer/worker.py` — `SQL_FETCH_BATCH`, новые
+  `SQL_ACTIVATE_GROUP` и `SQL_ACTIVATE_GROUP_NO_EMBEDDING`,
+  `_lemmatize_text()`, обновлённый `run_indexing()`
+- `app/excel_parser/sanitize_text.py` — без изменений, используется как источник
+  `normalize_job_title_with_lemmatization()`
+
+## Не затронуто
+
+- Batch embedding оптимизация (один HTTP-запрос) — сохранена.
+- Phase 1/2/3 структура — сохранена.
+- Дедупликация и `suggested_merges` — работают одинаково для обоих kind.
+- Обработка `embed_error` — без изменений.

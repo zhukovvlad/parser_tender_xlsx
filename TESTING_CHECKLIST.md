@@ -201,6 +201,8 @@
 
 #### 3.9.2 SQL-запросы (проверка через мок-БД или реальную тестовую БД)
 
+- [ ] **`SQL_FETCH_BATCH`** — SELECT включает колонку `cp.kind`
+
 - [ ] **`SQL_FIND_DUPLICATE`** — порог читается из `system_settings` подзапросом, а не параметром
 - [ ] **`SQL_FIND_DUPLICATE`** — при отсутствии `dedup_distance_threshold` в `system_settings` используется fallback 0.15
 - [ ] **`SQL_FIND_DUPLICATE`** — возвращает ближайшую active-позицию в пределах порога
@@ -212,6 +214,10 @@
 - [ ] **`SQL_INSERT_MERGE`** — терминальные статусы `MERGED`/`REJECTED` не перезаписываются
 - [ ] **`SQL_INSERT_MERGE`** — `updated_at` обновляется при конфликте
 - [ ] **`SQL_ACTIVATE`** — status guard: обновляет только `pending_indexing` → `active`
+- [ ] **`SQL_ACTIVATE_GROUP`** — записывает embedding, лемматизированный `standard_job_title` и `status='active'`
+- [ ] **`SQL_ACTIVATE_GROUP`** — status guard: обновляет только `pending_indexing` → `active`
+- [ ] **`SQL_ACTIVATE_GROUP_NO_EMBEDDING`** — обновляет `standard_job_title` и `status='active'` без embedding
+- [ ] **`SQL_ACTIVATE_GROUP_NO_EMBEDDING`** — status guard: обновляет только `pending_indexing` → `active`
 - [ ] **`SQL_ACTIVATE_NO_EMBEDDING`** — аналогичный status guard без записи embedding
 
 #### 3.9.3 `run_indexing()` — Phase 1: Fetch
@@ -224,6 +230,10 @@
 
 - [ ] **Позиция с пустым описанием** → skip, `no_description`, активация без embedding
 - [ ] **Composite string включает единицу измерения** (если `unit_name` не пуст)
+- [ ] **`kind` извлекается из каждой строки** и передаётся в `embed_results`
+- [ ] **`kind` = NULL или нераспознанное значение** → лемматизация не выполняется, используется стандартный `SQL_ACTIVATE` / `SQL_ACTIVATE_NO_EMBEDDING`
+- [ ] **`GROUP_TITLE` — `standard_job_title` лемматизируется** в Phase 2 через `_lemmatize_text()` → spaCy `normalize_job_title_with_lemmatization`
+- [ ] **`POSITION` — `standard_job_title` не модифицируется** (уже лемматизирован upstream)
 - [ ] **Batch embed** — все тексты отправляются одним вызовом `embed_batch`
 - [ ] **Ошибка `embed_batch`** → строки остаются `pending_indexing`, не падает
 - [ ] **Несовпадение количества embeddings и текстов** → `ValueError`
@@ -233,6 +243,9 @@
 - [ ] **Race condition устранён** — порог не кешируется в Python, читается подзапросом в SQL
 - [ ] **Дубликат найден** → создаётся запись в `suggested_merges`, `duplicates` +1
 - [ ] **Дубликат не найден** → позиция активируется, `processed` +1
+- [ ] **`GROUP_TITLE` — используется `SQL_ACTIVATE_GROUP`** с передачей `(emb_literal, title, pos_id)`
+- [ ] **`GROUP_TITLE` — `standard_job_title` обновляется** лемматизированным значением в БД
+- [ ] **`POSITION` — используется стандартный `SQL_ACTIVATE`** с передачей `(emb_literal, pos_id)`
 - [ ] **Concurrent modification** (status guard) → activate no-op, warning в лог
 - [ ] **Ошибка в транзакции** → строка остаётся `pending_indexing`, не ломает батч
 - [ ] **Idempotency** — повторный прогон того же батча не создаёт дубликатов
@@ -244,6 +257,18 @@
 - [ ] **`shutdown()`** — корректно закрывает пул и embedder
 - [ ] **`run_indexing()` до `initialize()`** → `RuntimeError`
 - [ ] **`fetch_indexing_stats()`** — возвращает `(pending, active)` counts
+
+#### 3.9.7 Обработка GROUP_TITLE
+
+- [ ] **`_lemmatize_text`** — делегирует в `normalize_job_title_with_lemmatization()` из `sanitize_text`
+- [ ] **`_lemmatize_text`** — лемматизация через spaCy `ru_core_news_sm` (напр. «монтажные работы» → «монтажный работа»)
+- [ ] **`_lemmatize_text`** — пустая строка / `None` → возвращает `None` без исключений
+- [ ] **`_lemmatize_text`** — `None` от `normalize_job_title_with_lemmatization` → возвращает `None`; Phase 3 пропускает обновление `standard_job_title` и использует `SQL_ACTIVATE` / `SQL_ACTIVATE_NO_EMBEDDING` вместо `SQL_ACTIVATE_GROUP`, независимо от `kind`
+- [ ] **Смешанный батч** — POSITION и GROUP_TITLE в одном батче обрабатываются корректно
+- [ ] **GROUP_TITLE с пустым описанием** → `SQL_ACTIVATE_GROUP_NO_EMBEDDING`, title лемматизирован в БД
+- [ ] **GROUP_TITLE дубликат** — лемматизированный GROUP_TITLE срабатывает `SQL_FIND_DUPLICATE` → запись в `suggested_merges`, затем `SQL_ACTIVATE_GROUP` активирует с обновлённым title
+- [ ] **GROUP_TITLE end-to-end** — лемматизация → embed → dedup → `SQL_ACTIVATE_GROUP` → `active` + обновлённый title в БД
+- [ ] **`embed_results` кортежи** содержат `kind` для всех строк
 
 ---
 
@@ -278,6 +303,8 @@
 - [ ] **Динамический порог** — изменение `dedup_distance_threshold` в `system_settings` между прогонами влияет на результат
 - [ ] **Пустое описание** — позиция активируется без embedding
 - [ ] **Ошибка Gemini** — строки остаются `pending_indexing`, следующий прогон подхватывает
+- [ ] **GROUP_TITLE pipeline** — `pending_indexing` → лемматизация → embed → dedup → `active` + обновлённый `standard_job_title`
+- [ ] **Смешанный батч POSITION + GROUP_TITLE** — оба типа обрабатываются корректно в одном прогоне
 
 ---
 

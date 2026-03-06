@@ -20,7 +20,8 @@ Phase 3 — Activate (со status guard):
 
 Технические заметки:
 - Pure ``asyncpg`` — без ORM.
-- ``standard_job_title`` уже лемматизирован upstream — не трогаем.
+- ``standard_job_title`` лемматизирован upstream для POSITION;
+  для GROUP_TITLE лемматизация выполняется этим воркером.
 - Дедупликация использует HNSW индекс ``idx_cp_kind_pos_hnsw``
   (cosine distance оператор ``<=>``).
 - Для 768-d embedding требуется L2-нормализация (см. документацию Gemini).
@@ -115,6 +116,7 @@ SQL_FETCH_BATCH = """
     SELECT cp.id,
            cp.description,
            cp.standard_job_title,
+           cp.kind,
            uom.normalized_name AS unit_name
     FROM catalog_positions cp
     LEFT JOIN units_of_measurement uom ON cp.unit_id = uom.id
@@ -166,6 +168,25 @@ SQL_ACTIVATE = """
     SET embedding   = $1::vector,
         status      = 'active',
         updated_at  = NOW()
+    WHERE id = $2 AND status = 'pending_indexing';
+"""
+
+# Activate group and update its lemmatized standard_job_title.
+SQL_ACTIVATE_GROUP = """
+    UPDATE catalog_positions
+    SET embedding          = $1::vector,
+        standard_job_title = $2,
+        status             = 'active',
+        updated_at         = NOW()
+    WHERE id = $3 AND status = 'pending_indexing';
+"""
+
+# Activate group without embedding (empty description, but title was lemmatized).
+SQL_ACTIVATE_GROUP_NO_EMBEDDING = """
+    UPDATE catalog_positions
+    SET standard_job_title = $1,
+        status             = 'active',
+        updated_at         = NOW()
     WHERE id = $2 AND status = 'pending_indexing';
 """
 
@@ -432,6 +453,24 @@ def _l2_normalize(vec: list[float]) -> list[float]:
     return [x / norm for x in vec]
 
 
+def _lemmatize_text(text: str | None) -> str | None:
+    """Лемматизация текста для GROUP_TITLE строк.
+
+    Использует normalize_job_title_with_lemmatization из excel_parser,
+    которая выполняет: lowercase → очистка Markdown/пунктуации →
+    лемматизация через spaCy (ru_core_news_sm).
+
+    Возвращает None, если ввод пустой или лемматизация не дала результата,
+    чтобы сохранить контракт upstream (None = нет нормализованного title).
+    """
+    if not text or not text.strip():
+        return None
+
+    from app.excel_parser.sanitize_text import normalize_job_title_with_lemmatization  # импорт после fork!
+
+    return normalize_job_title_with_lemmatization(text)
+
+
 def _vector_literal(vec: list[float]) -> str:
     """Конвертация Python-списка в pgvector текстовый литерал ``'[0.1,0.2,…]'``."""
     return "[" + ",".join(f"{v:.8f}" for v in vec) + "]"
@@ -580,27 +619,31 @@ class SearchIndexerWorker:
         # Используем BATCH embedding: все тексты отправляются одним
         # HTTP-запросом к Gemini API (contents=[...]), что сокращает
         # количество SSL-handshake с N до 1.
-        # embed_results: list of (pos_id, title, emb_literal | None, skip_reason | None)
-        embed_results: list[tuple[int, str, str | None, str | None]] = []
+        # embed_results: list of (pos_id, title, kind, emb_literal | None, skip_reason | None)
+        embed_results: list[tuple[int, str | None, str, str | None, str | None]] = []
 
         # Step 1: Разделяем строки на embeddable и no-description
-        embeddable_rows: list[tuple[int, str, str]] = []  # (pos_id, title, text_to_embed)
+        embeddable_rows: list[tuple[int, str | None, str, str]] = []  # (pos_id, title, kind, text_to_embed)
 
         for row in rows:
             pos_id: int = row["id"]
             description: str = row["description"] or ""
             title: str = row["standard_job_title"] or ""
+            kind: str = row["kind"] or ""
             unit_name: str = row["unit_name"] or ""
+
+            if kind == "GROUP_TITLE":
+                title = _lemmatize_text(title)
 
             if not description.strip():
                 self.logger.warning(
                     "Позиция %s (%s): пустое описание — "
                     "активация без эмбеддинга",
                     pos_id,
-                    title[:80],
+                    (title or "")[:80],
                     extra={"position_id": pos_id},
                 )
-                embed_results.append((pos_id, title, None, "no_description"))
+                embed_results.append((pos_id, title, kind, None, "no_description"))
                 continue
 
             # Composite semantic string (unit-aware)
@@ -611,11 +654,11 @@ class SearchIndexerWorker:
             else:
                 text_to_embed = description
 
-            embeddable_rows.append((pos_id, title, text_to_embed))
+            embeddable_rows.append((pos_id, title, kind, text_to_embed))
 
         # Step 2: Batch embed — один HTTP-запрос для всех текстов
         if embeddable_rows:
-            texts = [t[2] for t in embeddable_rows]
+            texts = [t[3] for t in embeddable_rows]
             try:
                 embeddings = await self._embedder.embed_batch(texts)
                 if len(embeddings) != len(texts):
@@ -632,12 +675,12 @@ class SearchIndexerWorker:
                         f"Embedding count mismatch: "
                         f"expected {len(texts)}, got {len(embeddings)}"
                     )
-                for (e_pos_id, e_title, _), embedding in zip(
+                for (e_pos_id, e_title, e_kind, _), embedding in zip(
                     embeddable_rows, embeddings, strict=True
                 ):
                     emb_literal = _vector_literal(embedding)
                     embed_results.append(
-                        (e_pos_id, e_title, emb_literal, None)
+                        (e_pos_id, e_title, e_kind, emb_literal, None)
                     )
                 self.logger.info(
                     "Batch embedding succeeded for %d positions",
@@ -651,15 +694,15 @@ class SearchIndexerWorker:
                     len(embeddable_rows),
                     extra={"embed_error_count": len(embeddable_rows)},
                 )
-                for e_pos_id, e_title, _ in embeddable_rows:
+                for e_pos_id, e_title, e_kind, _ in embeddable_rows:
                     embed_results.append(
-                        (e_pos_id, e_title, None, "embed_error")
+                        (e_pos_id, e_title, e_kind, None, "embed_error")
                     )
 
         # embed_error rows остаются в 'pending_indexing' — будут обработаны
         # при следующем запуске задачи.
         embed_error_ids = [
-            pid for pid, _, _, reason in embed_results
+            pid for pid, _, _, _, reason in embed_results
             if reason == "embed_error"
         ]
         if embed_error_ids:
@@ -672,11 +715,16 @@ class SearchIndexerWorker:
 
         # ── Phase 3: DB operations (fast, single connection) ────────
         async with self._pool.acquire() as conn:
-            for pos_id, title, emb_literal, skip_reason in embed_results:
+            for pos_id, title, kind, emb_literal, skip_reason in embed_results:
                 if skip_reason == "no_description":
-                    result = await conn.execute(
-                        SQL_ACTIVATE_NO_EMBEDDING, pos_id
-                    )
+                    if kind == "GROUP_TITLE" and title is not None:
+                        result = await conn.execute(
+                            SQL_ACTIVATE_GROUP_NO_EMBEDDING, title, pos_id
+                        )
+                    else:
+                        result = await conn.execute(
+                            SQL_ACTIVATE_NO_EMBEDDING, pos_id
+                        )
                     if result == "UPDATE 1":
                         skipped += 1
                     else:
@@ -733,16 +781,24 @@ class SearchIndexerWorker:
                             )
 
                         # Activate with status guard
-                        activate_result = await conn.execute(
-                            SQL_ACTIVATE, emb_literal, pos_id
-                        )
+                        if kind == "GROUP_TITLE" and title is not None:
+                            activate_result = await conn.execute(
+                                SQL_ACTIVATE_GROUP,
+                                emb_literal,
+                                title,
+                                pos_id,
+                            )
+                        else:
+                            activate_result = await conn.execute(
+                                SQL_ACTIVATE, emb_literal, pos_id
+                            )
 
                     if activate_result == "UPDATE 1":
                         processed += 1
                         self.logger.info(
                             "Активирована позиция %s (%s)",
                             pos_id,
-                            title[:80],
+                            (title or "")[:80],
                             extra={"position_id": pos_id},
                         )
                     else:
