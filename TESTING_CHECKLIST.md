@@ -263,7 +263,7 @@
 - [ ] **`_lemmatize_text`** — делегирует в `normalize_job_title_with_lemmatization()` из `sanitize_text`
 - [ ] **`_lemmatize_text`** — лемматизация через spaCy `ru_core_news_sm` (напр. «монтажные работы» → «монтажный работа»)
 - [ ] **`_lemmatize_text`** — пустая строка / `None` → возвращает `None` без исключений
-- [ ] **`_lemmatize_text`** — `None` от `normalize_job_title_with_lemmatization` → возвращает `None` (обновление `standard_job_title` пропускается в Phase 3)
+- [ ] **`_lemmatize_text`** — `None` от `normalize_job_title_with_lemmatization` → возвращает `None`; Phase 3 пропускает обновление `standard_job_title` и использует `SQL_ACTIVATE` / `SQL_ACTIVATE_NO_EMBEDDING` вместо `SQL_ACTIVATE_GROUP`, независимо от `kind`
 - [ ] **Смешанный батч** — POSITION и GROUP_TITLE в одном батче обрабатываются корректно
 - [ ] **GROUP_TITLE с пустым описанием** → `SQL_ACTIVATE_GROUP_NO_EMBEDDING`, title лемматизирован в БД
 - [ ] **GROUP_TITLE дубликат** — лемматизированный GROUP_TITLE срабатывает `SQL_FIND_DUPLICATE` → запись в `suggested_merges`, затем `SQL_ACTIVATE_GROUP` активирует с обновлённым title
