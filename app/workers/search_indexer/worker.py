@@ -112,6 +112,8 @@ MAX_CONSECUTIVE_EMBED_ERRORS: int = _safe_int(
 
 # Phase 1: Fetch — SELECT pending_indexing rows.
 # JOIN с units_of_measurement для получения единицы измерения.
+# FOR UPDATE OF cp SKIP LOCKED обеспечивает защиту от конкурентного
+# захвата одних и тех же строк несколькими воркерами.
 SQL_FETCH_BATCH = """
     SELECT cp.id,
            cp.description,
@@ -122,7 +124,8 @@ SQL_FETCH_BATCH = """
     LEFT JOIN units_of_measurement uom ON cp.unit_id = uom.id
     WHERE cp.status = 'pending_indexing'
     ORDER BY cp.id
-    LIMIT $1;
+    LIMIT $1
+    FOR UPDATE OF cp SKIP LOCKED;
 """
 
 # Cosine distance search по active-записям через HNSW индекс.
@@ -172,22 +175,30 @@ SQL_ACTIVATE = """
 """
 
 # Activate group and update its lemmatized standard_job_title.
+# Concurrency Guard ($4): если admin изменил description пока воркер
+# ждал ответа Gemini API, UPDATE затронет 0 строк (идемпотентно).
 SQL_ACTIVATE_GROUP = """
     UPDATE catalog_positions
     SET embedding          = $1::vector,
         standard_job_title = $2,
         status             = 'active',
         updated_at         = NOW()
-    WHERE id = $3 AND status = 'pending_indexing';
+    WHERE id = $3
+      AND status = 'pending_indexing'
+      -- Concurrency Guard: не перезаписываем title, если description изменён
+      AND description IS NOT DISTINCT FROM $4;
 """
 
 # Activate group without embedding (empty description, but title was lemmatized).
+# Concurrency Guard ($3): аналогично SQL_ACTIVATE_GROUP.
 SQL_ACTIVATE_GROUP_NO_EMBEDDING = """
     UPDATE catalog_positions
     SET standard_job_title = $1,
         status             = 'active',
         updated_at         = NOW()
-    WHERE id = $2 AND status = 'pending_indexing';
+    WHERE id = $2
+      AND status = 'pending_indexing'
+      AND description IS NOT DISTINCT FROM $3;
 """
 
 # Activate without embedding (for rows with empty descriptions).
@@ -619,15 +630,18 @@ class SearchIndexerWorker:
         # Используем BATCH embedding: все тексты отправляются одним
         # HTTP-запросом к Gemini API (contents=[...]), что сокращает
         # количество SSL-handshake с N до 1.
-        # embed_results: list of (pos_id, title, kind, emb_literal | None, skip_reason | None)
-        embed_results: list[tuple[int, str | None, str, str | None, str | None]] = []
+        # embed_results: list of (pos_id, title, kind, emb_literal | None, skip_reason | None, description_raw)
+        # description_raw передаётся в Phase 3 как concurrency token для SQL guard.
+        embed_results: list[tuple[int, str | None, str, str | None, str | None, str | None]] = []
 
         # Step 1: Разделяем строки на embeddable и no-description
-        embeddable_rows: list[tuple[int, str | None, str, str]] = []  # (pos_id, title, kind, text_to_embed)
+        # (pos_id, title, kind, text_to_embed, description_raw)
+        embeddable_rows: list[tuple[int, str | None, str, str, str | None]] = []
 
         for row in rows:
             pos_id: int = row["id"]
-            description: str = row["description"] or ""
+            description_raw: str | None = row["description"]  # raw value for concurrency guard
+            description: str = description_raw or ""
             title: str = row["standard_job_title"] or ""
             kind: str = row["kind"] or ""
             unit_name: str = row["unit_name"] or ""
@@ -643,7 +657,7 @@ class SearchIndexerWorker:
                     (title or "")[:80],
                     extra={"position_id": pos_id},
                 )
-                embed_results.append((pos_id, title, kind, None, "no_description"))
+                embed_results.append((pos_id, title, kind, None, "no_description", description_raw))
                 continue
 
             # Composite semantic string (unit-aware)
@@ -654,7 +668,7 @@ class SearchIndexerWorker:
             else:
                 text_to_embed = description
 
-            embeddable_rows.append((pos_id, title, kind, text_to_embed))
+            embeddable_rows.append((pos_id, title, kind, text_to_embed, description_raw))
 
         # Step 2: Batch embed — один HTTP-запрос для всех текстов
         if embeddable_rows:
@@ -675,12 +689,12 @@ class SearchIndexerWorker:
                         f"Embedding count mismatch: "
                         f"expected {len(texts)}, got {len(embeddings)}"
                     )
-                for (e_pos_id, e_title, e_kind, _), embedding in zip(
+                for (e_pos_id, e_title, e_kind, _, e_description_raw), embedding in zip(
                     embeddable_rows, embeddings, strict=True
                 ):
                     emb_literal = _vector_literal(embedding)
                     embed_results.append(
-                        (e_pos_id, e_title, e_kind, emb_literal, None)
+                        (e_pos_id, e_title, e_kind, emb_literal, None, e_description_raw)
                     )
                 self.logger.info(
                     "Batch embedding succeeded for %d positions",
@@ -694,15 +708,15 @@ class SearchIndexerWorker:
                     len(embeddable_rows),
                     extra={"embed_error_count": len(embeddable_rows)},
                 )
-                for e_pos_id, e_title, e_kind, _ in embeddable_rows:
+                for e_pos_id, e_title, e_kind, _, e_description_raw in embeddable_rows:
                     embed_results.append(
-                        (e_pos_id, e_title, e_kind, None, "embed_error")
+                        (e_pos_id, e_title, e_kind, None, "embed_error", e_description_raw)
                     )
 
         # embed_error rows остаются в 'pending_indexing' — будут обработаны
         # при следующем запуске задачи.
         embed_error_ids = [
-            pid for pid, _, _, _, reason in embed_results
+            pid for pid, _, _, _, reason, _ in embed_results
             if reason == "embed_error"
         ]
         if embed_error_ids:
@@ -715,11 +729,11 @@ class SearchIndexerWorker:
 
         # ── Phase 3: DB operations (fast, single connection) ────────
         async with self._pool.acquire() as conn:
-            for pos_id, title, kind, emb_literal, skip_reason in embed_results:
+            for pos_id, title, kind, emb_literal, skip_reason, description_raw in embed_results:
                 if skip_reason == "no_description":
                     if kind == "GROUP_TITLE" and title is not None:
                         result = await conn.execute(
-                            SQL_ACTIVATE_GROUP_NO_EMBEDDING, title, pos_id
+                            SQL_ACTIVATE_GROUP_NO_EMBEDDING, title, pos_id, description_raw
                         )
                     else:
                         result = await conn.execute(
@@ -780,13 +794,14 @@ class SearchIndexerWorker:
                                 },
                             )
 
-                        # Activate with status guard
+                        # Activate with status guard + concurrency guard
                         if kind == "GROUP_TITLE" and title is not None:
                             activate_result = await conn.execute(
                                 SQL_ACTIVATE_GROUP,
                                 emb_literal,
                                 title,
                                 pos_id,
+                                description_raw,
                             )
                         else:
                             activate_result = await conn.execute(
