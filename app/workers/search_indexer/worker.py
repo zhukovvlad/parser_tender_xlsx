@@ -135,6 +135,7 @@ SQL_FETCH_BATCH = """
            cp.description,
            cp.standard_job_title,
            cp.kind,
+           cp.updated_at,
            uom.normalized_name AS unit_name
     FROM catalog_positions cp
     LEFT JOIN units_of_measurement uom ON cp.unit_id = uom.id
@@ -182,10 +183,12 @@ SQL_INSERT_MERGE = """
 """
 
 # Phase 3: Activate — status guard + concurrency guard ensure idempotency.
-# Concurrency Guard ($3): администратор мог изменить description пока
-# воркер ожидал ответа Gemini. В этом случае UPDATE вернёт 0 строк,
-# а строка будет переиндексирована на следующем цикле с актуальным
-# description. Применяется одинаково для POSITION и GROUP_TITLE.
+# Concurrency Guard ($3): updated_at используется как version token.
+# Если любое поле строки (description, unit_id, standard_job_title и т.д.)
+# было изменено администратором пока воркер ожидал Gemini,
+# updated_at будет отличаться и UPDATE вернёт 0 строк. Строка останется
+# pending_indexing и будет переиндексирована на следующем цикле.
+# Применяется одинаково для POSITION и GROUP_TITLE.
 SQL_ACTIVATE = """
     UPDATE catalog_positions
     SET embedding   = $1::vector,
@@ -193,12 +196,11 @@ SQL_ACTIVATE = """
         updated_at  = NOW()
     WHERE id = $2
       AND status = 'pending_indexing'
-      AND description IS NOT DISTINCT FROM $3;
+      AND updated_at IS NOT DISTINCT FROM $3;
 """
 
 # Activate group and update its lemmatized standard_job_title.
-# Concurrency Guard ($4): если admin изменил description пока воркер
-# ждал ответа Gemini API, UPDATE затронет 0 строк (идемпотентно).
+# Concurrency Guard ($4): updated_at как version token (см. SQL_ACTIVATE).
 SQL_ACTIVATE_GROUP = """
     UPDATE catalog_positions
     SET embedding          = $1::vector,
@@ -207,12 +209,11 @@ SQL_ACTIVATE_GROUP = """
         updated_at         = NOW()
     WHERE id = $3
       AND status = 'pending_indexing'
-      -- Concurrency Guard: не перезаписываем title, если description изменён
-      AND description IS NOT DISTINCT FROM $4;
+      AND updated_at IS NOT DISTINCT FROM $4;
 """
 
 # Activate group without embedding (empty description, but title was lemmatized).
-# Concurrency Guard ($3): аналогично SQL_ACTIVATE_GROUP.
+# Concurrency Guard ($3): updated_at как version token (см. SQL_ACTIVATE).
 SQL_ACTIVATE_GROUP_NO_EMBEDDING = """
     UPDATE catalog_positions
     SET standard_job_title = $1,
@@ -220,20 +221,18 @@ SQL_ACTIVATE_GROUP_NO_EMBEDDING = """
         updated_at         = NOW()
     WHERE id = $2
       AND status = 'pending_indexing'
-      AND description IS NOT DISTINCT FROM $3;
+      AND updated_at IS NOT DISTINCT FROM $3;
 """
 
 # Activate without embedding (for rows with empty descriptions).
-# Concurrency Guard ($2): если admin заполнил description пока воркер
-# не дошёл до Phase 3, UPDATE вернёт 0 строк — строка останется
-# pending_indexing и будет переиндексирована с embedding-ом.
+# Concurrency Guard ($2): updated_at как version token (см. SQL_ACTIVATE).
 SQL_ACTIVATE_NO_EMBEDDING = """
     UPDATE catalog_positions
     SET status      = 'active',
         updated_at  = NOW()
     WHERE id = $1
       AND status = 'pending_indexing'
-      AND description IS NOT DISTINCT FROM $2;
+      AND updated_at IS NOT DISTINCT FROM $2;
 """
 
 
@@ -657,18 +656,21 @@ class SearchIndexerWorker:
         # Используем BATCH embedding: все тексты отправляются одним
         # HTTP-запросом к Gemini API (contents=[...]), что сокращает
         # количество SSL-handshake с N до 1.
-        # embed_results: list of (pos_id, title, kind, emb_literal | None, skip_reason | None, description_raw)
-        # description_raw передаётся в Phase 3 как concurrency token для SQL guard.
-        embed_results: list[tuple[int, str | None, str, str | None, str | None, str | None]] = []
+        # embed_results: list of (pos_id, title, kind, emb_literal | None, skip_reason | None,
+        #                          description_raw, updated_at_raw)
+        # updated_at_raw — version token для concurrency guard всех SQL-запросов.
+        # Покрывает все поля: description, unit_id, standard_job_title и др.
+        embed_results: list[tuple[int, str | None, str, str | None, str | None, str | None, object]] = []
 
         # Step 1: Разделяем строки на embeddable и no-description
-        # (pos_id, title, kind, text_to_embed, description_raw)
-        embeddable_rows: list[tuple[int, str | None, str, str, str | None]] = []
+        # (pos_id, title, kind, text_to_embed, description_raw, updated_at_raw)
+        embeddable_rows: list[tuple[int, str | None, str, str, str | None, object]] = []
 
         for row in rows:
             pos_id: int = row["id"]
-            description_raw: str | None = row["description"]  # raw value for concurrency guard
+            description_raw: str | None = row["description"]
             description: str = description_raw or ""
+            updated_at_raw = row["updated_at"]  # version token for concurrency guard
             title: str = row["standard_job_title"] or ""
             kind: str = row["kind"] or ""
             unit_name: str = row["unit_name"] or ""
@@ -684,7 +686,7 @@ class SearchIndexerWorker:
                     (title or "")[:80],
                     extra={"position_id": pos_id},
                 )
-                embed_results.append((pos_id, title, kind, None, "no_description", description_raw))
+                embed_results.append((pos_id, title, kind, None, "no_description", description_raw, updated_at_raw))
                 continue
 
             # Composite semantic string (unit-aware)
@@ -695,7 +697,7 @@ class SearchIndexerWorker:
             else:
                 text_to_embed = description
 
-            embeddable_rows.append((pos_id, title, kind, text_to_embed, description_raw))
+            embeddable_rows.append((pos_id, title, kind, text_to_embed, description_raw, updated_at_raw))
 
         # Step 2: Batch embed — один HTTP-запрос для всех текстов
         if embeddable_rows:
@@ -716,12 +718,12 @@ class SearchIndexerWorker:
                         f"Embedding count mismatch: "
                         f"expected {len(texts)}, got {len(embeddings)}"
                     )
-                for (e_pos_id, e_title, e_kind, _, e_description_raw), embedding in zip(
+                for (e_pos_id, e_title, e_kind, _, e_description_raw, e_updated_at_raw), embedding in zip(
                     embeddable_rows, embeddings, strict=True
                 ):
                     emb_literal = _vector_literal(embedding)
                     embed_results.append(
-                        (e_pos_id, e_title, e_kind, emb_literal, None, e_description_raw)
+                        (e_pos_id, e_title, e_kind, emb_literal, None, e_description_raw, e_updated_at_raw)
                     )
                 self.logger.info(
                     "Batch embedding succeeded for %d positions",
@@ -735,15 +737,15 @@ class SearchIndexerWorker:
                     len(embeddable_rows),
                     extra={"embed_error_count": len(embeddable_rows)},
                 )
-                for e_pos_id, e_title, e_kind, _, e_description_raw in embeddable_rows:
+                for e_pos_id, e_title, e_kind, _, e_description_raw, e_updated_at_raw in embeddable_rows:
                     embed_results.append(
-                        (e_pos_id, e_title, e_kind, None, "embed_error", e_description_raw)
+                        (e_pos_id, e_title, e_kind, None, "embed_error", e_description_raw, e_updated_at_raw)
                     )
 
         # embed_error rows остаются в 'pending_indexing' — будут обработаны
         # при следующем запуске задачи.
         embed_error_ids = [
-            pid for pid, _, _, _, reason, _ in embed_results
+            pid for pid, _, _, _, reason, _, _ in embed_results
             if reason == "embed_error"
         ]
         if embed_error_ids:
@@ -756,15 +758,15 @@ class SearchIndexerWorker:
 
         # ── Phase 3: DB operations (fast, single connection) ────────
         async with self._pool.acquire() as conn:
-            for pos_id, title, kind, emb_literal, skip_reason, description_raw in embed_results:
+            for pos_id, title, kind, emb_literal, skip_reason, description_raw, updated_at_raw in embed_results:
                 if skip_reason == "no_description":
                     if kind == "GROUP_TITLE" and title is not None:
                         result = await conn.execute(
-                            SQL_ACTIVATE_GROUP_NO_EMBEDDING, title, pos_id, description_raw
+                            SQL_ACTIVATE_GROUP_NO_EMBEDDING, title, pos_id, updated_at_raw
                         )
                     else:
                         result = await conn.execute(
-                            SQL_ACTIVATE_NO_EMBEDDING, pos_id, description_raw
+                            SQL_ACTIVATE_NO_EMBEDDING, pos_id, updated_at_raw
                         )
                     if result == "UPDATE 1":
                         skipped += 1
@@ -790,31 +792,34 @@ class SearchIndexerWorker:
                         f"— unexpected: skip_reason should have been set"
                     )
 
+                early_guard_fired = False
+                activate_result: str | None = None
                 try:
                     async with conn.transaction():
-                        # Early concurrency guard: verify description hasn't changed
-                        # since Phase 1 before running dedup/merge (which would write
-                        # a stale suggested_merges entry if activation later no-ops).
+                        # Early concurrency guard: verify updated_at (version token)
+                        # hasn't changed since Phase 1. Prevents stale suggested_merges
+                        # entries when any field (description, unit_id, standard_job_title)
+                        # was edited by an admin while Gemini was running.
                         guard_ok = await conn.fetchval(
                             """
                             SELECT 1 FROM catalog_positions
                              WHERE id = $1
                                AND status = 'pending_indexing'
-                               AND description IS NOT DISTINCT FROM $2
+                               AND updated_at IS NOT DISTINCT FROM $2
                              FOR UPDATE
                             """,
                             pos_id,
-                            description_raw,
+                            updated_at_raw,
                         )
                         if guard_ok is None:
+                            early_guard_fired = True
                             self.logger.warning(
                                 "Concurrency guard fired early for pos_id=%s: "
-                                "description изменён или строка уже не pending_indexing — "
+                                "строка изменена или уже не pending_indexing — "
                                 "пропускаем dedup/merge/activate",
                                 pos_id,
                                 extra={"position_id": pos_id, "kind": kind},
                             )
-                            activate_result = "UPDATE 0"
                         else:
                             # Deduplication check
                             dup = await conn.fetchrow(
@@ -853,12 +858,16 @@ class SearchIndexerWorker:
                                     emb_literal,
                                     title,
                                     pos_id,
-                                    description_raw,
+                                    updated_at_raw,
                                 )
                             else:
                                 activate_result = await conn.execute(
-                                    SQL_ACTIVATE, emb_literal, pos_id, description_raw
+                                    SQL_ACTIVATE, emb_literal, pos_id, updated_at_raw
                                 )
+
+                    if early_guard_fired:
+                        # Already logged; row stays pending_indexing for re-indexing.
+                        continue
 
                     if activate_result == "UPDATE 1":
                         processed += 1
@@ -871,8 +880,7 @@ class SearchIndexerWorker:
                     else:
                         self.logger.warning(
                             "Activate no-op pos_id=%s "
-                            "(status guard или concurrency guard: "
-                            "description изменён admin-ом)",
+                            "(status guard: строка обработана другим воркером)",
                             pos_id,
                             extra={"position_id": pos_id, "kind": kind},
                         )

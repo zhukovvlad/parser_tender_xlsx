@@ -135,59 +135,76 @@ result = await conn.execute(
 
 По итогам ревью Copilot и CodeRabbit внесены дополнительные исправления:
 
-### R1 — `SQL_ACTIVATE` теперь тоже имеет concurrency guard
+### R1 — `SQL_ACTIVATE` получил concurrency guard
 
-`SQL_ACTIVATE` (для `POSITION`-строк) получил тот же `AND description IS NOT DISTINCT FROM $3`,
-что и `SQL_ACTIVATE_GROUP`. Ранее `POSITION` мог получить устаревший embedding при
-изменении `description` администратором во время Gemini-вызова.
+`SQL_ACTIVATE` (для `POSITION`-строк) получил тот же guard, что и `SQL_ACTIVATE_GROUP` —
+симметрия защиты для обоих типов строк.
 
 ### R2 — Warning-лог no-op уточнён
 
-`"Activate no-op pos_id=%s (status guard)"` изменён на
-`"Activate no-op pos_id=%s (status guard или concurrency guard: description изменён admin-ом)"`.
-В лог также добавлено поле `kind`, чтобы отличать POSITION от GROUP_TITLE при анализе.
+Лог уточнён: добавлено поле `kind`, чтобы при анализе было видно тип строки.
+При срабатывании `early_guard_fired` второй warning больше не выводится (см. R7).
+
+### R3 — Комментарий SKIP LOCKED исправлен
+
+Комментарий к `SQL_FETCH_BATCH` уточнён: `SKIP LOCKED` в autocommit-режиме защищает
+только от **одновременного** запуска двух воркеров, но **не** от последовательных.
+Реальная идемпотентность обеспечивается status guard в Phase 3.
+Добавлен TODO с описанием полноценного claim-паттерна через `indexing_in_progress`.
 
 ### R4 — Ранняя guard-проверка до dedup
 
-**Проблема:** `SQL_INSERT_MERGE` выполнялся внутри транзакции до проверки activation guard.
-Если guard срабатывал (`description` изменился), активация возвращала `UPDATE 0`,
-но запись в `suggested_merges` уже была сделана на основе **устаревшего** embedding.
-При следующем прогоне ситуация повторялась.
+**Проблема:** `SQL_INSERT_MERGE` выполнялся до финальной проверки guard.
+Если строка изменилась, activation возвращала `UPDATE 0`, но запись в
+`suggested_merges` уже была сделана на базе устаревшего embedding и повторялась
+при каждом следующем прогоне.
 
-**Решение:** добавлена ранняя guard-проверка в начало транзакции:
-```python
-guard_ok = await conn.fetchval(
-    "SELECT 1 FROM catalog_positions "
-    "WHERE id = $1 AND status = 'pending_indexing' "
-    "AND description IS NOT DISTINCT FROM $2 FOR UPDATE",
-    pos_id, description_raw,
-)
-if guard_ok is None:
-    # пропускаем dedup/merge/activate целиком
-```
-`FOR UPDATE` внутри явной транзакции гарантирует, что никакой другой воркер
-не изменит строку между guard-проверкой и activation UPDATE.
+**Решение:** в начале транзакции выполняется `SELECT 1 ... FOR UPDATE`,
+который атомарно блокирует строку и проверяет version token. Если проверка
+не прошла — весь блок dedup/merge/activate пропускается целиком.
 
-### R5 — Грамматика в девлоге
+### R5 — Грамматика
 
 «два … уязвимостей» → «две … уязвимости»
 
-### R6 — Комментарий SKIP LOCKED исправлен
+### R6 — `SQL_ACTIVATE_NO_EMBEDDING` получил concurrency guard
 
-Комментарий к `SQL_FETCH_BATCH` и текст девлога уточнены: явно указано, что
-`SKIP LOCKED` в autocommit-режиме защищает только от **одновременного** (в пределах
-миллисекунд) запуска двух воркеров, но **не** от последовательных запусков.
-Реальная идемпотентность обеспечивается status guard в Phase 3.
-Добавлен TODO с описанием полноценного claim-паттерна.
+Ветка `no_description` также не имела guard: воркер мог активировать строку без
+embedding, если admin заполнил `description` после fetch. Добавлен guard аналогично
+остальным SQL-константам.
+
+### R7 — Замена `description` на `updated_at` как version token
+
+**Проблема:** guard по `description` слишком узкий — embedding зависит ещё от
+`unit_name` (через `unit_id`) и для `GROUP_TITLE` от `standard_job_title`. Изменение
+любого из этих полей admin-ом приводило к публикации устаревшего embedding.
+
+**Решение:** все пять SQL-констант (`SQL_ACTIVATE`, `SQL_ACTIVATE_GROUP`,
+`SQL_ACTIVATE_GROUP_NO_EMBEDDING`, `SQL_ACTIVATE_NO_EMBEDDING`, ранняя guard-проверка)
+переведены на `updated_at IS NOT DISTINCT FROM $N`.
+
+`updated_at` — стандартный row-version token: любое изменение строки (через любое поле)
+обязательно обновляет этот столбец. Один guard закрывает сразу все поля.
+
+В Phase 1 в `SQL_FETCH_BATCH` добавлена колонка `cp.updated_at`.
+В кортежах `embed_results` и `embeddable_rows` добавлен 7-й элемент `updated_at_raw`.
+`description_raw` сохранён на 6-й позиции (нужен для логики `no_description`).
+
+### R8 — Устранение двойного логирования
+
+При `guard_ok is None` раньше печатались два warning подряд:
+первый — «Concurrency guard fired early», второй — «Activate no-op» (т.к. `activate_result == "UPDATE 0"`).
+
+**Решение:** добавлен флаг `early_guard_fired = True`, после выхода из блока
+транзакции выполняется `continue` — второй warning полностью исключён.
 
 ## Покрытие тестами (требуется)
 
-Добавлены новые пункты в `TESTING_CHECKLIST.md` (секция 3.9):
+Обновлены пункты в `TESTING_CHECKLIST.md` (секция 3.9):
 
-- `SQL_FETCH_BATCH` содержит `FOR UPDATE OF cp SKIP LOCKED`
-- `SQL_ACTIVATE` содержит guard `AND description IS NOT DISTINCT FROM $3`
-- `SQL_ACTIVATE_GROUP` содержит guard `AND description IS NOT DISTINCT FROM $4`
-- `SQL_ACTIVATE_GROUP_NO_EMBEDDING` содержит guard `AND description IS NOT DISTINCT FROM $3`
-- Concurrency guard: admin update wins — `UPDATE 0` при изменённом `description`
-- `description=None` корректно передаётся как SQL `NULL` через asyncpg
-- No-op лог содержит поле `kind` для диагностики
+- `SQL_FETCH_BATCH` содержит `FOR UPDATE OF cp SKIP LOCKED` и колонку `cp.updated_at`
+- Все SQL_ACTIVATE* содержат guard `AND updated_at IS NOT DISTINCT FROM $N`
+- Version token: изменение `unit_name` или `standard_job_title` тоже срабатывает guard
+- Early guard до dedup: `suggested_merges` не пишется при изменённой строке
+- `early_guard_fired` — только один warning в лог, нет дублирования
+- `updated_at_raw` передаётся через все кортежи Phase 2 → Phase 3
