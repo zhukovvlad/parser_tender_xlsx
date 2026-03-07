@@ -225,7 +225,8 @@
 - [ ] **`SQL_ACTIVATE_GROUP_NO_EMBEDDING`** — обновляет `standard_job_title` и `status='active'` без embedding
 - [ ] **`SQL_ACTIVATE_GROUP_NO_EMBEDDING`** — status guard: обновляет только `pending_indexing` → `active`
 - [ ] **`SQL_ACTIVATE_GROUP_NO_EMBEDDING`** — concurrency guard (`IS NOT DISTINCT FROM $3`): UPDATE 0 строк если description изменён
-- [ ] **`SQL_ACTIVATE_NO_EMBEDDING`** — аналогичный status guard без записи embedding
+- [ ] **`SQL_ACTIVATE_NO_EMBEDDING`** — status guard: обновляет только `pending_indexing` → `active`
+- [ ] **`SQL_ACTIVATE_NO_EMBEDDING`** — concurrency guard (`IS NOT DISTINCT FROM $2`): UPDATE 0 строк если description заполнен admin-ом после fetch
 
 #### 3.9.3 `run_indexing()` — Phase 1: Fetch
 
@@ -257,6 +258,7 @@
 - [ ] **`POSITION` — используется стандартный `SQL_ACTIVATE`** с передачей `(emb_literal, pos_id, description_raw)`
 - [ ] **Concurrent modification** (status guard) → activate no-op, warning в лог
 - [ ] **Optimistic concurrency guard** — admin меняет `description` пока воркер ждёт Gemini → `SQL_ACTIVATE_GROUP` возвращает `UPDATE 0`, строка остаётся `pending_indexing`
+- [ ] **Concurrency guard (no_description ветка)** — строка забрана с пустым description → admin заполнил description до Phase 3 → `SQL_ACTIVATE_NO_EMBEDDING` возвращает `UPDATE 0` → строка остаётся `pending_indexing` и будет переиндексирована с embedding-ом
 - [ ] **Guard с NULL description** — позиция с `description=NULL` корректно матчится guard-ом (не UPDATE 0 ошибочно)
 - [ ] **Ошибка в транзакции** → строка остаётся `pending_indexing`, не ломает батч
 - [ ] **Idempotency** — повторный прогон того же батча не создаёт дубликатов

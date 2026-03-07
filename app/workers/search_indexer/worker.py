@@ -224,11 +224,16 @@ SQL_ACTIVATE_GROUP_NO_EMBEDDING = """
 """
 
 # Activate without embedding (for rows with empty descriptions).
+# Concurrency Guard ($2): если admin заполнил description пока воркер
+# не дошёл до Phase 3, UPDATE вернёт 0 строк — строка останется
+# pending_indexing и будет переиндексирована с embedding-ом.
 SQL_ACTIVATE_NO_EMBEDDING = """
     UPDATE catalog_positions
     SET status      = 'active',
         updated_at  = NOW()
-    WHERE id = $1 AND status = 'pending_indexing';
+    WHERE id = $1
+      AND status = 'pending_indexing'
+      AND description IS NOT DISTINCT FROM $2;
 """
 
 
@@ -759,16 +764,17 @@ class SearchIndexerWorker:
                         )
                     else:
                         result = await conn.execute(
-                            SQL_ACTIVATE_NO_EMBEDDING, pos_id
+                            SQL_ACTIVATE_NO_EMBEDDING, pos_id, description_raw
                         )
                     if result == "UPDATE 1":
                         skipped += 1
                     else:
                         self.logger.warning(
                             "Activate-no-embed no-op pos_id=%s "
-                            "(concurrent modification?)",
+                            "(status guard или concurrency guard: "
+                            "description изменён admin-ом — строка будет переиндексирована)",
                             pos_id,
-                            extra={"position_id": pos_id},
+                            extra={"position_id": pos_id, "kind": kind},
                         )
                     continue
 
