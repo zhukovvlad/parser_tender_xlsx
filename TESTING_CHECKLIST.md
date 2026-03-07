@@ -254,7 +254,7 @@
 - [ ] **Дубликат не найден** → позиция активируется, `processed` +1
 - [ ] **`GROUP_TITLE` — используется `SQL_ACTIVATE_GROUP`** с передачей `(emb_literal, title, pos_id, description_raw)`
 - [ ] **`GROUP_TITLE` — `standard_job_title` обновляется** лемматизированным значением в БД
-- [ ] **`POSITION` — используется стандартный `SQL_ACTIVATE`** с передачей `(emb_literal, pos_id)`
+- [ ] **`POSITION` — используется стандартный `SQL_ACTIVATE`** с передачей `(emb_literal, pos_id, description_raw)`
 - [ ] **Concurrent modification** (status guard) → activate no-op, warning в лог
 - [ ] **Optimistic concurrency guard** — admin меняет `description` пока воркер ждёт Gemini → `SQL_ACTIVATE_GROUP` возвращает `UPDATE 0`, строка остаётся `pending_indexing`
 - [ ] **Guard с NULL description** — позиция с `description=NULL` корректно матчится guard-ом (не UPDATE 0 ошибочно)

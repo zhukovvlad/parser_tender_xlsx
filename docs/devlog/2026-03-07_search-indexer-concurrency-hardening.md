@@ -3,7 +3,7 @@
 ## Контекст
 
 Search Indexer Worker (`worker.py`) запускается несколькими Celery-воркерами
-одновременно. До этой правки существовали два неустранённых уязвимостей, приводящих
+одновременно. До этой правки существовали две неустранённые уязвимости, приводящие
 к race condition в условиях реального production-трафика:
 
 1. **Конкурентный захват строк** — несколько воркеров получали одинаковый батч из
@@ -147,7 +147,32 @@ result = await conn.execute(
 `"Activate no-op pos_id=%s (status guard или concurrency guard: description изменён admin-ом)"`.
 В лог также добавлено поле `kind`, чтобы отличать POSITION от GROUP_TITLE при анализе.
 
-### R3 — Комментарий SKIP LOCKED исправлен
+### R4 — Ранняя guard-проверка до dedup
+
+**Проблема:** `SQL_INSERT_MERGE` выполнялся внутри транзакции до проверки activation guard.
+Если guard срабатывал (`description` изменился), активация возвращала `UPDATE 0`,
+но запись в `suggested_merges` уже была сделана на основе **устаревшего** embedding.
+При следующем прогоне ситуация повторялась.
+
+**Решение:** добавлена ранняя guard-проверка в начало транзакции:
+```python
+guard_ok = await conn.fetchval(
+    "SELECT 1 FROM catalog_positions "
+    "WHERE id = $1 AND status = 'pending_indexing' "
+    "AND description IS NOT DISTINCT FROM $2 FOR UPDATE",
+    pos_id, description_raw,
+)
+if guard_ok is None:
+    # пропускаем dedup/merge/activate целиком
+```
+`FOR UPDATE` внутри явной транзакции гарантирует, что никакой другой воркер
+не изменит строку между guard-проверкой и activation UPDATE.
+
+### R5 — Грамматика в девлоге
+
+«два … уязвимостей» → «две … уязвимости»
+
+### R6 — Комментарий SKIP LOCKED исправлен
 
 Комментарий к `SQL_FETCH_BATCH` и текст девлога уточнены: явно указано, что
 `SKIP LOCKED` в autocommit-режиме защищает только от **одновременного** (в пределах

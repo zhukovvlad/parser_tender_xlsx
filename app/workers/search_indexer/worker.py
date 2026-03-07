@@ -786,49 +786,73 @@ class SearchIndexerWorker:
 
                 try:
                     async with conn.transaction():
-                        # Deduplication check
-                        dup = await conn.fetchrow(
-                            SQL_FIND_DUPLICATE,
-                            emb_literal,
+                        # Early concurrency guard: verify description hasn't changed
+                        # since Phase 1 before running dedup/merge (which would write
+                        # a stale suggested_merges entry if activation later no-ops).
+                        guard_ok = await conn.fetchval(
+                            """
+                            SELECT 1 FROM catalog_positions
+                             WHERE id = $1
+                               AND status = 'pending_indexing'
+                               AND description IS NOT DISTINCT FROM $2
+                             FOR UPDATE
+                            """,
                             pos_id,
+                            description_raw,
                         )
-
-                        if dup is not None:
-                            distance: float = dup["distance"]
-                            similarity = 1.0 - distance
-                            main_id: int = dup["id"]
-
-                            await conn.execute(
-                                SQL_INSERT_MERGE,
-                                main_id,
-                                pos_id,
-                                round(similarity, 6),
-                            )
-                            duplicates += 1
+                        if guard_ok is None:
                             self.logger.warning(
-                                "Duplicate candidate found: %s resembles %s",
+                                "Concurrency guard fired early for pos_id=%s: "
+                                "description изменён или строка уже не pending_indexing — "
+                                "пропускаем dedup/merge/activate",
                                 pos_id,
-                                main_id,
-                                extra={
-                                    "position_id": pos_id,
-                                    "duplicate_id": main_id,
-                                    "similarity": round(similarity, 6),
-                                },
+                                extra={"position_id": pos_id, "kind": kind},
+                            )
+                            activate_result = "UPDATE 0"
+                        else:
+                            # Deduplication check
+                            dup = await conn.fetchrow(
+                                SQL_FIND_DUPLICATE,
+                                emb_literal,
+                                pos_id,
                             )
 
-                        # Activate with status guard + concurrency guard
-                        if kind == "GROUP_TITLE" and title is not None:
-                            activate_result = await conn.execute(
-                                SQL_ACTIVATE_GROUP,
-                                emb_literal,
-                                title,
-                                pos_id,
-                                description_raw,
-                            )
-                        else:
-                            activate_result = await conn.execute(
-                                SQL_ACTIVATE, emb_literal, pos_id, description_raw
-                            )
+                            if dup is not None:
+                                distance: float = dup["distance"]
+                                similarity = 1.0 - distance
+                                main_id: int = dup["id"]
+
+                                await conn.execute(
+                                    SQL_INSERT_MERGE,
+                                    main_id,
+                                    pos_id,
+                                    round(similarity, 6),
+                                )
+                                duplicates += 1
+                                self.logger.warning(
+                                    "Duplicate candidate found: %s resembles %s",
+                                    pos_id,
+                                    main_id,
+                                    extra={
+                                        "position_id": pos_id,
+                                        "duplicate_id": main_id,
+                                        "similarity": round(similarity, 6),
+                                    },
+                                )
+
+                            # Activate with status guard + concurrency guard
+                            if kind == "GROUP_TITLE" and title is not None:
+                                activate_result = await conn.execute(
+                                    SQL_ACTIVATE_GROUP,
+                                    emb_literal,
+                                    title,
+                                    pos_id,
+                                    description_raw,
+                                )
+                            else:
+                                activate_result = await conn.execute(
+                                    SQL_ACTIVATE, emb_literal, pos_id, description_raw
+                                )
 
                     if activate_result == "UPDATE 1":
                         processed += 1
