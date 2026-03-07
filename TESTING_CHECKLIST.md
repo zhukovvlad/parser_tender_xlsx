@@ -242,7 +242,7 @@
 - [ ] **Composite string включает единицу измерения** (если `unit_name` не пуст)
 - [ ] **`kind` извлекается из каждой строки** и передаётся в `embed_results`
 - [ ] **`description_raw` сохраняется из `row["description"]`** (до `or ""`), включая `None`, и присутствует в кортежах (6-й элемент)
-- [ ] **`updated_at_raw` сохраняется из `row["updated_at"]`** и продаётся через все кортежи как version token (7-й элемент)
+- [ ] **`updated_at_raw` сохраняется из `row["updated_at"]`** и прокидывается через все кортежи как version token (7-й элемент)
 - [ ] **`kind` = NULL или нераспознанное значение** → лемматизация не выполняется, используется стандартный `SQL_ACTIVATE` / `SQL_ACTIVATE_NO_EMBEDDING`
 - [ ] **`GROUP_TITLE` — `standard_job_title` лемматизируется** в Phase 2 через `_lemmatize_text()` → spaCy `normalize_job_title_with_lemmatization`
 - [ ] **`POSITION` — `standard_job_title` не модифицируется** (уже лемматизирован upstream)
@@ -322,7 +322,7 @@
 - [ ] **GROUP_TITLE pipeline** — `pending_indexing` → лемматизация → embed → dedup → `active` + обновлённый `standard_job_title`
 - [ ] **Смешанный батч POSITION + GROUP_TITLE** — оба типа обрабатываются корректно в одном прогоне
 - [ ] **SKIP LOCKED — конкурентные воркеры** — два параллельных `run_indexing()` не обрабатывают одни и те же строки (интеграционный тест с реальной БД)
-- [ ] **Optimistic guard — admin wins** — строка остаётся `pending_indexing` если `description` изменён между Phase 1 и Phase 3 (интеграционный тест с реальной БД)
+- [ ] **Optimistic guard — admin wins** — строка остаётся `pending_indexing` если запись изменилась (любое поле, обновился `updated_at`) между Phase 1 и Phase 3 (интеграционный тест с реальной БД)
 
 ---
 

@@ -671,7 +671,7 @@ class SearchIndexerWorker:
             description_raw: str | None = row["description"]
             description: str = description_raw or ""
             updated_at_raw = row["updated_at"]  # version token for concurrency guard
-            title: str = row["standard_job_title"] or ""
+            title: str | None = row["standard_job_title"] or ""
             kind: str = row["kind"] or ""
             unit_name: str = row["unit_name"] or ""
 
@@ -773,8 +773,8 @@ class SearchIndexerWorker:
                     else:
                         self.logger.warning(
                             "Activate-no-embed no-op pos_id=%s "
-                            "(status guard или concurrency guard: "
-                            "description изменён admin-ом — строка будет переиндексирована)",
+                            "(status/updated_at guard или concurrency guard: "
+                            "строка изменилась (updated_at/status) — будет переиндексирована позже)",
                             pos_id,
                             extra={"position_id": pos_id, "kind": kind},
                         )
@@ -806,7 +806,7 @@ class SearchIndexerWorker:
                              WHERE id = $1
                                AND status = 'pending_indexing'
                                AND updated_at IS NOT DISTINCT FROM $2
-                             FOR UPDATE
+                             FOR UPDATE SKIP LOCKED
                             """,
                             pos_id,
                             updated_at_raw,
