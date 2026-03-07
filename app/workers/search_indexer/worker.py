@@ -112,8 +112,24 @@ MAX_CONSECUTIVE_EMBED_ERRORS: int = _safe_int(
 
 # Phase 1: Fetch — SELECT pending_indexing rows.
 # JOIN с units_of_measurement для получения единицы измерения.
-# FOR UPDATE OF cp SKIP LOCKED обеспечивает защиту от конкурентного
-# захвата одних и тех же строк несколькими воркерами.
+#
+# FOR UPDATE OF cp SKIP LOCKED — best-effort оптимизация: если два воркера
+# запускают fetch ОДНОВРЕМЕННО (в пределах одного autocommit-statement),
+# SKIP LOCKED позволяет второму воркеру пропустить строки, уже захваченные
+# первым. Однако блокировки снимаются сразу после завершения implicit-транзакции
+# (autocommit), поэтому защита от повторной выборки одних строк ПОСЛЕДОВАТЕЛЬНЫМИ
+# воркерами не гарантируется.
+#
+# Реальная защита от двойной обработки обеспечивается в Phase 3 через
+# status guard «AND status = 'pending_indexing'» — повторный UPDATE вернёт 0
+# строк и будет проигнорирован (идемпотентность).
+#
+# TODO: для полной гарантии «непересекающихся» батчей реализовать атомарный
+#   claim-паттерн через промежуточный статус «indexing_in_progress»:
+#   UPDATE catalog_positions SET status = 'indexing_in_progress'
+#   WHERE id IN (SELECT id ... WHERE status = 'pending_indexing' ORDER BY id
+#                LIMIT $1 FOR UPDATE SKIP LOCKED)
+#   RETURNING id, description, standard_job_title, kind, ...;
 SQL_FETCH_BATCH = """
     SELECT cp.id,
            cp.description,
@@ -165,13 +181,19 @@ SQL_INSERT_MERGE = """
             updated_at = NOW();
 """
 
-# Phase 3: Activate — status guard ensures idempotency.
+# Phase 3: Activate — status guard + concurrency guard ensure idempotency.
+# Concurrency Guard ($3): администратор мог изменить description пока
+# воркер ожидал ответа Gemini. В этом случае UPDATE вернёт 0 строк,
+# а строка будет переиндексирована на следующем цикле с актуальным
+# description. Применяется одинаково для POSITION и GROUP_TITLE.
 SQL_ACTIVATE = """
     UPDATE catalog_positions
     SET embedding   = $1::vector,
         status      = 'active',
         updated_at  = NOW()
-    WHERE id = $2 AND status = 'pending_indexing';
+    WHERE id = $2
+      AND status = 'pending_indexing'
+      AND description IS NOT DISTINCT FROM $3;
 """
 
 # Activate group and update its lemmatized standard_job_title.
@@ -805,7 +827,7 @@ class SearchIndexerWorker:
                             )
                         else:
                             activate_result = await conn.execute(
-                                SQL_ACTIVATE, emb_literal, pos_id
+                                SQL_ACTIVATE, emb_literal, pos_id, description_raw
                             )
 
                     if activate_result == "UPDATE 1":
@@ -818,9 +840,11 @@ class SearchIndexerWorker:
                         )
                     else:
                         self.logger.warning(
-                            "Activate no-op pos_id=%s (status guard)",
+                            "Activate no-op pos_id=%s "
+                            "(status guard или concurrency guard: "
+                            "description изменён admin-ом)",
                             pos_id,
-                            extra={"position_id": pos_id},
+                            extra={"position_id": pos_id, "kind": kind},
                         )
 
                 except Exception:

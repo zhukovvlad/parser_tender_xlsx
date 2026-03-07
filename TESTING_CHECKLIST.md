@@ -217,6 +217,7 @@
 - [ ] **`SQL_INSERT_MERGE`** — терминальные статусы `MERGED`/`REJECTED` не перезаписываются
 - [ ] **`SQL_INSERT_MERGE`** — `updated_at` обновляется при конфликте
 - [ ] **`SQL_ACTIVATE`** — status guard: обновляет только `pending_indexing` → `active`
+- [ ] **`SQL_ACTIVATE`** — concurrency guard (`IS NOT DISTINCT FROM $3`): UPDATE 0 строк если description изменён admin-ом
 - [ ] **`SQL_ACTIVATE_GROUP`** — записывает embedding, лемматизированный `standard_job_title` и `status='active'`
 - [ ] **`SQL_ACTIVATE_GROUP`** — status guard: обновляет только `pending_indexing` → `active`
 - [ ] **`SQL_ACTIVATE_GROUP`** — concurrency guard (`IS NOT DISTINCT FROM $4`): UPDATE 0 строк если description изменён admin-ом

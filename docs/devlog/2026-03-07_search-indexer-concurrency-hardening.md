@@ -33,13 +33,35 @@ FOR UPDATE OF cp SKIP LOCKED;
 
 - `FOR UPDATE OF cp` блокирует строки `catalog_positions` при `SELECT`, не затрагивая
   пересечённые строки `units_of_measurement`.
-- `SKIP LOCKED` немедленно пропускает уже заблокированные строки вместо ожидания
-  снятия блокировки. Каждый воркер получает **непересекающийся** набор строк.
+- `SKIP LOCKED` пропускает уже заблокированные строки — если два воркера запускают
+  `fetch()` **одновременно** (в рамках одного autocommit-statement), второй получит
+  непересекающийся набор.
 
-> **Важно:** `FOR UPDATE` требует выполнения запроса внутри транзакции. Текущий
-> код использует `conn.fetch()` (без явного `async with conn.transaction()`), что
-> по умолчанию в PostgreSQL всё равно является autocommit-транзакцией. Если в
-> будущем потребуется явный контроль — заворачивать в `async with conn.transaction()`.
+> **Ограничение:** `conn.fetch()` без явного `async with conn.transaction()` выполняется
+> в **implicit autocommit-транзакции**, которая коммитится сразу после возврата данных.
+> Row-locks снимаются немедленно — они живут только на время самого statement (миллисекунды).
+> Поэтому `SKIP LOCKED` **не защищает** от повторной выборки тех же строк, если второй
+> воркер запускает запрос уже после завершения первого. Это типичный сценарий при
+> последовательных задачах Celery.
+>
+> **Реальная защита** от двойной записи обеспечивается в Phase 3 через status guard
+> `AND status = 'pending_indexing'` — повторный UPDATE вернёт 0 строк (идемпотентность).
+>
+> **TODO:** для полного устранения лишних Gemini-запросов реализовать атомарный
+> claim-паттерн с промежуточным статусом:
+> ```sql
+> UPDATE catalog_positions
+>    SET status = 'indexing_in_progress'
+>  WHERE id IN (
+>    SELECT id FROM catalog_positions
+>     WHERE status = 'pending_indexing'
+>     ORDER BY id LIMIT $1
+>     FOR UPDATE SKIP LOCKED
+>  )
+>  RETURNING id, description, standard_job_title, kind, ...;
+> ```
+> Требует добавления значения `'indexing_in_progress'` в CHECK constraint / enum
+> столбца `status` и механизма сброса зависших строк (timeout heartbeat).
 
 ### 2. `SQL_ACTIVATE_GROUP` — Optimistic Concurrency Control через `description`
 
@@ -109,13 +131,38 @@ result = await conn.execute(
 |------|-----------|
 | `app/workers/search_indexer/worker.py` | SQL-константы, типы кортежей, Phase 2 и Phase 3 логика |
 
+## Post-review правки (2026-03-07)
+
+По итогам ревью Copilot и CodeRabbit внесены дополнительные исправления:
+
+### R1 — `SQL_ACTIVATE` теперь тоже имеет concurrency guard
+
+`SQL_ACTIVATE` (для `POSITION`-строк) получил тот же `AND description IS NOT DISTINCT FROM $3`,
+что и `SQL_ACTIVATE_GROUP`. Ранее `POSITION` мог получить устаревший embedding при
+изменении `description` администратором во время Gemini-вызова.
+
+### R2 — Warning-лог no-op уточнён
+
+`"Activate no-op pos_id=%s (status guard)"` изменён на
+`"Activate no-op pos_id=%s (status guard или concurrency guard: description изменён admin-ом)"`.
+В лог также добавлено поле `kind`, чтобы отличать POSITION от GROUP_TITLE при анализе.
+
+### R3 — Комментарий SKIP LOCKED исправлен
+
+Комментарий к `SQL_FETCH_BATCH` и текст девлога уточнены: явно указано, что
+`SKIP LOCKED` в autocommit-режиме защищает только от **одновременного** (в пределах
+миллисекунд) запуска двух воркеров, но **не** от последовательных запусков.
+Реальная идемпотентность обеспечивается status guard в Phase 3.
+Добавлен TODO с описанием полноценного claim-паттерна.
+
 ## Покрытие тестами (требуется)
 
 Добавлены новые пункты в `TESTING_CHECKLIST.md` (секция 3.9):
 
 - `SQL_FETCH_BATCH` содержит `FOR UPDATE OF cp SKIP LOCKED`
+- `SQL_ACTIVATE` содержит guard `AND description IS NOT DISTINCT FROM $3`
 - `SQL_ACTIVATE_GROUP` содержит guard `AND description IS NOT DISTINCT FROM $4`
 - `SQL_ACTIVATE_GROUP_NO_EMBEDDING` содержит guard `AND description IS NOT DISTINCT FROM $3`
 - Concurrency guard: admin update wins — `UPDATE 0` при изменённом `description`
 - `description=None` корректно передаётся как SQL `NULL` через asyncpg
-- `SKIP LOCKED` — два конкурентных воркера получают непересекающиеся строки
+- No-op лог содержит поле `kind` для диагностики
