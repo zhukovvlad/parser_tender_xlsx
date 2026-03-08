@@ -112,7 +112,7 @@ WHERE id = $2
 
 Ключевое: `description_raw = row["description"]` (до `or ""`) — нужен для определения
 ветки `no_description` в Phase 2. В Phase 3 не передаётся ни в один SQL-запрос
-(позиция 5 в `embed_results` игнорируется через `_` при деструктуризации).
+(позиция 6 в `embed_results` соответствует `description_raw` и игнорируется через `_` при деструктуризации).
 
 ### 5. Phase 3 — передача `updated_at_raw` в SQL
 
