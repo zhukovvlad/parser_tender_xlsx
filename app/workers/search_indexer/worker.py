@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+from datetime import datetime
 from typing import Any, Dict, Sequence
 
 import asyncpg
@@ -660,17 +661,17 @@ class SearchIndexerWorker:
         #                          description_raw, updated_at_raw)
         # updated_at_raw — version token для concurrency guard всех SQL-запросов.
         # Покрывает все поля: description, unit_id, standard_job_title и др.
-        embed_results: list[tuple[int, str | None, str, str | None, str | None, str | None, object]] = []
+        embed_results: list[tuple[int, str | None, str, str | None, str | None, str | None, datetime | None]] = []
 
         # Step 1: Разделяем строки на embeddable и no-description
         # (pos_id, title, kind, text_to_embed, description_raw, updated_at_raw)
-        embeddable_rows: list[tuple[int, str | None, str, str, str | None, object]] = []
+        embeddable_rows: list[tuple[int, str | None, str, str, str | None, datetime | None]] = []
 
         for row in rows:
             pos_id: int = row["id"]
             description_raw: str | None = row["description"]
             description: str = description_raw or ""
-            updated_at_raw = row["updated_at"]  # version token for concurrency guard
+            updated_at_raw: datetime | None = row["updated_at"]  # version token for concurrency guard
             title: str | None = row["standard_job_title"] or ""
             kind: str = row["kind"] or ""
             unit_name: str = row["unit_name"] or ""
@@ -815,7 +816,8 @@ class SearchIndexerWorker:
                             early_guard_fired = True
                             self.logger.warning(
                                 "Concurrency guard fired early for pos_id=%s: "
-                                "строка изменена или уже не pending_indexing — "
+                                "строка изменена, уже не pending_indexing, "
+                                "или залочена другим воркером (SKIP LOCKED) — "
                                 "пропускаем dedup/merge/activate",
                                 pos_id,
                                 extra={"position_id": pos_id, "kind": kind},
