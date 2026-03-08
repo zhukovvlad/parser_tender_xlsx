@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+from datetime import datetime
 from typing import Any, Dict, Sequence
 
 import asyncpg
@@ -112,17 +113,37 @@ MAX_CONSECUTIVE_EMBED_ERRORS: int = _safe_int(
 
 # Phase 1: Fetch — SELECT pending_indexing rows.
 # JOIN с units_of_measurement для получения единицы измерения.
+#
+# FOR UPDATE OF cp SKIP LOCKED — best-effort оптимизация: если два воркера
+# запускают fetch ОДНОВРЕМЕННО (в пределах одного autocommit-statement),
+# SKIP LOCKED позволяет второму воркеру пропустить строки, уже захваченные
+# первым. Однако блокировки снимаются сразу после завершения implicit-транзакции
+# (autocommit), поэтому защита от повторной выборки одних строк ПОСЛЕДОВАТЕЛЬНЫМИ
+# воркерами не гарантируется.
+#
+# Реальная защита от двойной обработки обеспечивается в Phase 3 через
+# status guard «AND status = 'pending_indexing'» — повторный UPDATE вернёт 0
+# строк и будет проигнорирован (идемпотентность).
+#
+# TODO: для полной гарантии «непересекающихся» батчей реализовать атомарный
+#   claim-паттерн через промежуточный статус «indexing_in_progress»:
+#   UPDATE catalog_positions SET status = 'indexing_in_progress'
+#   WHERE id IN (SELECT id ... WHERE status = 'pending_indexing' ORDER BY id
+#                LIMIT $1 FOR UPDATE SKIP LOCKED)
+#   RETURNING id, description, standard_job_title, kind, ...;
 SQL_FETCH_BATCH = """
     SELECT cp.id,
            cp.description,
            cp.standard_job_title,
            cp.kind,
+           cp.updated_at,
            uom.normalized_name AS unit_name
     FROM catalog_positions cp
     LEFT JOIN units_of_measurement uom ON cp.unit_id = uom.id
     WHERE cp.status = 'pending_indexing'
     ORDER BY cp.id
-    LIMIT $1;
+    LIMIT $1
+    FOR UPDATE OF cp SKIP LOCKED;
 """
 
 # Cosine distance search по active-записям через HNSW индекс.
@@ -162,40 +183,57 @@ SQL_INSERT_MERGE = """
             updated_at = NOW();
 """
 
-# Phase 3: Activate — status guard ensures idempotency.
+# Phase 3: Activate — status guard + concurrency guard ensure idempotency.
+# Concurrency Guard ($3): updated_at используется как version token.
+# Если любое поле строки (description, unit_id, standard_job_title и т.д.)
+# было изменено администратором пока воркер ожидал Gemini,
+# updated_at будет отличаться и UPDATE вернёт 0 строк. Строка останется
+# pending_indexing и будет переиндексирована на следующем цикле.
+# Применяется одинаково для POSITION и GROUP_TITLE.
 SQL_ACTIVATE = """
     UPDATE catalog_positions
     SET embedding   = $1::vector,
         status      = 'active',
         updated_at  = NOW()
-    WHERE id = $2 AND status = 'pending_indexing';
+    WHERE id = $2
+      AND status = 'pending_indexing'
+      AND updated_at IS NOT DISTINCT FROM $3;
 """
 
 # Activate group and update its lemmatized standard_job_title.
+# Concurrency Guard ($4): updated_at как version token (см. SQL_ACTIVATE).
 SQL_ACTIVATE_GROUP = """
     UPDATE catalog_positions
     SET embedding          = $1::vector,
         standard_job_title = $2,
         status             = 'active',
         updated_at         = NOW()
-    WHERE id = $3 AND status = 'pending_indexing';
+    WHERE id = $3
+      AND status = 'pending_indexing'
+      AND updated_at IS NOT DISTINCT FROM $4;
 """
 
 # Activate group without embedding (empty description, but title was lemmatized).
+# Concurrency Guard ($3): updated_at как version token (см. SQL_ACTIVATE).
 SQL_ACTIVATE_GROUP_NO_EMBEDDING = """
     UPDATE catalog_positions
     SET standard_job_title = $1,
         status             = 'active',
         updated_at         = NOW()
-    WHERE id = $2 AND status = 'pending_indexing';
+    WHERE id = $2
+      AND status = 'pending_indexing'
+      AND updated_at IS NOT DISTINCT FROM $3;
 """
 
 # Activate without embedding (for rows with empty descriptions).
+# Concurrency Guard ($2): updated_at как version token (см. SQL_ACTIVATE).
 SQL_ACTIVATE_NO_EMBEDDING = """
     UPDATE catalog_positions
     SET status      = 'active',
         updated_at  = NOW()
-    WHERE id = $1 AND status = 'pending_indexing';
+    WHERE id = $1
+      AND status = 'pending_indexing'
+      AND updated_at IS NOT DISTINCT FROM $2;
 """
 
 
@@ -619,16 +657,22 @@ class SearchIndexerWorker:
         # Используем BATCH embedding: все тексты отправляются одним
         # HTTP-запросом к Gemini API (contents=[...]), что сокращает
         # количество SSL-handshake с N до 1.
-        # embed_results: list of (pos_id, title, kind, emb_literal | None, skip_reason | None)
-        embed_results: list[tuple[int, str | None, str, str | None, str | None]] = []
+        # embed_results: list of (pos_id, title, kind, emb_literal | None, skip_reason | None,
+        #                          description_raw, updated_at_raw)
+        # updated_at_raw — version token для concurrency guard всех SQL-запросов.
+        # Покрывает все поля: description, unit_id, standard_job_title и др.
+        embed_results: list[tuple[int, str | None, str, str | None, str | None, str | None, datetime | None]] = []
 
         # Step 1: Разделяем строки на embeddable и no-description
-        embeddable_rows: list[tuple[int, str | None, str, str]] = []  # (pos_id, title, kind, text_to_embed)
+        # (pos_id, title, kind, text_to_embed, description_raw, updated_at_raw)
+        embeddable_rows: list[tuple[int, str | None, str, str, str | None, datetime | None]] = []
 
         for row in rows:
             pos_id: int = row["id"]
-            description: str = row["description"] or ""
-            title: str = row["standard_job_title"] or ""
+            description_raw: str | None = row["description"]
+            description: str = description_raw or ""
+            updated_at_raw: datetime | None = row["updated_at"]  # version token for concurrency guard
+            title: str | None = row["standard_job_title"] or ""
             kind: str = row["kind"] or ""
             unit_name: str = row["unit_name"] or ""
 
@@ -643,7 +687,7 @@ class SearchIndexerWorker:
                     (title or "")[:80],
                     extra={"position_id": pos_id},
                 )
-                embed_results.append((pos_id, title, kind, None, "no_description"))
+                embed_results.append((pos_id, title, kind, None, "no_description", description_raw, updated_at_raw))
                 continue
 
             # Composite semantic string (unit-aware)
@@ -654,7 +698,7 @@ class SearchIndexerWorker:
             else:
                 text_to_embed = description
 
-            embeddable_rows.append((pos_id, title, kind, text_to_embed))
+            embeddable_rows.append((pos_id, title, kind, text_to_embed, description_raw, updated_at_raw))
 
         # Step 2: Batch embed — один HTTP-запрос для всех текстов
         if embeddable_rows:
@@ -675,12 +719,12 @@ class SearchIndexerWorker:
                         f"Embedding count mismatch: "
                         f"expected {len(texts)}, got {len(embeddings)}"
                     )
-                for (e_pos_id, e_title, e_kind, _), embedding in zip(
+                for (e_pos_id, e_title, e_kind, _, e_description_raw, e_updated_at_raw), embedding in zip(
                     embeddable_rows, embeddings, strict=True
                 ):
                     emb_literal = _vector_literal(embedding)
                     embed_results.append(
-                        (e_pos_id, e_title, e_kind, emb_literal, None)
+                        (e_pos_id, e_title, e_kind, emb_literal, None, e_description_raw, e_updated_at_raw)
                     )
                 self.logger.info(
                     "Batch embedding succeeded for %d positions",
@@ -694,15 +738,15 @@ class SearchIndexerWorker:
                     len(embeddable_rows),
                     extra={"embed_error_count": len(embeddable_rows)},
                 )
-                for e_pos_id, e_title, e_kind, _ in embeddable_rows:
+                for e_pos_id, e_title, e_kind, _, e_description_raw, e_updated_at_raw in embeddable_rows:
                     embed_results.append(
-                        (e_pos_id, e_title, e_kind, None, "embed_error")
+                        (e_pos_id, e_title, e_kind, None, "embed_error", e_description_raw, e_updated_at_raw)
                     )
 
         # embed_error rows остаются в 'pending_indexing' — будут обработаны
         # при следующем запуске задачи.
         embed_error_ids = [
-            pid for pid, _, _, _, reason in embed_results
+            pid for pid, _, _, _, reason, _, _ in embed_results
             if reason == "embed_error"
         ]
         if embed_error_ids:
@@ -715,24 +759,25 @@ class SearchIndexerWorker:
 
         # ── Phase 3: DB operations (fast, single connection) ────────
         async with self._pool.acquire() as conn:
-            for pos_id, title, kind, emb_literal, skip_reason in embed_results:
+            for pos_id, title, kind, emb_literal, skip_reason, _, updated_at_raw in embed_results:
                 if skip_reason == "no_description":
                     if kind == "GROUP_TITLE" and title is not None:
                         result = await conn.execute(
-                            SQL_ACTIVATE_GROUP_NO_EMBEDDING, title, pos_id
+                            SQL_ACTIVATE_GROUP_NO_EMBEDDING, title, pos_id, updated_at_raw
                         )
                     else:
                         result = await conn.execute(
-                            SQL_ACTIVATE_NO_EMBEDDING, pos_id
+                            SQL_ACTIVATE_NO_EMBEDDING, pos_id, updated_at_raw
                         )
                     if result == "UPDATE 1":
                         skipped += 1
                     else:
                         self.logger.warning(
                             "Activate-no-embed no-op pos_id=%s "
-                            "(concurrent modification?)",
+                            "(status/updated_at guard или concurrency guard: "
+                            "строка изменилась (updated_at/status) — будет переиндексирована позже)",
                             pos_id,
-                            extra={"position_id": pos_id},
+                            extra={"position_id": pos_id, "kind": kind},
                         )
                     continue
 
@@ -748,50 +793,83 @@ class SearchIndexerWorker:
                         f"— unexpected: skip_reason should have been set"
                     )
 
+                early_guard_fired = False
+                activate_result: str | None = None
                 try:
                     async with conn.transaction():
-                        # Deduplication check
-                        dup = await conn.fetchrow(
-                            SQL_FIND_DUPLICATE,
-                            emb_literal,
+                        # Early concurrency guard: verify updated_at (version token)
+                        # hasn't changed since Phase 1. Prevents stale suggested_merges
+                        # entries when any field (description, unit_id, standard_job_title)
+                        # was edited by an admin while Gemini was running.
+                        guard_ok = await conn.fetchval(
+                            """
+                            SELECT 1 FROM catalog_positions
+                             WHERE id = $1
+                               AND status = 'pending_indexing'
+                               AND updated_at IS NOT DISTINCT FROM $2
+                             FOR UPDATE SKIP LOCKED
+                            """,
                             pos_id,
+                            updated_at_raw,
                         )
-
-                        if dup is not None:
-                            distance: float = dup["distance"]
-                            similarity = 1.0 - distance
-                            main_id: int = dup["id"]
-
-                            await conn.execute(
-                                SQL_INSERT_MERGE,
-                                main_id,
-                                pos_id,
-                                round(similarity, 6),
-                            )
-                            duplicates += 1
+                        if guard_ok is None:
+                            early_guard_fired = True
                             self.logger.warning(
-                                "Duplicate candidate found: %s resembles %s",
+                                "Concurrency guard fired early for pos_id=%s: "
+                                "строка изменена, уже не pending_indexing, "
+                                "или залочена другим воркером (SKIP LOCKED) — "
+                                "пропускаем dedup/merge/activate",
                                 pos_id,
-                                main_id,
-                                extra={
-                                    "position_id": pos_id,
-                                    "duplicate_id": main_id,
-                                    "similarity": round(similarity, 6),
-                                },
-                            )
-
-                        # Activate with status guard
-                        if kind == "GROUP_TITLE" and title is not None:
-                            activate_result = await conn.execute(
-                                SQL_ACTIVATE_GROUP,
-                                emb_literal,
-                                title,
-                                pos_id,
+                                extra={"position_id": pos_id, "kind": kind},
                             )
                         else:
-                            activate_result = await conn.execute(
-                                SQL_ACTIVATE, emb_literal, pos_id
+                            # Deduplication check
+                            dup = await conn.fetchrow(
+                                SQL_FIND_DUPLICATE,
+                                emb_literal,
+                                pos_id,
                             )
+
+                            if dup is not None:
+                                distance: float = dup["distance"]
+                                similarity = 1.0 - distance
+                                main_id: int = dup["id"]
+
+                                await conn.execute(
+                                    SQL_INSERT_MERGE,
+                                    main_id,
+                                    pos_id,
+                                    round(similarity, 6),
+                                )
+                                duplicates += 1
+                                self.logger.warning(
+                                    "Duplicate candidate found: %s resembles %s",
+                                    pos_id,
+                                    main_id,
+                                    extra={
+                                        "position_id": pos_id,
+                                        "duplicate_id": main_id,
+                                        "similarity": round(similarity, 6),
+                                    },
+                                )
+
+                            # Activate with status guard + concurrency guard
+                            if kind == "GROUP_TITLE" and title is not None:
+                                activate_result = await conn.execute(
+                                    SQL_ACTIVATE_GROUP,
+                                    emb_literal,
+                                    title,
+                                    pos_id,
+                                    updated_at_raw,
+                                )
+                            else:
+                                activate_result = await conn.execute(
+                                    SQL_ACTIVATE, emb_literal, pos_id, updated_at_raw
+                                )
+
+                    if early_guard_fired:
+                        # Already logged; row stays pending_indexing for re-indexing.
+                        continue
 
                     if activate_result == "UPDATE 1":
                         processed += 1
@@ -803,9 +881,10 @@ class SearchIndexerWorker:
                         )
                     else:
                         self.logger.warning(
-                            "Activate no-op pos_id=%s (status guard)",
+                            "Activate no-op pos_id=%s "
+                            "(status guard: строка обработана другим воркером)",
                             pos_id,
-                            extra={"position_id": pos_id},
+                            extra={"position_id": pos_id, "kind": kind},
                         )
 
                 except Exception:

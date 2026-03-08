@@ -201,7 +201,12 @@
 
 #### 3.9.2 SQL-запросы (проверка через мок-БД или реальную тестовую БД)
 
-- [ ] **`SQL_FETCH_BATCH`** — SELECT включает колонку `cp.kind`
+- [ ] **`SQL_FETCH_BATCH`** — SELECT включает колонки `cp.kind` и `cp.updated_at`
+- [ ] **`SQL_FETCH_BATCH`** — содержит `FOR UPDATE OF cp SKIP LOCKED`
+- [ ] **`SQL_ACTIVATE`** — содержит version-token guard `AND updated_at IS NOT DISTINCT FROM $3`
+- [ ] **`SQL_ACTIVATE_GROUP`** — содержит version-token guard `AND updated_at IS NOT DISTINCT FROM $4`
+- [ ] **`SQL_ACTIVATE_GROUP_NO_EMBEDDING`** — содержит version-token guard `AND updated_at IS NOT DISTINCT FROM $3`
+- [ ] **`SQL_ACTIVATE_NO_EMBEDDING`** — содержит version-token guard `AND updated_at IS NOT DISTINCT FROM $2`
 
 - [ ] **`SQL_FIND_DUPLICATE`** — порог читается из `system_settings` подзапросом, а не параметром
 - [ ] **`SQL_FIND_DUPLICATE`** — при отсутствии `dedup_distance_threshold` в `system_settings` используется fallback 0.15
@@ -214,23 +219,30 @@
 - [ ] **`SQL_INSERT_MERGE`** — терминальные статусы `MERGED`/`REJECTED` не перезаписываются
 - [ ] **`SQL_INSERT_MERGE`** — `updated_at` обновляется при конфликте
 - [ ] **`SQL_ACTIVATE`** — status guard: обновляет только `pending_indexing` → `active`
+- [ ] **`SQL_ACTIVATE`** — version-token guard: UPDATE 0 строк если `updated_at` изменился (любое поле строки изменено)
 - [ ] **`SQL_ACTIVATE_GROUP`** — записывает embedding, лемматизированный `standard_job_title` и `status='active'`
 - [ ] **`SQL_ACTIVATE_GROUP`** — status guard: обновляет только `pending_indexing` → `active`
+- [ ] **`SQL_ACTIVATE_GROUP`** — version-token guard: UPDATE 0 строк если `updated_at` изменился (description, unit_id, standard_job_title или любое другое поле)
 - [ ] **`SQL_ACTIVATE_GROUP_NO_EMBEDDING`** — обновляет `standard_job_title` и `status='active'` без embedding
 - [ ] **`SQL_ACTIVATE_GROUP_NO_EMBEDDING`** — status guard: обновляет только `pending_indexing` → `active`
-- [ ] **`SQL_ACTIVATE_NO_EMBEDDING`** — аналогичный status guard без записи embedding
+- [ ] **`SQL_ACTIVATE_GROUP_NO_EMBEDDING`** — version-token guard: UPDATE 0 строк если `updated_at` изменился
+- [ ] **`SQL_ACTIVATE_NO_EMBEDDING`** — status guard: обновляет только `pending_indexing` → `active`
+- [ ] **`SQL_ACTIVATE_NO_EMBEDDING`** — version-token guard: UPDATE 0 строк если `updated_at` изменился после fetch
 
 #### 3.9.3 `run_indexing()` — Phase 1: Fetch
 
 - [ ] **Пустой батч** → возвращает `{"processed": 0, "duplicates": 0, "skipped": 0}`
 - [ ] **Батч ограничен `BATCH_SIZE`** → не более N строк
 - [ ] **Только `pending_indexing`** строки попадают в выборку
+- [ ] **SKIP LOCKED** — два конкурентных воркера получают непересекающиеся наборы строк (интеграционный тест)
 
 #### 3.9.4 `run_indexing()` — Phase 2: Embedding
 
 - [ ] **Позиция с пустым описанием** → skip, `no_description`, активация без embedding
 - [ ] **Composite string включает единицу измерения** (если `unit_name` не пуст)
 - [ ] **`kind` извлекается из каждой строки** и передаётся в `embed_results`
+- [ ] **`description_raw` сохраняется из `row["description"]`** (до `or ""`) — 5-й элемент `embeddable_rows`, 6-й в `embed_results`; в Phase 3 не передаётся в SQL (деструктурируется как `_`)
+- [ ] **`updated_at_raw` сохраняется из `row["updated_at"]`** и прокидывается как version token — 6-й элемент `embeddable_rows`, 7-й в `embed_results`
 - [ ] **`kind` = NULL или нераспознанное значение** → лемматизация не выполняется, используется стандартный `SQL_ACTIVATE` / `SQL_ACTIVATE_NO_EMBEDDING`
 - [ ] **`GROUP_TITLE` — `standard_job_title` лемматизируется** в Phase 2 через `_lemmatize_text()` → spaCy `normalize_job_title_with_lemmatization`
 - [ ] **`POSITION` — `standard_job_title` не модифицируется** (уже лемматизирован upstream)
@@ -243,10 +255,14 @@
 - [ ] **Race condition устранён** — порог не кешируется в Python, читается подзапросом в SQL
 - [ ] **Дубликат найден** → создаётся запись в `suggested_merges`, `duplicates` +1
 - [ ] **Дубликат не найден** → позиция активируется, `processed` +1
-- [ ] **`GROUP_TITLE` — используется `SQL_ACTIVATE_GROUP`** с передачей `(emb_literal, title, pos_id)`
+- [ ] **`GROUP_TITLE` — используется `SQL_ACTIVATE_GROUP`** с передачей `(emb_literal, title, pos_id, updated_at_raw)`
 - [ ] **`GROUP_TITLE` — `standard_job_title` обновляется** лемматизированным значением в БД
-- [ ] **`POSITION` — используется стандартный `SQL_ACTIVATE`** с передачей `(emb_literal, pos_id)`
+- [ ] **`POSITION` — используется стандартный `SQL_ACTIVATE`** с передачей `(emb_literal, pos_id, updated_at_raw)`
 - [ ] **Concurrent modification** (status guard) → activate no-op, warning в лог
+- [ ] **Early guard до dedup** — `updated_at` изменился до начала транзакции → `suggested_merges` не записывается, строка остаётся `pending_indexing`
+- [ ] **Двойной лог исключён** — при срабатывании early guard печатается ровно один warning, `continue` пропускает второй
+- [ ] **Version token (Оптимистический guard)** — admin изменил любое поле (description, unit_id, standard_job_title) пока воркер ждёт Gemini → guard срабатывает, строка остаётся `pending_indexing`
+- [ ] **Concurrency guard (no_description ветка)** — строка забрана с пустым description → admin заполнил description до Phase 3 → `SQL_ACTIVATE_NO_EMBEDDING` возвращает `UPDATE 0` → строка будет переиндексирована с embedding-ом
 - [ ] **Ошибка в транзакции** → строка остаётся `pending_indexing`, не ломает батч
 - [ ] **Idempotency** — повторный прогон того же батча не создаёт дубликатов
 
@@ -268,7 +284,7 @@
 - [ ] **GROUP_TITLE с пустым описанием** → `SQL_ACTIVATE_GROUP_NO_EMBEDDING`, title лемматизирован в БД
 - [ ] **GROUP_TITLE дубликат** — лемматизированный GROUP_TITLE срабатывает `SQL_FIND_DUPLICATE` → запись в `suggested_merges`, затем `SQL_ACTIVATE_GROUP` активирует с обновлённым title
 - [ ] **GROUP_TITLE end-to-end** — лемматизация → embed → dedup → `SQL_ACTIVATE_GROUP` → `active` + обновлённый title в БД
-- [ ] **`embed_results` кортежи** содержат `kind` для всех строк
+- [ ] **`embed_results` кортежи** содержат `kind`, `description_raw` и `updated_at_raw` для всех строк
 
 ---
 
@@ -305,6 +321,8 @@
 - [ ] **Ошибка Gemini** — строки остаются `pending_indexing`, следующий прогон подхватывает
 - [ ] **GROUP_TITLE pipeline** — `pending_indexing` → лемматизация → embed → dedup → `active` + обновлённый `standard_job_title`
 - [ ] **Смешанный батч POSITION + GROUP_TITLE** — оба типа обрабатываются корректно в одном прогоне
+- [ ] **SKIP LOCKED — конкурентные воркеры** — два параллельных `run_indexing()` не обрабатывают одни и те же строки (интеграционный тест с реальной БД)
+- [ ] **Optimistic guard — admin wins** — строка остаётся `pending_indexing` если запись изменилась (любое поле, обновился `updated_at`) между Phase 1 и Phase 3 (интеграционный тест с реальной БД)
 
 ---
 
