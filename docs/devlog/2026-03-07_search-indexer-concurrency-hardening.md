@@ -105,13 +105,14 @@ WHERE id = $2
 
 `description_raw` (исходное значение `row["description"]`, включая `None`) сохраняется для логики `no_description`.
 `updated_at_raw` (значение `row["updated_at"]`) — version token для всех SQL-запросов оптимистической блокировки.
-Опа прокидываются через кортежи:
+Оба прокидываются через кортежи:
 
 - `embeddable_rows`: `(pos_id, title, kind, text_to_embed, description_raw, updated_at_raw)` — 6-tuple
 - `embed_results`: `(pos_id, title, kind, emb_literal | None, skip_reason | None, description_raw, updated_at_raw)` — 7-tuple
 
-Ключевое: `description_raw = row["description"]` (до `or ""`), чтобы `None`
-передался в SQL как SQL `NULL`, а не как пустая строка.
+Ключевое: `description_raw = row["description"]` (до `or ""`) — нужен для определения
+ветки `no_description` в Phase 2. В Phase 3 не передаётся ни в один SQL-запрос
+(позиция 5 в `embed_results` игнорируется через `_` при деструктуризации).
 
 ### 5. Phase 3 — передача `updated_at_raw` в SQL
 

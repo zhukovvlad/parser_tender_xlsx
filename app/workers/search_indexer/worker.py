@@ -759,7 +759,7 @@ class SearchIndexerWorker:
 
         # ── Phase 3: DB operations (fast, single connection) ────────
         async with self._pool.acquire() as conn:
-            for pos_id, title, kind, emb_literal, skip_reason, description_raw, updated_at_raw in embed_results:
+            for pos_id, title, kind, emb_literal, skip_reason, _, updated_at_raw in embed_results:
                 if skip_reason == "no_description":
                     if kind == "GROUP_TITLE" and title is not None:
                         result = await conn.execute(

@@ -241,8 +241,8 @@
 - [ ] **Позиция с пустым описанием** → skip, `no_description`, активация без embedding
 - [ ] **Composite string включает единицу измерения** (если `unit_name` не пуст)
 - [ ] **`kind` извлекается из каждой строки** и передаётся в `embed_results`
-- [ ] **`description_raw` сохраняется из `row["description"]`** (до `or ""`), включая `None`, и присутствует в кортежах (6-й элемент)
-- [ ] **`updated_at_raw` сохраняется из `row["updated_at"]`** и прокидывается через все кортежи как version token (7-й элемент)
+- [ ] **`description_raw` сохраняется из `row["description"]`** (до `or ""`) — 5-й элемент `embeddable_rows`, 6-й в `embed_results`; в Phase 3 не передаётся в SQL (деструктурируется как `_`)
+- [ ] **`updated_at_raw` сохраняется из `row["updated_at"]`** и прокидывается как version token — 6-й элемент `embeddable_rows`, 7-й в `embed_results`
 - [ ] **`kind` = NULL или нераспознанное значение** → лемматизация не выполняется, используется стандартный `SQL_ACTIVATE` / `SQL_ACTIVATE_NO_EMBEDDING`
 - [ ] **`GROUP_TITLE` — `standard_job_title` лемматизируется** в Phase 2 через `_lemmatize_text()` → spaCy `normalize_job_title_with_lemmatization`
 - [ ] **`POSITION` — `standard_job_title` не модифицируется** (уже лемматизирован upstream)
