@@ -154,6 +154,11 @@ start_service "celery-default" \
     "celery -A app.celery_app worker --loglevel=INFO --queues=default --concurrency=1 --hostname=default@%h" \
     "logs/celery_default.log"
 
+# 5. Воркер для семантической кластеризации (CPU-bound ML, строго concurrency=1)
+start_service "celery-clusterer" \
+    "celery -A app.celery_app worker --loglevel=INFO --queues=clusterer --concurrency=1 --hostname=clusterer@%h" \
+    "logs/celery_clusterer.log"
+
 # Запускаем Celery Beat (планировщик)
 start_service "celery-beat" \
     "celery -A app.celery_app beat --loglevel=INFO" \
@@ -182,8 +187,9 @@ echo -e "${GREEN}📝 Логи сервисов:${NC}"
 echo -e "  - Celery Parser Worker:  logs/celery_parser.log"
 echo -e "  - Celery Indexer Worker: logs/celery_indexer.log"
 echo -e "  - Celery LLM Worker:     logs/celery_llm.log"
-echo -e "  - Celery Default Worker: logs/celery_default.log"
-echo -e "  - Celery Beat:           logs/celery_beat.log"
+echo -e "  - Celery Default Worker:   logs/celery_default.log"
+echo -e "  - Celery Clusterer Worker: logs/celery_clusterer.log"
+echo -e "  - Celery Beat:             logs/celery_beat.log"
 echo -e "  - FastAPI:               logs/fastapi.log"
 
 # Запускаем FastAPI в фоне
