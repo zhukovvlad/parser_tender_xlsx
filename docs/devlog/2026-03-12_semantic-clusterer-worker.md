@@ -216,6 +216,17 @@ GROUP_TITLE. Выровнено с фактическим SQL в `worker.py`.
 Тест-спецификация уже в `TESTING_CHECKLIST.md` (§3.10–3.12, §4.5–4.6).
 Реализация тестов — отдельная задача.
 
+### R16. `Redis.lock(blocking=False)` — TypeError (Copilot)
+
+`redis-py` `Redis.lock()` не принимает `blocking=` — это параметр `lock.acquire()`.
+Удалён невалидный kwarg из конструктора лока; `acquire(blocking=False)` уже корректен.
+
+### R17. `self._pool` без проверки инициализации (Copilot)
+
+`run_clustering()` использовал `self._pool` без guard-а. При вызове без 
+`initialize()` — непонятный `AttributeError: 'NoneType'`. Добавлен
+`if not self.is_initialized or self._pool is None: raise RuntimeError(...)`.
+
 ### Nitpick: Пиннинг ML-зависимостей (CodeRabbit) — ОТЛОЖЕНО
 
 Рекомендация пиннить `umap-learn`, `hdbscan`, `scikit-learn` до точных версий.

@@ -166,7 +166,13 @@ class SemanticClustererWorker:
 
         Returns:
             Количество найденных кластеров.
+
+        Raises:
+            RuntimeError: Если воркер не инициализирован (initialize() не вызван).
         """
+        if not self.is_initialized or self._pool is None:
+            raise RuntimeError("SemanticClustererWorker not initialized — call initialize() first")
+
         # Phase 1: Fetch
         self.logger.info("Task %s: Phase 1 — Fetch positions", task_id)
         rows = await self._fetch_positions()

@@ -110,7 +110,7 @@ def run_semantic_clustering(self, task_id: str):
 
     # Распределённая блокировка: не допускает параллельных задач кластеризации,
     # которые могут обработать одни и те же позиции и создать конфликтующие группы.
-    lock = redis_client.lock(_CLUSTERER_LOCK_KEY, timeout=_CLUSTERER_LOCK_TTL, blocking=False)
+    lock = redis_client.lock(_CLUSTERER_LOCK_KEY, timeout=_CLUSTERER_LOCK_TTL)
     if not lock.acquire(blocking=False):
         logger.warning("Task %s: another clustering task is running, skipping.", task_id)
         _safe_set_status(task_id, {"status": "skipped", "error": "another clustering task is running"})
