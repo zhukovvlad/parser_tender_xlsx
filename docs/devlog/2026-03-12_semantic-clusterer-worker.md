@@ -227,6 +227,22 @@ GROUP_TITLE. Выровнено с фактическим SQL в `worker.py`.
 `initialize()` — непонятный `AttributeError: 'NoneType'`. Добавлен
 `if not self.is_initialized or self._pool is None: raise RuntimeError(...)`.
 
+### R18. Lock release при SoftTimeLimitExceeded (Copilot)
+
+`finally: lock.release()` отпускал лок, пока корутина в `run_async` ещё работала.
+Новая задача могла захватить лок и обработать те же позиции. Теперь: при
+`SoftTimeLimitExceeded` лок НЕ отпускается (`lock = None`), истекает по TTL.
+
+### R19. `SQL_FETCH_POSITIONS` без `ORDER BY` (Copilot)
+
+Без детерминированного порядка вход UMAP/HDBSCAN мог меняться между запусками,
+делая `random_state=42` бесполезным. Добавлен `ORDER BY id`.
+
+### R20. Exception chaining `from e` (CodeRabbit)
+
+`raise self.retry(exc=e, ...) from e` — сохраняет исходный traceback при ретрае
+(Ruff B904).
+
 ### Nitpick: Пиннинг ML-зависимостей (CodeRabbit) — ОТЛОЖЕНО
 
 Рекомендация пиннить `umap-learn`, `hdbscan`, `scikit-learn` до точных версий.

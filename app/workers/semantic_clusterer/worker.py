@@ -73,6 +73,7 @@ SQL_FETCH_POSITIONS = """
       AND kind = 'POSITION'
       AND parent_id IS NULL
       AND embedding IS NOT NULL
+    ORDER BY id
 """
 
 SQL_INSERT_GROUP = """

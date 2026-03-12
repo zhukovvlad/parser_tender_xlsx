@@ -128,6 +128,9 @@ def run_semantic_clustering(self, task_id: str):
         return {"task_id": task_id, "status": "completed", "clusters_found": clusters_found}
 
     except SoftTimeLimitExceeded:
+        # НЕ отпускаем лок — корутина в run_async ещё может работать.
+        # Лок истечёт по TTL, предотвращая параллельный запуск.
+        lock = None
         _safe_set_status(
             task_id,
             {"status": "failed", "error": "soft time limit exceeded"},
@@ -147,14 +150,15 @@ def run_semantic_clustering(self, task_id: str):
         )
         logger.exception("Task %s: error (retry %s/%s)", task_id, self.request.retries, self.max_retries)
         if will_retry:
-            raise self.retry(exc=e, countdown=60 * (self.request.retries + 1))
+            raise self.retry(exc=e, countdown=60 * (self.request.retries + 1)) from e
         else:
             raise
     finally:
-        try:
-            lock.release()
-        except Exception:
-            logger.debug("Task %s: lock release failed (may have expired)", task_id, exc_info=True)
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:
+                logger.debug("Task %s: lock release failed (may have expired)", task_id, exc_info=True)
         duration = time.time() - start
         logger.info("Task %s: finished in %.2fs", task_id, duration)
 
