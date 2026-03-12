@@ -243,6 +243,11 @@ GROUP_TITLE. Выровнено с фактическим SQL в `worker.py`.
 `raise self.retry(exc=e, ...) from e` — сохраняет исходный traceback при ретрае
 (Ruff B904).
 
+### R21. UMAP `n_neighbors` >= `n_samples` → ValueError (Copilot)
+
+При малом числе позиций (< 15) дефолт UMAP `n_neighbors=15` превышает `n_samples`
+и вызывает ValueError. Добавлен явный `n_neighbors = min(15, len(embeddings) - 1)`.
+
 ### Nitpick: Пиннинг ML-зависимостей (CodeRabbit) — ОТЛОЖЕНО
 
 Рекомендация пиннить `umap-learn`, `hdbscan`, `scikit-learn` до точных версий.

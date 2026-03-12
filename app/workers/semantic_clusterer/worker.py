@@ -251,9 +251,11 @@ class SemanticClustererWorker:
             return {}
 
         n_components = max(1, min(UMAP_N_COMPONENTS, len(embeddings) - 1))
+        n_neighbors = min(15, len(embeddings) - 1)
 
         reducer = umap.UMAP(
             n_components=n_components,
+            n_neighbors=n_neighbors,
             metric="cosine",
             random_state=42,
         )
