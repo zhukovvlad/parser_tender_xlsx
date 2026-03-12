@@ -2,7 +2,7 @@
 
 # .PHONY гарантирует, что make выполнит команду, даже если в директории
 # уже есть файл или папка с таким же именем (например, "run").
-.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-integration test-new update-golden clean dev prod parse parse-offline parse-gemini parse-gemini-async worker-start worker-status sync-pending format lint check test-gemini-positions celery-worker-parser celery-worker-indexer celery-worker-llm celery-worker-default celery-beat celery-flower celery-status celery-tasks celery-purge start-all stop-all
+.PHONY: run help install test test-coverage test-gemini test-gemini-coverage test-excel-parser test-excel-parser-coverage test-fast test-integration test-new update-golden clean dev prod parse parse-offline parse-gemini parse-gemini-async worker-start worker-status sync-pending format lint check test-gemini-positions celery-worker-parser celery-worker-indexer celery-worker-llm celery-worker-default celery-worker-clusterer celery-beat celery-flower celery-status celery-tasks celery-purge start-all stop-all
 
 # Определяем переменные по умолчанию для удобства.
 # Эти значения можно переопределить в Makefile.local
@@ -167,6 +167,10 @@ celery-worker-default:
 	@echo "🚀 Запускаю Celery воркер для общих задач (default)..."
 	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=$(CELERY_LOGLEVEL) --queues=default --concurrency=1 --hostname=default@%h
 
+celery-worker-clusterer:
+	@echo "🚀 Запускаю Celery воркер для кластеризации (clusterer)..."
+	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app worker --loglevel=$(CELERY_LOGLEVEL) --queues=clusterer --concurrency=1 --hostname=clusterer@%h
+
 celery-beat:
 	@echo "⏰ Запускаю Celery Beat планировщик..."
 	@export no_proxy="localhost,127.0.0.1" NO_PROXY="localhost,127.0.0.1" && .venv/bin/celery -A app.celery_app beat --loglevel=$(CELERY_LOGLEVEL)
@@ -263,6 +267,7 @@ help:
 	@echo "  make celery-worker-indexer    - Воркер индексации (queue=indexer, concurrency=2)"
 	@echo "  make celery-worker-llm        - Воркер LLM/Gemini (queue=llm, concurrency=2)"
 	@echo "  make celery-worker-default    - Воркер общих задач (queue=default, concurrency=1)"
+	@echo "  make celery-worker-clusterer  - Воркер кластеризации (queue=clusterer, concurrency=1)"
 	@echo "  make celery-beat              - Запустить планировщик задач"
 	@echo "  make celery-flower            - Запустить мониторинг (localhost:5555)"
 	@echo "  make celery-status            - Статус воркеров"
