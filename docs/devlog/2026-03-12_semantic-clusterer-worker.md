@@ -66,6 +66,7 @@ SELECT id, standard_job_title, embedding::text
 FROM catalog_positions
 WHERE status = 'active' AND kind = 'POSITION'
   AND parent_id IS NULL AND embedding IS NOT NULL
+ORDER BY id
 ```
 Embedding парсится через `json.loads` из текстового представления `pgvector`.
 
@@ -180,7 +181,7 @@ app/workers/semantic_clusterer/
 ### R7. Нет блокировки на весь fetch→persist window (CodeRabbit)
 
 Добавлена двухуровневая защита:
-1. **Redis distributed lock** (`semantic_clusterer:run_lock`) с TTL 3720с —
+1. **Redis distributed lock** (`semantic_clusterer:run_lock`) с TTL 4020с —
    блокирует параллельный запуск. Дублирующая задача получает
    `status: "skipped"`.
 2. **`WHERE parent_id IS NULL`** в `SQL_UPDATE_PARENT` — defense-in-depth,
@@ -246,7 +247,25 @@ GROUP_TITLE. Выровнено с фактическим SQL в `worker.py`.
 ### R21. UMAP `n_neighbors` >= `n_samples` → ValueError (Copilot)
 
 При малом числе позиций (< 15) дефолт UMAP `n_neighbors=15` превышает `n_samples`
-и вызывает ValueError. Добавлен явный `n_neighbors = min(15, len(embeddings) - 1)`.
+и вызывает ValueError. Добавлен явный `n_neighbors = max(2, min(15, len(embeddings) - 1))`.
+
+### R22. UMAP `n_neighbors` < 2 при 2 embeddings (CodeRabbit)
+
+При `HDBSCAN_MIN_CLUSTER_SIZE=2` и 2 позициях: `n_neighbors = min(15, 1) = 1`,
+UMAP бросает `ValueError("n_neighbors must be greater than 1")`. Guard изменён на
+`len(embeddings) < max(HDBSCAN_MIN_CLUSTER_SIZE, 3)`, плюс `n_neighbors` capped
+через `max(2, ...)`.
+
+### R23. `_persist_clusters` может создать пустые группы (CodeRabbit)
+
+`SQL_UPDATE_PARENT` мог обновить 0 строк (все уже привязаны), но GROUP_TITLE
+уже вставлен. Добавлен `RETURNING id` в SQL и проверка `len(updated) != len(member_ids)`
+→ `RuntimeError` → откат всей транзакции.
+
+### R24. Девлог: SQL без ORDER BY, TTL 3720 (CodeRabbit)
+
+Девлог рассинхронился с кодом: SQL без `ORDER BY id`, lock TTL 3720 вместо 4020.
+Исправлено.
 
 ### Nitpick: Пиннинг ML-зависимостей (CodeRabbit) — ОТЛОЖЕНО
 

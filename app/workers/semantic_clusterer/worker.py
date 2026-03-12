@@ -87,6 +87,7 @@ SQL_UPDATE_PARENT = """
     SET parent_id = $1, updated_at = NOW()
     WHERE id = ANY($2::bigint[])
       AND parent_id IS NULL
+    RETURNING id
 """
 
 
@@ -242,16 +243,18 @@ class SemanticClustererWorker:
         import hdbscan
         import umap
 
-        if len(embeddings) < HDBSCAN_MIN_CLUSTER_SIZE:
+        min_for_umap = 3  # UMAP требует n_neighbors >= 2, т.е. n_samples >= 3
+        if len(embeddings) < max(HDBSCAN_MIN_CLUSTER_SIZE, min_for_umap):
             self.logger.warning(
-                "Too few positions (%d) for clustering (min_cluster_size=%d)",
+                "Too few positions (%d) for clustering (min_cluster_size=%d, umap_min=%d)",
                 len(embeddings),
                 HDBSCAN_MIN_CLUSTER_SIZE,
+                min_for_umap,
             )
             return {}
 
         n_components = max(1, min(UMAP_N_COMPONENTS, len(embeddings) - 1))
-        n_neighbors = min(15, len(embeddings) - 1)
+        n_neighbors = max(2, min(15, len(embeddings) - 1))
 
         reducer = umap.UMAP(
             n_components=n_components,
@@ -324,4 +327,9 @@ class SemanticClustererWorker:
             async with conn.transaction():
                 for cluster in cluster_data:
                     group_id = await conn.fetchval(SQL_INSERT_GROUP, cluster["name"])
-                    await conn.execute(SQL_UPDATE_PARENT, group_id, cluster["member_ids"])
+                    updated = await conn.fetch(SQL_UPDATE_PARENT, group_id, cluster["member_ids"])
+                    if len(updated) != len(cluster["member_ids"]):
+                        raise RuntimeError(
+                            f"Cluster membership changed: expected {len(cluster['member_ids'])} "
+                            f"updates, got {len(updated)} for group_id={group_id}"
+                        )
