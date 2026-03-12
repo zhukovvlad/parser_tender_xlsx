@@ -44,9 +44,7 @@ async def main() -> None:
         before, active_before = await worker.fetch_indexing_stats()
         pool = worker.get_pool()
         async with pool.acquire() as conn:
-            pre_merges = await conn.fetchval(
-                "SELECT count(*) FROM suggested_merges"
-            )
+            pre_merges = await conn.fetchval("SELECT count(*) FROM suggested_merges")
         print("\n[2/3] Текущее состояние БД:")
         print(f"      pending_indexing = {before}")
         print(f"      active           = {active_before}")
@@ -65,12 +63,11 @@ async def main() -> None:
         # 4. Проверяем состояние ПОСЛЕ
         after, active_after = await worker.fetch_indexing_stats()
         async with pool.acquire() as conn:
-            merges = await conn.fetchval(
-                "SELECT count(*) FROM suggested_merges"
-            )
+            merges = await conn.fetchval("SELECT count(*) FROM suggested_merges")
 
             # Показываем первые 3 активированные записи с embedding
-            samples = await conn.fetch("""
+            samples = await conn.fetch(
+                """
                 SELECT id, standard_job_title,
                        (embedding IS NOT NULL) as has_embedding,
                        status
@@ -78,7 +75,8 @@ async def main() -> None:
                 WHERE status = 'active'
                 ORDER BY updated_at DESC
                 LIMIT 3
-            """)
+            """
+            )
 
         new_merges = merges - pre_merges
         print("\n  Состояние ПОСЛЕ:")

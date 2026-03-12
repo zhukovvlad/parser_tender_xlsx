@@ -46,6 +46,7 @@ load_dotenv()
 # Конфигурация
 # ──────────────────────────────────────────────────────────────────────
 
+
 def _safe_int(env_var: str, default: int) -> int:
     """Безопасный парсинг int из переменной окружения."""
     raw = os.getenv(env_var, "")
@@ -77,18 +78,14 @@ DB_NAME: str = os.getenv("DB_NAME", "tendersdb")
 
 # Google AI — модель и размерность
 GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
-EMBEDDING_MODEL: str = os.getenv(
-    "SEARCH_INDEXER_EMBEDDING_MODEL", "gemini-embedding-001"
-)
+EMBEDDING_MODEL: str = os.getenv("SEARCH_INDEXER_EMBEDDING_MODEL", "gemini-embedding-001")
 EMBEDDING_DIM: int = _safe_int("SEARCH_INDEXER_EMBEDDING_DIM", 768)
 
 # Размер батча и пороги
 BATCH_SIZE: int = _safe_int("SEARCH_INDEXER_BATCH_SIZE", 50)
 _SAFE_DEFAULT_DEDUP: float = 0.15
 _raw_dedup = _safe_float("SEARCH_INDEXER_DEDUP_THRESHOLD", _SAFE_DEFAULT_DEDUP)
-DEDUP_DISTANCE_THRESHOLD: float = (
-    _raw_dedup if 0.0 < _raw_dedup < 2.0 else _SAFE_DEFAULT_DEDUP
-)
+DEDUP_DISTANCE_THRESHOLD: float = _raw_dedup if 0.0 < _raw_dedup < 2.0 else _SAFE_DEFAULT_DEDUP
 
 # Database pool
 POOL_MIN_SIZE: int = _safe_int("SEARCH_INDEXER_POOL_MIN", 2)
@@ -102,9 +99,7 @@ EMBED_TIMEOUT_S: int = _safe_int("SEARCH_INDEXER_EMBED_TIMEOUT", 60)
 
 # Fail-fast: максимальное количество подряд неудачных embed-вызовов
 # перед досрочным прекращением батча
-MAX_CONSECUTIVE_EMBED_ERRORS: int = _safe_int(
-    "SEARCH_INDEXER_MAX_CONSECUTIVE_ERRORS", 3
-)
+MAX_CONSECUTIVE_EMBED_ERRORS: int = _safe_int("SEARCH_INDEXER_MAX_CONSECUTIVE_ERRORS", 3)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -237,8 +232,6 @@ SQL_ACTIVATE_NO_EMBEDDING = """
 """
 
 
-
-
 # ──────────────────────────────────────────────────────────────────────
 # Embedding-клиент (Gemini)
 # ──────────────────────────────────────────────────────────────────────
@@ -307,7 +300,7 @@ class EmbeddingClient:
                     timeout=120_000,  # 120s общий таймаут SDK (мс)
                     client_args={
                         "timeout": httpx_lib.Timeout(
-                            120.0,        # default для read/write/pool
+                            120.0,  # default для read/write/pool
                             connect=60.0,  # 60s для SSL handshake (WSL2)
                         ),
                     },
@@ -326,9 +319,7 @@ class EmbeddingClient:
             try:
                 self._client.close()
             except Exception:
-                self._logger.debug(
-                    "Ignored error closing genai client", exc_info=True
-                )
+                self._logger.debug("Ignored error closing genai client", exc_info=True)
         self._client = None
 
     def _embed_sync(self, text: str) -> list[float]:
@@ -379,8 +370,7 @@ class EmbeddingClient:
         )
         if len(raw) != self._dim:
             raise ValueError(
-                f"Embedding dimension mismatch: expected {self._dim}, "
-                f"got {len(raw)} from model '{self._model}'"
+                f"Embedding dimension mismatch: expected {self._dim}, " f"got {len(raw)} from model '{self._model}'"
             )
         return _l2_normalize(raw)
 
@@ -422,8 +412,7 @@ class EmbeddingClient:
                 for i, raw in enumerate(raw_list):
                     if len(raw) != self._dim:
                         raise ValueError(
-                            f"Embedding dimension mismatch at index {i}: "
-                            f"expected {self._dim}, got {len(raw)}"
+                            f"Embedding dimension mismatch at index {i}: " f"expected {self._dim}, got {len(raw)}"
                         )
                     results.append(_l2_normalize(raw))
                 return results
@@ -439,10 +428,9 @@ class EmbeddingClient:
                 last_exc = exc
                 self._reset_client()  # свежий SSL-контекст
                 if attempt < max_retries - 1:
-                    delay = 2 ** attempt  # 1s, 2s
+                    delay = 2**attempt  # 1s, 2s
                     self._logger.warning(
-                        "Batch embed attempt %d/%d failed: %s. "
-                        "Retrying in %ds with fresh client...",
+                        "Batch embed attempt %d/%d failed: %s. " "Retrying in %ds with fresh client...",
                         attempt + 1,
                         max_retries,
                         type(exc).__name__,
@@ -453,10 +441,7 @@ class EmbeddingClient:
 
         if last_exc is not None:
             raise last_exc
-        raise RuntimeError(
-            "embed_batch: no exception captured; check max_retries "
-            f"(max_retries={max_retries})"
-        )
+        raise RuntimeError("embed_batch: no exception captured; check max_retries " f"(max_retries={max_retries})")
 
     async def close(self) -> None:
         """Освобождение ресурсов (закрытие httpx connection pool)."""
@@ -464,9 +449,7 @@ class EmbeddingClient:
             try:
                 self._client.close()
             except Exception:
-                self._logger.debug(
-                    "Ignored error closing genai client", exc_info=True
-                )
+                self._logger.debug("Ignored error closing genai client", exc_info=True)
         self._client = None
 
 
@@ -484,10 +467,7 @@ def _l2_normalize(vec: list[float]) -> list[float]:
     """
     norm = math.sqrt(sum(x * x for x in vec))
     if norm == 0.0:
-        raise ValueError(
-            "Невозможно L2-нормализовать вектор с нулевой нормой "
-            "(все компоненты равны 0)"
-        )
+        raise ValueError("Невозможно L2-нормализовать вектор с нулевой нормой " "(все компоненты равны 0)")
     return [x / norm for x in vec]
 
 
@@ -566,8 +546,7 @@ class SearchIndexerWorker:
                     },
                 )
             self.logger.info(
-                "Search Indexer Worker инициализирован "
-                "(model=%s, dim=%d, threshold=%.2f)",
+                "Search Indexer Worker инициализирован " "(model=%s, dim=%d, threshold=%.2f)",
                 EMBEDDING_MODEL,
                 EMBEDDING_DIM,
                 DEDUP_DISTANCE_THRESHOLD,
@@ -624,19 +603,14 @@ class SearchIndexerWorker:
             dict: {"processed": int, "duplicates": int, "skipped": int}
         """
         if not self.is_initialized:
-            raise RuntimeError(
-                "Search Indexer Worker не инициализирован. "
-                "Задача индексации не может быть запущена."
-            )
+            raise RuntimeError("Search Indexer Worker не инициализирован. " "Задача индексации не может быть запущена.")
 
         assert self._pool is not None
         assert self._embedder is not None
 
         # Phase 1: Fetch pending_indexing rows
         async with self._pool.acquire() as conn:
-            rows: Sequence[asyncpg.Record] = await conn.fetch(
-                SQL_FETCH_BATCH, BATCH_SIZE
-            )
+            rows: Sequence[asyncpg.Record] = await conn.fetch(SQL_FETCH_BATCH, BATCH_SIZE)
 
         if not rows:
             return {"processed": 0, "duplicates": 0, "skipped": 0}
@@ -681,8 +655,7 @@ class SearchIndexerWorker:
 
             if not description.strip():
                 self.logger.warning(
-                    "Позиция %s (%s): пустое описание — "
-                    "активация без эмбеддинга",
+                    "Позиция %s (%s): пустое описание — " "активация без эмбеддинга",
                     pos_id,
                     (title or "")[:80],
                     extra={"position_id": pos_id},
@@ -692,9 +665,7 @@ class SearchIndexerWorker:
 
             # Composite semantic string (unit-aware)
             if unit_name:
-                text_to_embed = (
-                    f"{description}. Единица измерения: {unit_name}"
-                )
+                text_to_embed = f"{description}. Единица измерения: {unit_name}"
             else:
                 text_to_embed = description
 
@@ -715,10 +686,7 @@ class SearchIndexerWorker:
                             "actual": len(embeddings),
                         },
                     )
-                    raise ValueError(
-                        f"Embedding count mismatch: "
-                        f"expected {len(texts)}, got {len(embeddings)}"
-                    )
+                    raise ValueError(f"Embedding count mismatch: " f"expected {len(texts)}, got {len(embeddings)}")
                 for (e_pos_id, e_title, e_kind, _, e_description_raw, e_updated_at_raw), embedding in zip(
                     embeddable_rows, embeddings, strict=True
                 ):
@@ -733,8 +701,7 @@ class SearchIndexerWorker:
                 )
             except Exception:
                 self.logger.exception(
-                    "Batch embedding failed for %d positions, "
-                    "rows remain pending_indexing for next run",
+                    "Batch embedding failed for %d positions, " "rows remain pending_indexing for next run",
                     len(embeddable_rows),
                     extra={"embed_error_count": len(embeddable_rows)},
                 )
@@ -745,10 +712,7 @@ class SearchIndexerWorker:
 
         # embed_error rows остаются в 'pending_indexing' — будут обработаны
         # при следующем запуске задачи.
-        embed_error_ids = [
-            pid for pid, _, _, _, reason, _, _ in embed_results
-            if reason == "embed_error"
-        ]
+        embed_error_ids = [pid for pid, _, _, _, reason, _, _ in embed_results if reason == "embed_error"]
         if embed_error_ids:
             self.logger.warning(
                 "Embed errors for %d rows (will retry next run): %s",
@@ -762,13 +726,9 @@ class SearchIndexerWorker:
             for pos_id, title, kind, emb_literal, skip_reason, _, updated_at_raw in embed_results:
                 if skip_reason == "no_description":
                     if kind == "GROUP_TITLE" and title is not None:
-                        result = await conn.execute(
-                            SQL_ACTIVATE_GROUP_NO_EMBEDDING, title, pos_id, updated_at_raw
-                        )
+                        result = await conn.execute(SQL_ACTIVATE_GROUP_NO_EMBEDDING, title, pos_id, updated_at_raw)
                     else:
-                        result = await conn.execute(
-                            SQL_ACTIVATE_NO_EMBEDDING, pos_id, updated_at_raw
-                        )
+                        result = await conn.execute(SQL_ACTIVATE_NO_EMBEDDING, pos_id, updated_at_raw)
                     if result == "UPDATE 1":
                         skipped += 1
                     else:
@@ -789,8 +749,7 @@ class SearchIndexerWorker:
                 # (no_description and embed_error were handled above)
                 if emb_literal is None:
                     raise ValueError(
-                        f"emb_literal is None for pos_id={pos_id} "
-                        f"— unexpected: skip_reason should have been set"
+                        f"emb_literal is None for pos_id={pos_id} " f"— unexpected: skip_reason should have been set"
                     )
 
                 early_guard_fired = False
@@ -824,34 +783,35 @@ class SearchIndexerWorker:
                             )
                         else:
                             # Deduplication check
-                            dup = await conn.fetchrow(
-                                SQL_FIND_DUPLICATE,
-                                emb_literal,
-                                pos_id,
-                            )
-
-                            if dup is not None:
-                                distance: float = dup["distance"]
-                                similarity = 1.0 - distance
-                                main_id: int = dup["id"]
-
-                                await conn.execute(
-                                    SQL_INSERT_MERGE,
-                                    main_id,
+                            if kind == "POSITION":
+                                dup = await conn.fetchrow(
+                                    SQL_FIND_DUPLICATE,
+                                    emb_literal,
                                     pos_id,
-                                    round(similarity, 6),
                                 )
-                                duplicates += 1
-                                self.logger.warning(
-                                    "Duplicate candidate found: %s resembles %s",
-                                    pos_id,
-                                    main_id,
-                                    extra={
-                                        "position_id": pos_id,
-                                        "duplicate_id": main_id,
-                                        "similarity": round(similarity, 6),
-                                    },
-                                )
+
+                                if dup is not None:
+                                    distance: float = dup["distance"]
+                                    similarity = 1.0 - distance
+                                    main_id: int = dup["id"]
+
+                                    await conn.execute(
+                                        SQL_INSERT_MERGE,
+                                        main_id,
+                                        pos_id,
+                                        round(similarity, 6),
+                                    )
+                                    duplicates += 1
+                                    self.logger.warning(
+                                        "Duplicate candidate found: %s resembles %s",
+                                        pos_id,
+                                        main_id,
+                                        extra={
+                                            "position_id": pos_id,
+                                            "duplicate_id": main_id,
+                                            "similarity": round(similarity, 6),
+                                        },
+                                    )
 
                             # Activate with status guard + concurrency guard
                             if kind == "GROUP_TITLE" and title is not None:
@@ -863,9 +823,7 @@ class SearchIndexerWorker:
                                     updated_at_raw,
                                 )
                             else:
-                                activate_result = await conn.execute(
-                                    SQL_ACTIVATE, emb_literal, pos_id, updated_at_raw
-                                )
+                                activate_result = await conn.execute(SQL_ACTIVATE, emb_literal, pos_id, updated_at_raw)
 
                     if early_guard_fired:
                         # Already logged; row stays pending_indexing for re-indexing.
@@ -881,8 +839,7 @@ class SearchIndexerWorker:
                         )
                     else:
                         self.logger.warning(
-                            "Activate no-op pos_id=%s "
-                            "(status guard: строка обработана другим воркером)",
+                            "Activate no-op pos_id=%s " "(status guard: строка обработана другим воркером)",
                             pos_id,
                             extra={"position_id": pos_id, "kind": kind},
                         )

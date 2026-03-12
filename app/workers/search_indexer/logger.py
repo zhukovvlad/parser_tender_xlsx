@@ -33,24 +33,39 @@ class _JsonFormatter(logging.Formatter):
         # Дополнительные поля, прокидываемые через extra={}
         # Сохраняем все кастомные атрибуты, не только захардкоженный whitelist.
         for key, val in vars(record).items():
-            if (
-                key not in log_obj
-                and key not in _STANDARD_LOG_ATTRS
-                and not key.startswith("_")
-            ):
+            if key not in log_obj and key not in _STANDARD_LOG_ATTRS and not key.startswith("_"):
                 log_obj[key] = val
         return json.dumps(log_obj, ensure_ascii=False)
 
 
 # Стандартные атрибуты LogRecord, которые не нужно дублировать в JSON.
-_STANDARD_LOG_ATTRS = frozenset({
-    "name", "msg", "args", "created", "relativeCreated",
-    "thread", "threadName", "process", "processName",
-    "pathname", "filename", "module", "funcName",
-    "levelno", "levelname", "lineno", "msecs",
-    "stack_info", "exc_info", "exc_text", "message", "asctime",
-    "taskName",
-})
+_STANDARD_LOG_ATTRS = frozenset(
+    {
+        "name",
+        "msg",
+        "args",
+        "created",
+        "relativeCreated",
+        "thread",
+        "threadName",
+        "process",
+        "processName",
+        "pathname",
+        "filename",
+        "module",
+        "funcName",
+        "levelno",
+        "levelname",
+        "lineno",
+        "msecs",
+        "stack_info",
+        "exc_info",
+        "exc_text",
+        "message",
+        "asctime",
+        "taskName",
+    }
+)
 
 
 def setup_search_indexer_logger(
@@ -85,9 +100,7 @@ def setup_search_indexer_logger(
     # Определяем уровень логгирования
     # Приоритет: параметр > SEARCH_INDEXER_LOG_LEVEL > LOG_LEVEL > INFO
     if log_level is None:
-        log_level = os.getenv(
-            "SEARCH_INDEXER_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO")
-        )
+        log_level = os.getenv("SEARCH_INDEXER_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO"))
 
     # Используем встроенную конвертацию имени уровня (поддерживает
     # DEBUG, INFO, WARNING, ERROR, CRITICAL, FATAL и их числовые значения)

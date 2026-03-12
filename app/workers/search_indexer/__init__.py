@@ -9,4 +9,3 @@ from .worker import SearchIndexerWorker
 __all__ = [
     "SearchIndexerWorker",
 ]
-

@@ -66,17 +66,19 @@ def _parse_int_env(var_name: str, default: int) -> int:
         parsed = int(raw_value)
     except ValueError:
         logger.warning(
-            "%s=%s не является валидным числом. "
-            "Используется значение по умолчанию: %d",
-            var_name, raw_value, default,
+            "%s=%s не является валидным числом. " "Используется значение по умолчанию: %d",
+            var_name,
+            raw_value,
+            default,
         )
         return default
     else:
         if parsed <= 0:
             logger.warning(
-                "%s=%s должен быть положительным числом. "
-                "Используется значение по умолчанию: %d",
-                var_name, raw_value, default,
+                "%s=%s должен быть положительным числом. " "Используется значение по умолчанию: %d",
+                var_name,
+                raw_value,
+                default,
             )
             return default
         return parsed
@@ -130,21 +132,13 @@ async def get_worker_instance_async():
     current_pid = os.getpid()
 
     # Fast path: worker already initialized for this process
-    if (
-        worker_instance is not None
-        and worker_instance_pid == current_pid
-        and worker_instance.is_initialized
-    ):
+    if worker_instance is not None and worker_instance_pid == current_pid and worker_instance.is_initialized:
         return worker_instance
 
     # Slow path: acquire lock, re-check, then initialize
     async with _worker_init_lock:
         # Re-check after acquiring lock (another coroutine may have initialized)
-        if (
-            worker_instance is not None
-            and worker_instance_pid == current_pid
-            and worker_instance.is_initialized
-        ):
+        if worker_instance is not None and worker_instance_pid == current_pid and worker_instance.is_initialized:
             return worker_instance
 
         # Закрываем старый инстанс (унаследованный от родительского процесса)
@@ -152,9 +146,7 @@ async def get_worker_instance_async():
             try:
                 await worker_instance.shutdown()
             except Exception as exc:
-                logger.warning(
-                    "Не удалось закрыть старый worker instance: %s", exc
-                )
+                logger.warning("Не удалось закрыть старый worker instance: %s", exc)
             worker_instance = None
             worker_instance_pid = None
 
@@ -182,13 +174,11 @@ async def get_worker_instance_async():
                     await new_worker.shutdown()
                 except Exception as shutdown_exc:
                     logger.warning(
-                        "Не удалось закрыть частично инициализированный "
-                        "worker: %s",
+                        "Не удалось закрыть частично инициализированный " "worker: %s",
                         shutdown_exc,
                     )
             logger.critical(
-                f"Ошибка инициализации Search Indexer Worker "
-                f"в процессе {current_pid}: {e}",
+                f"Ошибка инициализации Search Indexer Worker " f"в процессе {current_pid}: {e}",
                 exc_info=True,
             )
             return None
@@ -211,10 +201,7 @@ def setup_search_indexer(sender, **kwargs):
         sender: Celery worker instance (автоматически)
         **kwargs: Дополнительные параметры signal (автоматически)
     """
-    logger.info(
-        "Сигнал 'worker_ready' получен. "
-        "Запуск инициализации Search Indexer Worker..."
-    )
+    logger.info("Сигнал 'worker_ready' получен. " "Запуск инициализации Search Indexer Worker...")
     global worker_instance, worker_instance_pid
     worker_instance = None
     worker_instance_pid = None
@@ -225,8 +212,7 @@ def setup_search_indexer(sender, **kwargs):
         logger.info("Инициализация Search Indexer Worker завершена успешно.")
     except Exception as e:
         logger.critical(
-            f"Критическая ошибка при инициализации Search Indexer "
-            f"в 'worker_ready': {e}",
+            f"Критическая ошибка при инициализации Search Indexer " f"в 'worker_ready': {e}",
             exc_info=True,
         )
         if worker_instance is not None:
@@ -234,8 +220,7 @@ def setup_search_indexer(sender, **kwargs):
                 run_async(worker_instance.shutdown())
             except Exception as shutdown_exc:
                 logger.warning(
-                    "Не удалось закрыть частично инициализированный "
-                    "worker в 'worker_ready': %s",
+                    "Не удалось закрыть частично инициализированный " "worker в 'worker_ready': %s",
                     shutdown_exc,
                 )
             worker_instance = None
@@ -254,23 +239,16 @@ async def run_search_indexing_task_async():
     worker = await get_worker_instance_async()
 
     if not worker or not worker.is_initialized:
-        logger.error(
-            "Search Indexer Worker не инициализирован. "
-            "Задача индексации пропущена."
-        )
+        logger.error("Search Indexer Worker не инициализирован. " "Задача индексации пропущена.")
         return {"status": "error", "message": "Worker not initialized"}
 
     logger.info("--- (Search Indexer) Запуск задачи индексации ---")
     try:
-        result = await asyncio.wait_for(
-            worker.run_indexing(), timeout=INDEXER_TIMEOUT
-        )
+        result = await asyncio.wait_for(worker.run_indexing(), timeout=INDEXER_TIMEOUT)
         logger.info(f"--- (Search Indexer) Задача завершена: {result} ---")
         return result
     except asyncio.TimeoutError:
-        logger.error(
-            "Search Indexer превысил timeout (%ds)", INDEXER_TIMEOUT
-        )
+        logger.error("Search Indexer превысил timeout (%ds)", INDEXER_TIMEOUT)
         return {
             "status": "error",
             "message": f"Timeout after {INDEXER_TIMEOUT}s",
@@ -314,9 +292,7 @@ def run_search_indexing_task():
     )
     acquired = lock.acquire(blocking=False)  # не ждём — сразу отказ если занят
     if not acquired:
-        logger.info(
-            "Задача индексации пропущена: другой экземпляр уже работает."
-        )
+        logger.info("Задача индексации пропущена: другой экземпляр уже работает.")
         return {
             "status": "skipped",
             "message": "Another instance is running",

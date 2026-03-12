@@ -53,8 +53,7 @@ def _ensure_loop() -> asyncio.AbstractEventLoop:
                         # Thread didn't stop in time — skip close to avoid
                         # RuntimeError on a still-running loop.
                         _logger.warning(
-                            "async_runner thread did not stop within 5s; "
-                            "skipping loop.close() to avoid RuntimeError"
+                            "async_runner thread did not stop within 5s; " "skipping loop.close() to avoid RuntimeError"
                         )
                     else:
                         _loop.close()
@@ -132,6 +131,4 @@ def run_async(
         return future.result(timeout=timeout)
     except concurrent.futures.TimeoutError:
         future.cancel()
-        raise TimeoutError(
-            f"run_async: coroutine did not complete within {timeout}s"
-        ) from None
+        raise TimeoutError(f"run_async: coroutine did not complete within {timeout}s") from None

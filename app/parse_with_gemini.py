@@ -213,7 +213,7 @@ def parse_with_ids(
             failed_dir = Path("temp_tender_data") / "failed_imports"
             failed_dir.mkdir(parents=True, exist_ok=True)
             raw_tender_id = processed_data.get("tender_id") or "unknown"
-            tender_id = re.sub(r'[^A-Za-z0-9._-]', '_', raw_tender_id)[:200] or "unknown"
+            tender_id = re.sub(r"[^A-Za-z0-9._-]", "_", raw_tender_id)[:200] or "unknown"
             ts = time.strftime("%Y%m%d_%H%M%S")
             failed_path = failed_dir / f"{tender_id}_{ts}.json"
             with open(failed_path, "w", encoding="utf-8") as f:

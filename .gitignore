@@ -69,3 +69,6 @@ htmlcov/
 # Тестовые Excel файлы (содержат реальные данные)
 app/tests/test_data/*.xlsx
 app/tests/test_data/*.xls
+
+# Исключаем директорию с небольшими экспериментами и тестами
+/small_fun/
