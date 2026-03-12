@@ -191,6 +191,31 @@ app/workers/semantic_clusterer/
 Исправлено `gemini-2.0-flash` → `gemini-2.5-flash` в default значении
 `SEMANTIC_CLUSTERER_LLM_MODEL`.
 
+### R8. `n_components` может стать 0 (Copilot)
+
+`min(UMAP_N_COMPONENTS, len(embeddings) - 1)` даёт 0 при одном embedding.
+Добавлен `max(1, ...)` — UMAP получает валидный `n_components ≥ 1`.
+
+### R9. `logging.getLevelName` не работает для name→int (Copilot) — НЕ ПРИМЕНЕНО
+
+Замечание ошибочно: `logging.getLevelName("INFO")` возвращает `20` (int),
+а не строку. Текущий код с `isinstance(numeric_level, int)` guard корректен.
+
+### R13. Lock TTL < hard time_limit (Copilot)
+
+`_CLUSTERER_LOCK_TTL = 3720` (soft_time_limit + 120) был меньше
+`time_limit = 3900`. Лок мог истечь до SIGKILL. Исправлено: `3900 + 120 = 4020`.
+
+### R10/R11. TESTING_CHECKLIST: `status='active'` → `'pending_indexing'` (Copilot+CodeRabbit)
+
+Две строки в чеклисте (§3.10.4, §4.5) ещё указывали `status='active'` для
+GROUP_TITLE. Выровнено с фактическим SQL в `worker.py`.
+
+### R12. Нет автоматических тестов (Copilot) — ОТЛОЖЕНО
+
+Тест-спецификация уже в `TESTING_CHECKLIST.md` (§3.10–3.12, §4.5–4.6).
+Реализация тестов — отдельная задача.
+
 ### Nitpick: Пиннинг ML-зависимостей (CodeRabbit) — ОТЛОЖЕНО
 
 Рекомендация пиннить `umap-learn`, `hdbscan`, `scikit-learn` до точных версий.

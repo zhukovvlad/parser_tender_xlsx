@@ -312,7 +312,7 @@
 
 #### 3.10.4 `_persist_clusters()`
 
-- [ ] **INSERT GROUP_TITLE** — создаётся строка с `kind='GROUP_TITLE'`, `status='active'`
+- [ ] **INSERT GROUP_TITLE** — создаётся строка с `kind='GROUP_TITLE'`, `status='pending_indexing'`
 - [ ] **UPDATE parent_id** — все `member_ids` получают `parent_id` = новый `id`
 - [ ] **Одна транзакция** — INSERT + UPDATE в одном `conn.transaction()`
 - [ ] **Rollback** — ошибка внутри транзакции → ни один INSERT/UPDATE не применяется
@@ -391,7 +391,7 @@
 - [ ] **LLM fallback** — Gemini недоступен → кластеры именуются «Авто-группа»
 - [ ] **LLM пустой ответ** — Gemini вернул пустую строку → fallback «Авто-группа»
 - [ ] **parent_id обновляется** — после persist позиции-члены имеют `parent_id` = id новой группы
-- [ ] **GROUP_TITLE создаётся** — новые строки в `catalog_positions` с `kind='GROUP_TITLE'`, `status='active'`
+- [ ] **GROUP_TITLE создаётся** — новые строки в `catalog_positions` с `kind='GROUP_TITLE'`, `status='pending_indexing'`
 - [ ] **Idempotency** — повторный запуск не создаёт дубликатов (позиции уже имеют `parent_id IS NOT NULL`)
 
 ### 4.6 Semantic Clusterer Celery-задача (eager mode + мок Redis)

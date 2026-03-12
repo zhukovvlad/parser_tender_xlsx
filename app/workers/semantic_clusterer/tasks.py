@@ -32,8 +32,8 @@ STATUS_TTL_SECONDS = int(os.getenv("STATUS_TTL_SECONDS", "7200"))
 
 # Ключ для Redis-lock (не допускает параллельных задач кластеризации)
 _CLUSTERER_LOCK_KEY = "semantic_clusterer:run_lock"
-# TTL для Redis-lock: soft_time_limit + запас 120с на graceful shutdown/cleanup
-_CLUSTERER_LOCK_TTL = 3600 + 120
+# TTL для Redis-lock: hard time_limit (3900с) + запас 120с на graceful shutdown/cleanup
+_CLUSTERER_LOCK_TTL = 3900 + 120
 
 
 # ──────────────────────────────────────────────────────────────────────

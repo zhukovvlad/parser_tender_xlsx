@@ -243,7 +243,7 @@ class SemanticClustererWorker:
             )
             return {}
 
-        n_components = min(UMAP_N_COMPONENTS, len(embeddings) - 1)
+        n_components = max(1, min(UMAP_N_COMPONENTS, len(embeddings) - 1))
 
         reducer = umap.UMAP(
             n_components=n_components,
