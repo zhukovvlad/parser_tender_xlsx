@@ -26,9 +26,14 @@ from .worker import SemanticClustererWorker
 
 load_dotenv()
 
-logger = get_semantic_clusterer_logger("tasks")
+logger = get_semantic_clusterer_logger("semantic_clusterer.tasks")
 
 STATUS_TTL_SECONDS = int(os.getenv("STATUS_TTL_SECONDS", "7200"))
+
+# Ключ для Redis-lock (не допускает параллельных задач кластеризации)
+_CLUSTERER_LOCK_KEY = "semantic_clusterer:run_lock"
+# TTL для Redis-lock: soft_time_limit + запас 120с на graceful shutdown/cleanup
+_CLUSTERER_LOCK_TTL = 3600 + 120
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -103,9 +108,19 @@ def run_semantic_clustering(self, task_id: str):
     start = time.time()
     logger.info("Task %s: start semantic clustering", task_id)
 
+    # Распределённая блокировка: не допускает параллельных задач кластеризации,
+    # которые могут обработать одни и те же позиции и создать конфликтующие группы.
+    lock = redis_client.lock(_CLUSTERER_LOCK_KEY, timeout=_CLUSTERER_LOCK_TTL, blocking=False)
+    if not lock.acquire(blocking=False):
+        logger.warning("Task %s: another clustering task is running, skipping.", task_id)
+        _safe_set_status(task_id, {"status": "skipped", "error": "another clustering task is running"})
+        return {"task_id": task_id, "status": "skipped"}
+
     _safe_set_status(task_id, {"status": "processing", "stage": "fetching_data"})
 
     try:
+        # TODO(R5): run_async не поддерживает отмену корутины при SoftTimeLimitExceeded.
+        # С --concurrency=1 корутина завершится при перезапуске процесса.
         clusters_found = run_async(_run_clustering_async(task_id))
 
         _safe_set_status(task_id, {"status": "completed", "clusters_found": clusters_found})
@@ -131,8 +146,15 @@ def run_semantic_clustering(self, task_id: str):
             },
         )
         logger.exception("Task %s: error (retry %s/%s)", task_id, self.request.retries, self.max_retries)
-        raise self.retry(exc=e, countdown=60 * (self.request.retries + 1))
+        if will_retry:
+            raise self.retry(exc=e, countdown=60 * (self.request.retries + 1))
+        else:
+            raise
     finally:
+        try:
+            lock.release()
+        except Exception:
+            logger.debug("Task %s: lock release failed (may have expired)", task_id, exc_info=True)
         duration = time.time() - start
         logger.info("Task %s: finished in %.2fs", task_id, duration)
 

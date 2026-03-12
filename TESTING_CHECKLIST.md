@@ -286,6 +286,63 @@
 - [ ] **GROUP_TITLE end-to-end** — лемматизация → embed → dedup → `SQL_ACTIVATE_GROUP` → `active` + обновлённый title в БД
 - [ ] **`embed_results` кортежи** содержат `kind`, `description_raw` и `updated_at_raw` для всех строк
 
+### 3.10 Semantic Clusterer Worker (`semantic_clusterer/worker.py`)
+
+#### 3.10.1 Конфигурация
+
+- [ ] **`_safe_int`** — корректные значения, пустая строка, невалидная строка → default
+- [ ] **Env-переменные** — `SEMANTIC_CLUSTERER_UMAP_COMPONENTS`, `SEMANTIC_CLUSTERER_HDBSCAN_MIN_SIZE`, `SEMANTIC_CLUSTERER_LLM_TOP_K` корректно парсятся
+
+#### 3.10.2 `_run_ml_pipeline()`
+
+- [ ] **Happy path** — массив embeddings → dict `{label: [indices]}`, выбросы отброшены
+- [ ] **Мало данных** — `len(embeddings) < min_cluster_size` → пустой dict
+- [ ] **`n_components` capping** — `n_components = min(15, len(data)-1)` при малых данных
+- [ ] **Сортировка по probabilities** — члены кластера отсортированы desc по `probabilities_`
+- [ ] **Все выбросы** — все метки `-1` → пустой dict
+- [ ] **Детерминизм** — `random_state=42` → воспроизводимые результаты при одинаковых данных
+
+#### 3.10.3 `_get_cluster_name()`
+
+- [ ] **Happy path** — LLM возвращает название → stripped строка без кавычек
+- [ ] **Пустой ответ LLM** → fallback «Авто-группа»
+- [ ] **Ошибка API** → fallback «Авто-группа», warning в лог
+- [ ] **Нет `GOOGLE_API_KEY`** → fallback «Авто-группа», warning в лог
+- [ ] **Ответ с кавычками** — `"Бетонные работы"` → `Бетонные работы`
+
+#### 3.10.4 `_persist_clusters()`
+
+- [ ] **INSERT GROUP_TITLE** — создаётся строка с `kind='GROUP_TITLE'`, `status='active'`
+- [ ] **UPDATE parent_id** — все `member_ids` получают `parent_id` = новый `id`
+- [ ] **Одна транзакция** — INSERT + UPDATE в одном `conn.transaction()`
+- [ ] **Rollback** — ошибка внутри транзакции → ни один INSERT/UPDATE не применяется
+
+#### 3.10.5 `_fetch_positions()`
+
+- [ ] **Фильтрация** — возвращает только `status='active'`, `kind='POSITION'`, `parent_id IS NULL`, `embedding IS NOT NULL`
+- [ ] **Пустая выборка** — нет подходящих строк → пустой список
+
+#### 3.10.6 Жизненный цикл
+
+- [ ] **`initialize()`** — создаёт asyncpg pool, `is_initialized = True`
+- [ ] **`shutdown()`** — закрывает pool и genai client, `is_initialized = False`
+- [ ] **Ленивый genai client** — создаётся при первом вызове `_get_genai_client()`
+
+### 3.11 Semantic Clusterer Tasks (`semantic_clusterer/tasks.py`)
+
+- [ ] **`make_redis()`** — поддерживает `REDIS_URL` и `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD`
+- [ ] **`_safe_set_status`** — ошибка Redis → warning в лог, не raise
+- [ ] **`_bump_ttl`** — ошибка Redis → silent pass
+- [ ] **`STATUS_TTL_SECONDS`** — читается из env, default 7200
+
+### 3.12 Semantic Clusterer Logger (`semantic_clusterer/logger.py`)
+
+- [ ] **`_JsonFormatter`** — формирует валидный JSON с `ts`, `level`, `logger`, `msg`
+- [ ] **`_JsonFormatter`** — `exc_info` → поле `exc` в JSON
+- [ ] **`_JsonFormatter`** — кастомные `extra={}` → дополнительные поля в JSON
+- [ ] **`get_semantic_clusterer_logger`** — повторный вызов → тот же логгер без повторной настройки
+- [ ] **Guard `_semantic_clusterer_configured`** — предотвращает дублирование хендлеров
+
 ---
 
 ## IV. Интеграционные тесты
@@ -323,6 +380,29 @@
 - [ ] **Смешанный батч POSITION + GROUP_TITLE** — оба типа обрабатываются корректно в одном прогоне
 - [ ] **SKIP LOCKED — конкурентные воркеры** — два параллельных `run_indexing()` не обрабатывают одни и те же строки (интеграционный тест с реальной БД)
 - [ ] **Optimistic guard — admin wins** — строка остаётся `pending_indexing` если запись изменилась (любое поле, обновился `updated_at`) между Phase 1 и Phase 3 (интеграционный тест с реальной БД)
+
+### 4.5 Semantic Clusterer (с тестовой БД + мок Gemini)
+
+- [ ] **Full pipeline** — позиции с embeddings → UMAP → HDBSCAN → LLM naming → INSERT GROUP_TITLE + UPDATE parent_id
+- [ ] **Пустая выборка** — нет позиций с embeddings → `clusters_found=0`, без побочных эффектов
+- [ ] **Мало позиций** — меньше `min_cluster_size` → HDBSCAN не находит кластеров, `clusters_found=0`
+- [ ] **Все выбросы** — HDBSCAN все метки `-1` → `clusters_found=0`
+- [ ] **Транзакционность Phase 4** — ошибка в середине persist → все INSERT/UPDATE откатываются
+- [ ] **LLM fallback** — Gemini недоступен → кластеры именуются «Авто-группа»
+- [ ] **LLM пустой ответ** — Gemini вернул пустую строку → fallback «Авто-группа»
+- [ ] **parent_id обновляется** — после persist позиции-члены имеют `parent_id` = id новой группы
+- [ ] **GROUP_TITLE создаётся** — новые строки в `catalog_positions` с `kind='GROUP_TITLE'`, `status='active'`
+- [ ] **Idempotency** — повторный запуск не создаёт дубликатов (позиции уже имеют `parent_id IS NOT NULL`)
+
+### 4.6 Semantic Clusterer Celery-задача (eager mode + мок Redis)
+
+- [ ] **Статус `processing`** — устанавливается при старте задачи
+- [ ] **Статус `completed`** — устанавливается при успехе, содержит `clusters_found`
+- [ ] **Статус `failed`** — устанавливается при финальной ошибке, содержит `error`
+- [ ] **Статус `retrying`** — устанавливается при ретраируемой ошибке, содержит `retry` и `max_retries`
+- [ ] **SoftTimeLimitExceeded** — статус `failed`, не ретраится
+- [ ] **`_bump_ttl`** — TTL продлевается между фазами
+- [ ] **`_safe_set_status`** — ошибка Redis не ломает задачу
 
 ---
 

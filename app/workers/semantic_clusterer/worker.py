@@ -53,7 +53,7 @@ DB_PORT: int = _safe_int("DB_PORT", 5432)
 DB_NAME: str = os.getenv("DB_NAME", "tendersdb")
 
 GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
-LLM_MODEL: str = os.getenv("SEMANTIC_CLUSTERER_LLM_MODEL", "gemini-2.0-flash")
+LLM_MODEL: str = os.getenv("SEMANTIC_CLUSTERER_LLM_MODEL", "gemini-2.5-flash")
 
 POOL_MIN_SIZE: int = _safe_int("SEMANTIC_CLUSTERER_POOL_MIN", 2)
 POOL_MAX_SIZE: int = _safe_int("SEMANTIC_CLUSTERER_POOL_MAX", 5)
@@ -77,7 +77,7 @@ SQL_FETCH_POSITIONS = """
 
 SQL_INSERT_GROUP = """
     INSERT INTO catalog_positions (standard_job_title, kind, status, updated_at)
-    VALUES ($1, 'GROUP_TITLE', 'active', NOW())
+    VALUES ($1, 'GROUP_TITLE', 'pending_indexing', NOW())
     RETURNING id
 """
 
@@ -85,6 +85,7 @@ SQL_UPDATE_PARENT = """
     UPDATE catalog_positions
     SET parent_id = $1, updated_at = NOW()
     WHERE id = ANY($2::bigint[])
+      AND parent_id IS NULL
 """
 
 
@@ -97,7 +98,7 @@ class SemanticClustererWorker:
     """Семантическая кластеризация позиций каталога."""
 
     def __init__(self) -> None:
-        self.logger = get_semantic_clusterer_logger("worker")
+        self.logger = get_semantic_clusterer_logger("semantic_clusterer.worker")
         self._pool: asyncpg.Pool | None = None
         self._genai_client: Any = None
         self.is_initialized: bool = False
@@ -135,12 +136,21 @@ class SemanticClustererWorker:
 
     def _get_genai_client(self):
         if self._genai_client is None:
+            import httpx as httpx_lib  # noqa: E402  # импорт после fork!
             from google import genai  # noqa: E402
             from google.genai import types  # noqa: E402
 
             self._genai_client = genai.Client(
                 api_key=GOOGLE_API_KEY,
-                http_options=types.HttpOptions(timeout=60_000),
+                http_options=types.HttpOptions(
+                    timeout=120_000,  # 120s общий таймаут SDK (мс)
+                    client_args={
+                        "timeout": httpx_lib.Timeout(
+                            120.0,  # default для read/write/pool
+                            connect=60.0,  # 60s для SSL handshake (WSL2)
+                        ),
+                    },
+                ),
             )
         return self._genai_client
 
