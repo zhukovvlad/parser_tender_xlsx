@@ -201,6 +201,7 @@ class ClusterizeParams(BaseModel):
 
     min_cluster_size: int | None = None
     umap_components: int | None = None
+    umap_neighbors: int | None = None
     llm_top_k: int | None = None
 
 
@@ -379,7 +380,7 @@ async def process_single_positions_file(payload: PositionsRequest = Body(...)):
 
 
 @app.post("/clusterize", status_code=202, tags=["Clustering"])
-async def create_clustering_task(params: ClusterizeParams):
+async def create_clustering_task(params: ClusterizeParams = Body(default=ClusterizeParams())):
     """Запускает фоновую задачу семантической кластеризации catalog_positions."""
     task_id = str(uuid.uuid4())
     # Фильтруем None — воркер подставит свои env-var дефолты для незаданных полей

@@ -317,8 +317,8 @@
 
 #### 3.10.4 `_persist_clusters()`
 
-- [x] **INSERT GROUP_TITLE** — `ON CONFLICT DO NOTHING` + UNION ALL fallback SELECT; атомарен
-- [x] **INSERT GROUP_TITLE** — возвращает `id` существующего `GROUP_TITLE` при коллизии (любой статус)
+- [ ] **INSERT GROUP_TITLE** — `ON CONFLICT DO NOTHING` + UNION ALL fallback SELECT; атомарен *(тесты мокают fetchval, SQL не проверяется)*
+- [ ] **INSERT GROUP_TITLE** — возвращает `id` существующего `GROUP_TITLE` при коллизии (любой статус) *(indirect)*
 - [x] **UPDATE parent_id** — все `member_ids` получают `parent_id` = group_id
 - [x] **Одна транзакция** — все INSERT + UPDATE в одном `conn.transaction()`
 - [x] **`group_id is None`** — мягкий сбой: `continue` + warning, остальные кластеры сохраняются
@@ -326,9 +326,9 @@
 
 #### 3.10.5 `_fetch_positions()`
 
-- [x] **Фильтрация** — возвращает только `status='active'`, `kind='POSITION'`, `parent_id IS NULL`, `embedding IS NOT NULL`
+- [ ] **Фильтрация** — возвращает только `status='active'`, `kind='POSITION'`, `parent_id IS NULL`, `embedding IS NOT NULL` *(SQL WHERE не проверяется, курсор замокан)*
 - [x] **Тип возврата** — `tuple[list[int], list[str], np.ndarray]`
-- [x] **Бинарный pgvector** — `register_vector` в `init_conn` пула; `record["embedding"]` → `np.ndarray` без `json.loads`
+- [ ] **Бинарный pgvector** — `register_vector` в `init_conn` пула; `record["embedding"]` → `np.ndarray` без `json.loads` *(тест проверяет callable, но не вызывает init_conn)*
 - [x] **Серверный курсор** — `conn.cursor()` внутри `conn.transaction()`; не загружает всё в RAM
 - [x] **`np.stack`** — сборка 2D-матрицы из списка 1D-векторов
 - [x] **Пустая выборка** — нет подходящих строк → `([], [], np.array([]))`

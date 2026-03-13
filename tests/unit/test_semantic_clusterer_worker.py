@@ -28,7 +28,11 @@ import pytest
 
 def run_sync(coro):
     """Запускает корутину в новом event loop (изоляция между тестами)."""
-    return asyncio.new_event_loop().run_until_complete(coro)
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 # ---------------------------------------------------------------------------
@@ -734,7 +738,7 @@ class TestLifecycle:
         import pathlib
 
         path = pathlib.Path(__file__).parent.parent.parent / "app" / "workers" / "semantic_clusterer" / "worker.py"
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
 
         top_level_modules = []
         for node in ast.iter_child_nodes(tree):

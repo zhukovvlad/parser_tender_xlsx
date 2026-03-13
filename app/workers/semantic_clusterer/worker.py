@@ -146,10 +146,11 @@ class SemanticClustererWorker:
         self._genai_client: Any = None
         self.is_initialized: bool = False
         self.params = params or {}
-        self.min_cluster_size: int = self.params.get("min_cluster_size", HDBSCAN_MIN_CLUSTER_SIZE)
-        self.umap_components: int = self.params.get("umap_components", UMAP_N_COMPONENTS)
-        self.umap_neighbors: int = self.params.get("umap_neighbors", UMAP_N_NEIGHBORS)
-        self.llm_top_k: int = self.params.get("llm_top_k", LLM_TOP_K)
+        _p = self.params
+        self.min_cluster_size: int = _p["min_cluster_size"] if _p.get("min_cluster_size") is not None else HDBSCAN_MIN_CLUSTER_SIZE
+        self.umap_components: int = _p["umap_components"] if _p.get("umap_components") is not None else UMAP_N_COMPONENTS
+        self.umap_neighbors: int = _p["umap_neighbors"] if _p.get("umap_neighbors") is not None else UMAP_N_NEIGHBORS
+        self.llm_top_k: int = _p["llm_top_k"] if _p.get("llm_top_k") is not None else LLM_TOP_K
         self.logger.info(
             "Параметры кластеризации: min_cluster_size=%d, umap_components=%d, umap_neighbors=%d, llm_top_k=%d "
             "(raw payload: %s)",
@@ -403,7 +404,12 @@ class SemanticClustererWorker:
             rejected.append(name)
 
         # Все попытки исчерпаны — суффикс для уникальности
-        fallback = f"{rejected[-1]} (группа)"
+        base = rejected[-1] if rejected else "Авто-группа"
+        fallback = f"{base} (группа)"
+        suffix = 2
+        while fallback.lower() in existing_names or fallback.lower() in used_names:
+            fallback = f"{base} (группа {suffix})"
+            suffix += 1
         self.logger.warning("All LLM retries exhausted, using fallback: '%s'", fallback)
         return fallback
 
