@@ -36,6 +36,7 @@ from datetime import datetime
 from typing import Any, Dict, Sequence
 
 import asyncpg
+from asyncpg.exceptions import UniqueViolationError
 from dotenv import load_dotenv
 
 from .logger import get_search_indexer_logger
@@ -844,6 +845,42 @@ class SearchIndexerWorker:
                             extra={"position_id": pos_id, "kind": kind},
                         )
 
+                except UniqueViolationError:
+                    # Лемматизированный title конфликтует с существующей записью.
+                    # Повторяем активацию БЕЗ перезаписи standard_job_title —
+                    # оставляем оригинальное LLM-название, оно уникально.
+                    self.logger.warning(
+                        "UniqueViolationError при активации позиции %s — "
+                        "повторяем без перезаписи standard_job_title",
+                        pos_id,
+                        extra={"position_id": pos_id, "kind": kind},
+                    )
+                    try:
+                        retry_result = await conn.execute(
+                            SQL_ACTIVATE,
+                            emb_literal,
+                            pos_id,
+                            updated_at_raw,
+                        )
+                        if retry_result == "UPDATE 1":
+                            processed += 1
+                            self.logger.info(
+                                "Активирована позиция %s без перезаписи title",
+                                pos_id,
+                                extra={"position_id": pos_id},
+                            )
+                        else:
+                            self.logger.warning(
+                                "Retry activate no-op pos_id=%s",
+                                pos_id,
+                                extra={"position_id": pos_id},
+                            )
+                    except Exception:
+                        self.logger.exception(
+                            "Retry activate failed for pos_id=%s",
+                            pos_id,
+                            extra={"position_id": pos_id},
+                        )
                 except Exception:
                     self.logger.exception(
                         "Ошибка обработки позиции %s",
