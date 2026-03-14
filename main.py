@@ -380,8 +380,9 @@ async def process_single_positions_file(payload: PositionsRequest = Body(...)):
 
 
 @app.post("/clusterize", status_code=202, tags=["Clustering"])
-async def create_clustering_task(params: ClusterizeParams = Body(default=ClusterizeParams())):
+async def create_clustering_task(params: ClusterizeParams | None = Body(default=None)):
     """Запускает фоновую задачу семантической кластеризации catalog_positions."""
+    params = params or ClusterizeParams()
     task_id = str(uuid.uuid4())
     # Фильтруем None — воркер подставит свои env-var дефолты для незаданных полей
     explicit_params = {k: v for k, v in params.model_dump().items() if v is not None}

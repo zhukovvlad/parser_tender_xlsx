@@ -128,6 +128,37 @@ class TestParamsOverride:
         assert w.umap_components == UMAP_N_COMPONENTS
 
 
+class TestParamValidation:
+    """Given: Параметры кластеризации имеют минимальные допустимые значения."""
+
+    @pytest.mark.parametrize("param,bad_val", [
+        ("min_cluster_size", 1),
+        ("min_cluster_size", 0),
+        ("min_cluster_size", -5),
+        ("umap_components", 0),
+        ("umap_components", -1),
+        ("umap_neighbors", 1),
+        ("umap_neighbors", 0),
+        ("llm_top_k", 0),
+        ("llm_top_k", -1),
+    ])
+    def test_invalid_param_raises_value_error(self, param, bad_val):
+        """When: параметр ниже минимума → Then: ValueError."""
+        with pytest.raises(ValueError, match=param):
+            _make_worker({param: bad_val})
+
+    @pytest.mark.parametrize("param,ok_val", [
+        ("min_cluster_size", 2),
+        ("umap_components", 1),
+        ("umap_neighbors", 2),
+        ("llm_top_k", 1),
+    ])
+    def test_boundary_value_accepted(self, param, ok_val):
+        """When: параметр == минимуму → Then: принят без ошибки."""
+        w = _make_worker({param: ok_val})
+        assert getattr(w, param) == ok_val
+
+
 class TestHyperparamLogging:
     """Given: __init__ воркера логирует гиперпараметры."""
 

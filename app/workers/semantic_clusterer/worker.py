@@ -131,6 +131,22 @@ SQL_FETCH_EXISTING_TITLES = """
 
 MAX_NAME_RETRIES: int = 3
 
+# Минимальные значения параметров (по документации UMAP 0.5 / HDBSCAN 0.8)
+_PARAM_BOUNDS: dict[str, int] = {
+    "min_cluster_size": 2,
+    "umap_components": 1,
+    "umap_neighbors": 2,
+    "llm_top_k": 1,
+}
+
+
+def _validated(name: str, value: int) -> int:
+    """Проверяет параметр кластеризации на минимально допустимое значение."""
+    min_val = _PARAM_BOUNDS[name]
+    if value < min_val:
+        raise ValueError(f"{name} must be >= {min_val}, got {value}")
+    return value
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Worker
@@ -147,10 +163,10 @@ class SemanticClustererWorker:
         self.is_initialized: bool = False
         self.params = params or {}
         _p = self.params
-        self.min_cluster_size: int = _p["min_cluster_size"] if _p.get("min_cluster_size") is not None else HDBSCAN_MIN_CLUSTER_SIZE
-        self.umap_components: int = _p["umap_components"] if _p.get("umap_components") is not None else UMAP_N_COMPONENTS
-        self.umap_neighbors: int = _p["umap_neighbors"] if _p.get("umap_neighbors") is not None else UMAP_N_NEIGHBORS
-        self.llm_top_k: int = _p["llm_top_k"] if _p.get("llm_top_k") is not None else LLM_TOP_K
+        self.min_cluster_size: int = _validated("min_cluster_size", _p["min_cluster_size"] if _p.get("min_cluster_size") is not None else HDBSCAN_MIN_CLUSTER_SIZE)
+        self.umap_components: int = _validated("umap_components", _p["umap_components"] if _p.get("umap_components") is not None else UMAP_N_COMPONENTS)
+        self.umap_neighbors: int = _validated("umap_neighbors", _p["umap_neighbors"] if _p.get("umap_neighbors") is not None else UMAP_N_NEIGHBORS)
+        self.llm_top_k: int = _validated("llm_top_k", _p["llm_top_k"] if _p.get("llm_top_k") is not None else LLM_TOP_K)
         self.logger.info(
             "Параметры кластеризации: min_cluster_size=%d, umap_components=%d, umap_neighbors=%d, llm_top_k=%d "
             "(raw payload: %s)",
