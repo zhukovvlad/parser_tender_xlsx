@@ -123,10 +123,9 @@ SQL_UPDATE_PARENT = """
 """
 
 SQL_FETCH_EXISTING_TITLES = """
-    SELECT DISTINCT standard_job_title
+    SELECT standard_job_title
     FROM catalog_positions
     WHERE COALESCE(unit_id, -1) = -1
-      AND status IN ('active', 'pending_indexing')
 """
 
 MAX_NAME_RETRIES: int = 3
