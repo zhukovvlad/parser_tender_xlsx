@@ -199,10 +199,10 @@ class ClusterizeParams(BaseModel):
     None означает «использовать значение из env-переменной воркера».
     """
 
-    min_cluster_size: int | None = None
-    umap_components: int | None = None
-    umap_neighbors: int | None = None
-    llm_top_k: int | None = None
+    min_cluster_size: int | None = Field(default=None, ge=2)
+    umap_components: int | None = Field(default=None, ge=1)
+    umap_neighbors: int | None = Field(default=None, ge=2)
+    llm_top_k: int | None = Field(default=None, ge=1)
 
 
 @app.post("/parse-tender/", status_code=202, tags=["Tender Processing"], response_model=ParseAccepted)

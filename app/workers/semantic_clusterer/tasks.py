@@ -139,6 +139,11 @@ def run_semantic_clustering(self, task_id: str, params: dict = None):
         )
         logger.exception("Task %s: soft time limit exceeded", task_id)
         raise
+    except (ValueError, TypeError) as e:
+        # Невалидные параметры — ретраи бессмысленны.
+        _safe_set_status(task_id, {"status": "failed", "error": str(e)})
+        logger.error("Task %s: invalid params, no retry: %s", task_id, e)
+        raise
     except Exception as e:
         will_retry = self.request.retries < self.max_retries
         _safe_set_status(

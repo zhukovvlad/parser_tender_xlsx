@@ -140,8 +140,12 @@ _PARAM_BOUNDS: dict[str, int] = {
 }
 
 
-def _validated(name: str, value: int) -> int:
-    """Проверяет параметр кластеризации на минимально допустимое значение."""
+def _validated(name: str, value: int | str) -> int:
+    """Приводит к int и проверяет на минимально допустимое значение."""
+    try:
+        value = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name}: cannot convert {value!r} to int") from exc
     min_val = _PARAM_BOUNDS[name]
     if value < min_val:
         raise ValueError(f"{name} must be >= {min_val}, got {value}")
