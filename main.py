@@ -34,6 +34,7 @@ from app.celery_app import celery_app
 from app.utils.file_validation import validate_excel_upload_file
 from app.workers.gemini.tasks import process_tender_positions
 from app.workers.parser.tasks import run_parsing_in_background
+from app.workers.semantic_clusterer.tasks import run_semantic_clustering
 
 load_dotenv()
 
@@ -190,6 +191,18 @@ class PositionsRequest(BaseModel):
     tender_id: str
     lot_id: str
     file_id: str  # безопасный идентификатор без путей
+
+
+class ClusterizeParams(BaseModel):
+    """Параметры для семантической кластеризации (UMAP + HDBSCAN + LLM).
+
+    None означает «использовать значение из env-переменной воркера».
+    """
+
+    min_cluster_size: int | None = Field(default=None, ge=2)
+    umap_components: int | None = Field(default=None, ge=1)
+    umap_neighbors: int | None = Field(default=None, ge=2)
+    llm_top_k: int | None = Field(default=None, ge=1)
 
 
 @app.post("/parse-tender/", status_code=202, tags=["Tender Processing"], response_model=ParseAccepted)
@@ -364,6 +377,22 @@ async def process_single_positions_file(payload: PositionsRequest = Body(...)):
             "message": "AI обработка позиций запущена",
         },
     )
+
+
+@app.post("/clusterize", status_code=202, tags=["Clustering"])
+async def create_clustering_task(params: ClusterizeParams | None = Body(default=None)):
+    """Запускает фоновую задачу семантической кластеризации catalog_positions."""
+    params = params or ClusterizeParams()
+    task_id = str(uuid.uuid4())
+    # Фильтруем None — воркер подставит свои env-var дефолты для незаданных полей
+    explicit_params = {k: v for k, v in params.model_dump().items() if v is not None}
+    run_semantic_clustering.apply_async(
+        args=[task_id],
+        kwargs={"params": explicit_params},
+        task_id=task_id,
+    )
+    logger.info("Clustering task %s queued, params=%s", task_id, explicit_params)
+    return {"task_id": task_id, "status": "pending"}
 
 
 @app.get("/celery-workers/status", tags=["Monitoring"])
