@@ -96,7 +96,7 @@ def _bump_ttl(task_id: str):
     soft_time_limit=3600,
     time_limit=3900,
 )
-def run_semantic_clustering(self, task_id: str):
+def run_semantic_clustering(self, task_id: str, params: dict | None = None):
     """Фоновая задача семантической кластеризации catalog_positions.
 
     Шаги:
@@ -105,6 +105,8 @@ def run_semantic_clustering(self, task_id: str):
     3. LLM naming кластеров (Gemini).
     4. Persist результатов в БД (одна транзакция asyncpg).
     """
+    if params is None:
+        params = {}
     start = time.time()
     logger.info("Task %s: start semantic clustering", task_id)
 
@@ -121,7 +123,7 @@ def run_semantic_clustering(self, task_id: str):
     try:
         # TODO(R5): run_async не поддерживает отмену корутины при SoftTimeLimitExceeded.
         # С --concurrency=1 корутина завершится при перезапуске процесса.
-        clusters_found = run_async(_run_clustering_async(task_id))
+        clusters_found = run_async(_run_clustering_async(task_id, params))
 
         _safe_set_status(task_id, {"status": "completed", "clusters_found": clusters_found})
         logger.info("Task %s: completed, clusters_found=%d", task_id, clusters_found)
@@ -136,6 +138,11 @@ def run_semantic_clustering(self, task_id: str):
             {"status": "failed", "error": "soft time limit exceeded"},
         )
         logger.exception("Task %s: soft time limit exceeded", task_id)
+        raise
+    except (ValueError, TypeError) as e:
+        # Невалидные параметры — ретраи бессмысленны.
+        _safe_set_status(task_id, {"status": "failed", "error": str(e)})
+        logger.error("Task %s: invalid params, no retry: %s", task_id, e)
         raise
     except Exception as e:
         will_retry = self.request.retries < self.max_retries
@@ -163,9 +170,9 @@ def run_semantic_clustering(self, task_id: str):
         logger.info("Task %s: finished in %.2fs", task_id, duration)
 
 
-async def _run_clustering_async(task_id: str) -> int:
+async def _run_clustering_async(task_id: str, params: dict | None = None) -> int:
     """Оркестрирует асинхронный пайплайн кластеризации."""
-    worker = SemanticClustererWorker()
+    worker = SemanticClustererWorker(params=params)
     try:
         await worker.initialize()
         clusters_found = await worker.run_clustering(task_id, bump_ttl_fn=_bump_ttl)

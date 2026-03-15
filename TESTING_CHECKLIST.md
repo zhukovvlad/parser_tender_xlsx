@@ -290,43 +290,55 @@
 
 #### 3.10.1 Конфигурация
 
-- [ ] **`_safe_int`** — корректные значения, пустая строка, невалидная строка → default
-- [ ] **Env-переменные** — `SEMANTIC_CLUSTERER_UMAP_COMPONENTS`, `SEMANTIC_CLUSTERER_HDBSCAN_MIN_SIZE`, `SEMANTIC_CLUSTERER_LLM_TOP_K` корректно парсятся
+- [x] **`_safe_int`** — корректные значения, пустая строка, невалидная строка → default
+- [x] **Env-переменные** — `SEMANTIC_CLUSTERER_UMAP_COMPONENTS`, `SEMANTIC_CLUSTERER_UMAP_NEIGHBORS`, `SEMANTIC_CLUSTERER_HDBSCAN_MIN_SIZE`, `SEMANTIC_CLUSTERER_LLM_TOP_K` корректно парсятся
+- [x] **`params` override** — значение из payload перекрывает env-var; `None` в payload → env-var дефолт
+- [x] **Лог гиперпараметров** — `__init__` логирует все 4 параметра и raw payload
 
 #### 3.10.2 `_run_ml_pipeline()`
 
-- [ ] **Happy path** — массив embeddings → dict `{label: [indices]}`, выбросы отброшены
-- [ ] **Мало данных** — `len(embeddings) < min_cluster_size` → пустой dict
-- [ ] **`n_components` capping** — `n_components = min(15, len(data)-1)` при малых данных
-- [ ] **Сортировка по probabilities** — члены кластера отсортированы desc по `probabilities_`
-- [ ] **Все выбросы** — все метки `-1` → пустой dict
-- [ ] **Детерминизм** — `random_state=42` → воспроизводимые результаты при одинаковых данных
+- [x] **Happy path** — массив embeddings → dict `{label: [indices]}`, выбросы отброшены
+- [x] **Мало данных** — `len(embeddings) < min_required` → пустой dict, warning в лог с `task_id`
+- [x] **`min_required`** — `max(umap_components + 5, umap_neighbors + 2)` — статичные параметры, без динамического кэпа
+- [x] **Сортировка по probabilities** — члены кластера отсортированы desc по `probabilities_`
+- [x] **Все выбросы** — все метки `-1` → пустой dict
+- [x] **Детерминизм** — `random_state=42` → воспроизводимые результаты при одинаковых данных
 
 #### 3.10.3 `_get_cluster_name()`
 
-- [ ] **Happy path** — LLM возвращает название → stripped строка без кавычек
-- [ ] **Пустой ответ LLM** → fallback «Авто-группа»
-- [ ] **Ошибка API** → fallback «Авто-группа», warning в лог
-- [ ] **Нет `GOOGLE_API_KEY`** → fallback «Авто-группа», warning в лог
-- [ ] **Ответ с кавычками** — `"Бетонные работы"` → `Бетонные работы`
+- [x] **Happy path** — LLM возвращает Structured Output `{"cluster_name": "..."}` → название
+- [x] **Пустое `cluster_name`** → fallback «Авто-группа»
+- [x] **Ошибка API / невалидный JSON** → fallback «Авто-группа», warning в лог
+- [x] **Нет `GOOGLE_API_KEY`** → fallback «Авто-группа», warning в лог
+- [x] **Oversized name (>500 байт)** → fallback «Авто-группа», warning с размером в байтах
+- [x] **`thinking_budget=0`** — chain-of-thought отключён
+- [x] **`response_schema=ClusterNameResponse`** — SDK передаёт JSON Schema, ответ всегда валидный JSON
+- [x] **`temperature=0.2`** — снижена случайность имён
 
 #### 3.10.4 `_persist_clusters()`
 
-- [ ] **INSERT GROUP_TITLE** — создаётся строка с `kind='GROUP_TITLE'`, `status='pending_indexing'`
-- [ ] **UPDATE parent_id** — все `member_ids` получают `parent_id` = новый `id`
-- [ ] **Одна транзакция** — INSERT + UPDATE в одном `conn.transaction()`
-- [ ] **Rollback** — ошибка внутри транзакции → ни один INSERT/UPDATE не применяется
+- [ ] **INSERT GROUP_TITLE** — `ON CONFLICT DO NOTHING` + UNION ALL fallback SELECT; атомарен *(тесты мокают fetchval, SQL не проверяется)*
+- [ ] **INSERT GROUP_TITLE** — возвращает `id` существующего `GROUP_TITLE` при коллизии (любой статус) *(indirect)*
+- [x] **UPDATE parent_id** — все `member_ids` получают `parent_id` = group_id
+- [x] **Одна транзакция** — все INSERT + UPDATE в одном `conn.transaction()`
+- [x] **`group_id is None`** — мягкий сбой: `continue` + warning, остальные кластеры сохраняются
+- [x] **Частичное обновление** — `len(updated) != len(member_ids)` → warning (не RuntimeError)
 
 #### 3.10.5 `_fetch_positions()`
 
-- [ ] **Фильтрация** — возвращает только `status='active'`, `kind='POSITION'`, `parent_id IS NULL`, `embedding IS NOT NULL`
-- [ ] **Пустая выборка** — нет подходящих строк → пустой список
+- [ ] **Фильтрация** — возвращает только `status='active'`, `kind='POSITION'`, `parent_id IS NULL`, `embedding IS NOT NULL` *(SQL WHERE не проверяется, курсор замокан)*
+- [x] **Тип возврата** — `tuple[list[int], list[str], np.ndarray]`
+- [ ] **Бинарный pgvector** — `register_vector` в `init_conn` пула; `record["embedding"]` → `np.ndarray` без `json.loads` *(тест проверяет callable, но не вызывает init_conn)*
+- [x] **Серверный курсор** — `conn.cursor()` внутри `conn.transaction()`; не загружает всё в RAM
+- [x] **`np.stack`** — сборка 2D-матрицы из списка 1D-векторов
+- [x] **Пустая выборка** — нет подходящих строк → `([], [], np.array([]))`
 
 #### 3.10.6 Жизненный цикл
 
-- [ ] **`initialize()`** — создаёт asyncpg pool, `is_initialized = True`
-- [ ] **`shutdown()`** — закрывает pool и genai client, `is_initialized = False`
-- [ ] **Ленивый genai client** — создаётся при первом вызове `_get_genai_client()`
+- [x] **`initialize()`** — создаёт asyncpg pool с `init=init_conn`, `is_initialized = True`
+- [x] **`shutdown()`** — закрывает pool и genai client, `is_initialized = False`
+- [x] **Ленивый genai client** — создаётся при первом вызове `_get_genai_client()`, не до fork
+- [x] **Fork safety** — `google.genai` не импортируется на уровне модуля
 
 ### 3.11 Semantic Clusterer Tasks (`semantic_clusterer/tasks.py`)
 

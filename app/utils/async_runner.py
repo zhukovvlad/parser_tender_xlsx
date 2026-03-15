@@ -132,3 +132,9 @@ def run_async(
     except concurrent.futures.TimeoutError:
         future.cancel()
         raise TimeoutError(f"run_async: coroutine did not complete within {timeout}s") from None
+    except BaseException:
+        # Ловим SoftTimeLimitExceeded, KeyboardInterrupt, SystemExit и всё остальное.
+        # future.cancel() для объекта из run_coroutine_threadsafe под капотом
+        # безопасно прокинет CancelledError внутрь твоего фонового loop'а.
+        future.cancel()
+        raise
