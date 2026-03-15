@@ -122,10 +122,10 @@ SQL_UPDATE_PARENT = """
     RETURNING id
 """
 
-SQL_FETCH_EXISTING_TITLES = """
-    SELECT standard_job_title
-    FROM catalog_positions
-    WHERE COALESCE(unit_id, -1) = -1
+SQL_CHECK_TITLE_EXISTS = """
+    SELECT 1 FROM catalog_positions
+    WHERE standard_job_title = $1 AND COALESCE(unit_id, -1) = -1
+    LIMIT 1
 """
 
 MAX_NAME_RETRIES: int = 3
@@ -285,7 +285,6 @@ class SemanticClustererWorker:
 
         # Phase 3: LLM naming (with duplicate-name detection & re-prompt)
         self.logger.info("Task %s: Phase 3 — LLM naming", task_id)
-        existing_names = await self._fetch_existing_titles()
         used_names: set[str] = set()
 
         cluster_data: list[dict[str, Any]] = []
@@ -294,7 +293,7 @@ class SemanticClustererWorker:
             member_titles = [titles[i] for i in member_indices]
 
             top_titles = member_titles[: self.llm_top_k]
-            name = await self._get_unique_cluster_name(top_titles, existing_names, used_names)
+            name = await self._get_unique_cluster_name(top_titles, used_names)
             used_names.add(name.lower())
             cluster_data.append({"name": name, "member_ids": member_ids})
             self.logger.info(
@@ -396,39 +395,34 @@ class SemanticClustererWorker:
 
     # ── Phase 3: LLM Naming ───────────────────────────────────────────
 
-    async def _fetch_existing_titles(self) -> set[str]:
-        """Загружает все существующие standard_job_title из catalog_positions."""
+    async def _check_title_exists(self, name: str) -> bool:
+        """Проверяет существование имени в catalog_positions (point query по индексу)."""
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(SQL_FETCH_EXISTING_TITLES)
-        return {r["standard_job_title"].lower() for r in rows if r["standard_job_title"]}
+            return await conn.fetchval(SQL_CHECK_TITLE_EXISTS, name) is not None
 
     async def _get_unique_cluster_name(
         self,
         titles: list[str],
-        existing_names: set[str],
         used_names: set[str],
     ) -> str:
         """Получает уникальное название кластера, при конфликте re-prompt Gemini."""
         rejected: list[str] = []
         for attempt in range(MAX_NAME_RETRIES + 1):
             name = await self._get_cluster_name(titles, rejected_names=rejected or None)
-            if name.lower() not in existing_names and name.lower() not in used_names:
-                return name
-            self.logger.warning(
-                "LLM returned duplicate name '%s' (attempt %d/%d), re-prompting",
-                name,
-                attempt + 1,
-                MAX_NAME_RETRIES + 1,
-            )
-            rejected.append(name)
+            if name.lower() in used_names or await self._check_title_exists(name):
+                self.logger.warning(
+                    "Имя '%s' занято, идем на ретрай (попытка %d/%d)",
+                    name,
+                    attempt + 1,
+                    MAX_NAME_RETRIES + 1,
+                )
+                rejected.append(name)
+                continue
+            return name
 
         # Все попытки исчерпаны — суффикс для уникальности
         base = rejected[-1] if rejected else "Авто-группа"
         fallback = f"{base} (группа)"
-        suffix = 2
-        while fallback.lower() in existing_names or fallback.lower() in used_names:
-            fallback = f"{base} (группа {suffix})"
-            suffix += 1
         self.logger.warning("All LLM retries exhausted, using fallback: '%s'", fallback)
         return fallback
 

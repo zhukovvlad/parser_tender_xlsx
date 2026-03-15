@@ -96,7 +96,7 @@ def _bump_ttl(task_id: str):
     soft_time_limit=3600,
     time_limit=3900,
 )
-def run_semantic_clustering(self, task_id: str, params: dict = None):
+def run_semantic_clustering(self, task_id: str, params: dict | None = None):
     """Фоновая задача семантической кластеризации catalog_positions.
 
     Шаги:
