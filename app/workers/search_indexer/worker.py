@@ -20,8 +20,8 @@ Phase 3 — Activate (со status guard):
 
 Технические заметки:
 - Pure ``asyncpg`` — без ORM.
-- ``standard_job_title`` лемматизирован upstream для POSITION;
-  для GROUP_TITLE лемматизация выполняется этим воркером.
+- ``standard_job_title`` лемматизируется этим воркером для ВСЕХ видов записей
+  (POSITION и GROUP_TITLE) через spaCy ru_core_news_sm, независимо от upstream-источника.
 - Дедупликация использует HNSW индекс ``idx_cp_kind_pos_hnsw``
   (cosine distance оператор ``<=>``).
 - Для 768-d embedding требуется L2-нормализация (см. документацию Gemini).
@@ -651,8 +651,7 @@ class SearchIndexerWorker:
             kind: str = row["kind"] or ""
             unit_name: str = row["unit_name"] or ""
 
-            if kind == "GROUP_TITLE":
-                title = _lemmatize_text(title)
+            title = _lemmatize_text(title)
 
             if not description.strip():
                 self.logger.warning(
@@ -726,7 +725,7 @@ class SearchIndexerWorker:
         async with self._pool.acquire() as conn:
             for pos_id, title, kind, emb_literal, skip_reason, _, updated_at_raw in embed_results:
                 if skip_reason == "no_description":
-                    if kind == "GROUP_TITLE" and title is not None:
+                    if title is not None:
                         result = await conn.execute(SQL_ACTIVATE_GROUP_NO_EMBEDDING, title, pos_id, updated_at_raw)
                     else:
                         result = await conn.execute(SQL_ACTIVATE_NO_EMBEDDING, pos_id, updated_at_raw)
@@ -815,7 +814,7 @@ class SearchIndexerWorker:
                                     )
 
                             # Activate with status guard + concurrency guard
-                            if kind == "GROUP_TITLE" and title is not None:
+                            if title is not None:
                                 activate_result = await conn.execute(
                                     SQL_ACTIVATE_GROUP,
                                     emb_literal,

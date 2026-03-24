@@ -6,6 +6,7 @@ redis>=5.0.0
 
 # --- Celery для асинхронной обработки ---
 celery[redis]>=5.5.0
+celery-redbeat>=2.3.0  # Redis-backed Beat scheduler (distributed lock, persistent schedule)
 flower>=2.0.0  # Мониторинг Celery (опционально)
 
 # --- HTTP клиенты для API запросов ---

@@ -166,9 +166,16 @@ class SemanticClustererWorker:
         self.is_initialized: bool = False
         self.params = params or {}
         _p = self.params
-        self.min_cluster_size: int = _validated("min_cluster_size", _p["min_cluster_size"] if _p.get("min_cluster_size") is not None else HDBSCAN_MIN_CLUSTER_SIZE)
-        self.umap_components: int = _validated("umap_components", _p["umap_components"] if _p.get("umap_components") is not None else UMAP_N_COMPONENTS)
-        self.umap_neighbors: int = _validated("umap_neighbors", _p["umap_neighbors"] if _p.get("umap_neighbors") is not None else UMAP_N_NEIGHBORS)
+        self.min_cluster_size: int = _validated(
+            "min_cluster_size",
+            _p["min_cluster_size"] if _p.get("min_cluster_size") is not None else HDBSCAN_MIN_CLUSTER_SIZE,
+        )
+        self.umap_components: int = _validated(
+            "umap_components", _p["umap_components"] if _p.get("umap_components") is not None else UMAP_N_COMPONENTS
+        )
+        self.umap_neighbors: int = _validated(
+            "umap_neighbors", _p["umap_neighbors"] if _p.get("umap_neighbors") is not None else UMAP_N_NEIGHBORS
+        )
         self.llm_top_k: int = _validated("llm_top_k", _p["llm_top_k"] if _p.get("llm_top_k") is not None else LLM_TOP_K)
         self.logger.info(
             "Параметры кластеризации: min_cluster_size=%d, umap_components=%d, umap_neighbors=%d, llm_top_k=%d "
